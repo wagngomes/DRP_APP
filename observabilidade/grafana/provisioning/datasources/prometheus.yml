@@ -1,0 +1,13 @@
+# Fonte de dados provisionada: o Grafana já sobe apontando para o Prometheus,
+# sem ninguém configurar na interface.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s

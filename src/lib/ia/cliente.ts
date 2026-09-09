@@ -7,6 +7,9 @@
  * desligada, que é o estado normal quando falta a chave.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import { metricas } from "@/lib/observabilidade/metricas";
+import { ANALISE_IA } from "@/lib/seguranca/limites";
+import { verificarCamadas } from "@/lib/seguranca/rate-limit";
 
 export const MODELO = "claude-sonnet-5";
 /**
@@ -50,9 +53,23 @@ export type RespostaIa =
 /** Uma chamada, sem estado. */
 export async function gerarTexto(system: string, prompt: string): Promise<RespostaIa> {
   if (!temChaveConfigurada()) {
+    metricas().analisesIa.inc({ tipo: "geracao", resultado: "sem_chave" });
     return { ok: false, erro: "ANTHROPIC_API_KEY não configurada" };
   }
 
+  // Teto por usuário. Aqui é controle de custo antes de segurança: cada análise
+  // custa duas chamadas ao provedor, e um laço acidental na tela viraria conta.
+  // A chave é global por ora — vira por usuário quando a ação passar o id.
+  const veredito = verificarCamadas("ia:global", ANALISE_IA);
+  if (!veredito.permitido) {
+    metricas().analisesIa.inc({ tipo: "geracao", resultado: "limitado" });
+    return {
+      ok: false,
+      erro: `Limite de análises atingido. Tente de novo em ${Math.ceil(veredito.esperarSegundos / 60)} minuto(s).`,
+    };
+  }
+
+  let falhou = false;
   try {
     // Streaming e não `create`: com teto alto de saída o SDK recusa a chamada
     // não-streamada, por estimar que pode passar de 10 minutos. `finalMessage()`
@@ -77,7 +94,12 @@ export async function gerarTexto(system: string, prompt: string): Promise<Respos
       motivoParada: resposta.stop_reason,
     };
   } catch (e) {
+    falhou = true;
     return { ok: false, erro: e instanceof Error ? e.message : String(e) };
+  } finally {
+    // Contabiliza toda chamada, inclusive a que falhou: é justamente a falha
+    // do provedor externo que o painel precisa mostrar.
+    metricas().analisesIa.inc({ tipo: "geracao", resultado: falhou ? "erro" : "sucesso" });
   }
 }
 

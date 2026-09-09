@@ -1,0 +1,23 @@
+# Coleta das métricas do DRP_AI.
+#
+# Intervalo de 15s: resolução suficiente para ver um pico de latência sem
+# encher o disco. Com 15 dias de retenção e o volume de séries desta aplicação,
+# a base fica na casa de algumas centenas de megabytes.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    ambiente: local
+
+scrape_configs:
+  - job_name: drp_ai
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["app:3000"]
+        labels:
+          servico: aplicacao
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

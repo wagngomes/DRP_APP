@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import type { ResultadoTela } from "@/app/actions/cenario";
 import { gerarPlanilhaCenario, nomeArquivoCenario } from "@/lib/simulacao/planilha";
+import { exportarCenarioSchema } from "@/lib/openapi";
 
 /**
  * Download do cenário em Excel.
@@ -17,16 +18,28 @@ export async function POST(request: NextRequest) {
   }
 
   const form = await request.formData();
-  const bruto = String(form.get("dados") ?? "");
-  if (!bruto) {
-    return NextResponse.json({ error: "Sem dados para exportar" }, { status: 400 });
+  const entrada = exportarCenarioSchema.safeParse({ dados: form.get("dados") });
+  if (!entrada.success) {
+    return NextResponse.json(
+      { error: "Dados inválidos", issues: entrada.error.flatten().fieldErrors },
+      { status: 400 }
+    );
   }
 
   let dados: ResultadoTela;
   try {
-    dados = JSON.parse(bruto) as ResultadoTela;
+    dados = JSON.parse(entrada.data.dados) as ResultadoTela;
   } catch {
-    return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
+    return NextResponse.json(
+      { error: "O conteúdo enviado não é um JSON válido" },
+      { status: 400 }
+    );
+  }
+  if (!dados || typeof dados !== "object" || !Array.isArray(dados.criticas)) {
+    return NextResponse.json(
+      { error: "O JSON enviado não é um resultado de cenário" },
+      { status: 400 }
+    );
   }
 
   const buffer = await gerarPlanilhaCenario(dados);

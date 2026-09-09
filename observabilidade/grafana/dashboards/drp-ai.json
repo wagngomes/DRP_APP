@@ -1,0 +1,567 @@
+{
+  "uid": "drp-ai-visao-geral",
+  "title": "DRP_AI — Visão operacional",
+  "description": "Latência, tráfego e erros por rota (RED), saturação do processo e métricas de negócio. Provisionado a partir de observabilidade/grafana/dashboards/ — alterações pela interface são sobrescritas.",
+  "tags": ["drp_ai", "producao"],
+  "timezone": "browser",
+  "editable": false,
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "rota",
+        "label": "Rota",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(drp_http_requests_total, rota)",
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "name": "datasource",
+        "label": "Fonte",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" },
+        "hide": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Serviço — latência, tráfego e erros",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Requisições por minuto",
+      "description": "Volume de tráfego chegando na aplicação.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(rate(drp_http_requests_total[5m])) * 60",
+          "legendFormat": "req/min",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "#7FD9CD" } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Latência p95",
+      "description": "95% das requisições respondem abaixo deste tempo. É o número que representa a experiência real, não a média — que esconde a cauda lenta.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 1 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(drp_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "#B45309", "value": 1 },
+              { "color": "red", "value": 3 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Latência p99",
+      "description": "A cauda: onde moram os timeouts e as reclamações.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 1 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(drp_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "#B45309", "value": 3 },
+              { "color": "red", "value": 8 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Taxa de erro",
+      "description": "Fatia das respostas com status 5xx. É o sinal que dispara alerta antes de o usuário reclamar.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(rate(drp_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(drp_http_requests_total[5m])), 0.0001)",
+          "legendFormat": "5xx",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "#B45309", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Em processamento",
+      "description": "Requisições sendo atendidas neste instante. Crescimento sustentado indica saturação.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 1 },
+      "targets": [
+        { "expr": "sum(drp_http_requests_in_flight)", "legendFormat": "em curso", "refId": "A" }
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "#16455C" } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Tempo no ar",
+      "description": "Reinício inesperado aparece aqui como queda a zero.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 1 },
+      "targets": [
+        {
+          "expr": "time() - drp_process_start_time_seconds",
+          "legendFormat": "uptime",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 0 }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Rotas mais lentas — p95 por rota",
+      "description": "Qual tela está demorando. Cada série é uma rota; o rótulo normaliza identificadores (/produto/:id) para não explodir em cardinalidade.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 9, "w": 14, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, rota) (rate(drp_http_request_duration_seconds_bucket{rota=~\"$rota\"}[5m]))))",
+          "legendFormat": "{{rota}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "custom": { "fillOpacity": 8, "lineWidth": 2, "showPoints": "never", "spanNulls": true }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "table",
+      "title": "Ranking de rotas",
+      "description": "Ordenado pelo tempo total consumido — rota lenta e muito acessada pesa mais que rota lenta e rara.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 9, "w": 10, "x": 14, "y": 6 },
+      "targets": [
+        {
+          "expr": "sum by (rota) (rate(drp_http_request_duration_seconds_sum[30m]))",
+          "legendFormat": "{{rota}}",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (rota) (rate(drp_http_request_duration_seconds_count[30m])) * 60",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, rota) (rate(drp_http_request_duration_seconds_bucket[30m])))",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        }
+      ],
+      "transformations": [
+        { "id": "joinByField", "options": { "byField": "rota", "mode": "outer" } },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "Time 1": true, "Time 2": true, "Time 3": true },
+            "renameByName": {
+              "rota": "Rota",
+              "Value #A": "Tempo total (s/s)",
+              "Value #B": "Req/min",
+              "Value #C": "p95 (s)"
+            }
+          }
+        },
+        { "id": "sortBy", "options": { "fields": {}, "sort": [{ "field": "Tempo total (s/s)", "desc": true }] } }
+      ],
+      "fieldConfig": {
+        "defaults": { "decimals": 2, "custom": { "align": "right" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Rota" },
+            "properties": [{ "id": "custom.align", "value": "left" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "p95 (s)" },
+            "properties": [
+              { "id": "unit", "value": "s" },
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "gradient" }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "#B45309", "value": 1 },
+                    { "color": "red", "value": 3 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Tráfego por classe de status",
+      "description": "Separar 2xx, 4xx e 5xx mostra se o problema é do sistema ou de quem chama.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(drp_http_requests_total[5m])) * 60",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "fillOpacity": 20, "lineWidth": 1, "stacking": { "mode": "normal" }, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Distribuição da latência",
+      "description": "Mediana, p90 e p99 juntos: a distância entre eles diz se a lentidão atinge todo mundo ou só a cauda.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(drp_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "mediana",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum by (le) (rate(drp_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p90",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(drp_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "custom": { "fillOpacity": 5, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Banco de dados",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Duração das consultas por operação",
+      "description": "p95 das consultas instrumentadas. Latência de rede até o banco aparece aqui como piso — todas as operações sobem juntas.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operacao) (rate(drp_db_query_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{operacao}}",
+          "refId": "A"
+        }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "decimals": 3, "custom": { "fillOpacity": 8, "lineWidth": 2, "showPoints": "never" } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Consultas por minuto",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum by (operacao) (rate(drp_db_query_duration_seconds_count[5m])) * 60",
+          "legendFormat": "{{operacao}}",
+          "refId": "A"
+        }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "fillOpacity": 8, "lineWidth": 2, "showPoints": "never" } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Saturação do processo",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Memória residente",
+      "description": "Crescimento contínuo sem platô é vazamento — foi assim que o processo de desenvolvimento chegou a 8 GB e caiu por falta de heap.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 33 },
+      "targets": [
+        { "expr": "drp_process_resident_memory_bytes", "legendFormat": "residente", "refId": "A" },
+        { "expr": "drp_nodejs_heap_size_used_bytes", "legendFormat": "heap em uso", "refId": "B" }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 33 },
+      "targets": [
+        {
+          "expr": "rate(drp_process_cpu_seconds_total[5m])",
+          "legendFormat": "núcleos em uso",
+          "refId": "A"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Atraso do event loop",
+      "description": "O sinal mais direto de que o Node está travando: acima de 100 ms, toda requisição sente, mesmo as que não fazem nada pesado.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 33 },
+      "targets": [
+        { "expr": "drp_nodejs_eventloop_lag_p99_seconds", "legendFormat": "p99", "refId": "A" },
+        { "expr": "drp_nodejs_eventloop_lag_mean_seconds", "legendFormat": "média", "refId": "B" }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "#B45309", "value": 0.1 },
+              { "color": "red", "value": 0.5 }
+            ]
+          },
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Negócio",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Importações de CSV",
+      "description": "Carga das bases operacionais. Falha aqui significa tela com dado velho, e é o incidente mais comum deste sistema.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 42 },
+      "targets": [
+        {
+          "expr": "sum by (resultado) (increase(drp_importacoes_total[1h]))",
+          "legendFormat": "{{resultado}}",
+          "refId": "A"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 0, "stacking": { "mode": "normal" } }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "erro" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "sucesso" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#2E9B7C" } }]
+          }
+        ]
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Chamadas ao provedor de IA",
+      "description": "Volume e falhas das análises. Dependência externa: cada erro aqui é uma tela sem texto, ainda que os números continuem corretos.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 42 },
+      "targets": [
+        {
+          "expr": "sum by (tipo, resultado) (increase(drp_analises_ia_total[1h]))",
+          "legendFormat": "{{tipo}} · {{resultado}}",
+          "refId": "A"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 0, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Erros não tratados por rota",
+      "description": "Capturados pela instrumentação do Next, com a rota de origem.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 42 },
+      "targets": [
+        {
+          "expr": "sum by (rota) (increase(drp_unhandled_errors_total[1h]))",
+          "legendFormat": "{{rota}}",
+          "refId": "A"
+        }
+      ],
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 0 }
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

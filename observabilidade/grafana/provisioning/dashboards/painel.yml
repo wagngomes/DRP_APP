@@ -1,0 +1,16 @@
+# Carrega os painéis do diretório montado, versionados junto do código.
+apiVersion: 1
+
+providers:
+  - name: DRP_AI
+    orgId: 1
+    folder: DRP_AI
+    type: file
+    disableDeletion: false
+    # O painel é código: alterações feitas na interface são sobrescritas na
+    # próxima recarga, o que é o comportamento desejado para não haver painel
+    # que só existe na máquina de alguém.
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

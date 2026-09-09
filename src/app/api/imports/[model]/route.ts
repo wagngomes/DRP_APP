@@ -10,6 +10,9 @@ import { bulkLoadRecords } from "@/lib/imports/bulk-copy";
 import { decodificarCsv, parseCsvForModel, SkipTracker } from "@/lib/imports/csv";
 import { filterByReferences } from "@/lib/imports/references";
 import { limparCacheReferencia } from "@/lib/cache-referencia";
+import { metricas } from "@/lib/observabilidade/metricas";
+import { IMPORTACAO, IMPORTACAO_SIMULTANEA } from "@/lib/seguranca/limites";
+import { sair, tentarEntrar, verificarCamadas } from "@/lib/seguranca/rate-limit";
 
 // Arquivos de 45k+ linhas levam mais que o limite padrão de execução.
 export const maxDuration = 300;
@@ -142,6 +145,45 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
   const model = getImportModel(parsedModel.data)!;
 
+
+  // Teto por hora, verificado antes de ler o corpo: requisição recusada não
+  // carrega o arquivo na memória, o que ajuda justamente nos CSV grandes.
+  const veredito = verificarCamadas(`import:${session.user.id}`, IMPORTACAO);
+  if (!veredito.permitido) {
+    return NextResponse.json(
+      {
+        error: "Muitas importações seguidas. Aguarde antes de enviar outra.",
+        retryAfterSegundos: veredito.esperarSegundos,
+      },
+      { status: 429, headers: { "Retry-After": String(veredito.esperarSegundos) } }
+    );
+  }
+
+  // Uma por vez, por usuário: o que derruba o processo é carga simultânea,
+  // não frequência — cada arquivo é carregado inteiro na memória, e este
+  // processo já morreu por falta de heap.
+  const chaveConcorrencia = `import:${session.user.id}`;
+  if (!tentarEntrar(chaveConcorrencia, IMPORTACAO_SIMULTANEA)) {
+    return NextResponse.json(
+      { error: "Já existe uma importação em andamento. Aguarde ela terminar." },
+      { status: 429 }
+    );
+  }
+
+  try {
+    return await executarImportacao(request, model);
+  } finally {
+    // `finally` para o contador voltar mesmo se a importação lançar — senão
+    // a primeira falha bloquearia o usuário até o processo reiniciar.
+    sair(chaveConcorrencia);
+  }
+}
+
+/** Corpo da importação, separado para o controle de concorrência envolvê-lo. */
+async function executarImportacao(
+  request: NextRequest,
+  model: NonNullable<ReturnType<typeof getImportModel>>
+) {
   const formData = await request.formData().catch(() => null);
   const file = formData?.get("file");
   if (!file || typeof file === "string") {

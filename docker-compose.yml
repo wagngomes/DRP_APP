@@ -1,0 +1,109 @@
+# Ambiente completo do DRP_AI: `docker compose up` sobe tudo que a aplicação
+# precisa para funcionar, sem nenhum passo manual antes.
+#
+# A ordem é garantida por condição, não por espera: o banco precisa estar
+# saudável antes das migrations, e as migrations precisam ter terminado com
+# sucesso antes da aplicação subir. Sem isso a aplicação sobe contra um schema
+# que ainda não existe e falha na primeira consulta.
+#
+# Prometheus e Grafana ficam no perfil `observabilidade`, fora do `up` padrão:
+# quem quer só rodar o sistema não deve carregar dois serviços a mais.
+#   docker compose up                              → banco + aplicação
+#   docker compose --profile observabilidade up    → tudo, com painel
+
+services:
+  banco:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-drp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-drp_local}
+      POSTGRES_DB: ${POSTGRES_DB:-drp_ai}
+      # Locale e collation fixados: ordenação de texto que muda entre ambientes
+      # produz resultado diferente no mesmo dado.
+      LANG: C.UTF-8
+    volumes:
+      - dados_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-drp} -d ${POSTGRES_DB:-drp_ai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Sem `ports` de propósito: o banco só é alcançável pela rede interna do
+    # compose. Para inspecionar de fora, descomente — e saiba que está expondo.
+    # ports: ["5432:5432"]
+
+  migracoes:
+    build:
+      context: .
+      target: migrator
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-drp}:${POSTGRES_PASSWORD:-drp_local}@banco:5432/${POSTGRES_DB:-drp_ai}
+    depends_on:
+      banco:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-drp}:${POSTGRES_PASSWORD:-drp_local}@banco:5432/${POSTGRES_DB:-drp_ai}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?defina BETTER_AUTH_SECRET no .env}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      banco:
+        condition: service_healthy
+      migracoes:
+        condition: service_completed_successfully
+    # Encerramento gracioso: o Node recebe SIGTERM via dumb-init e tem 30s para
+    # concluir o que está em curso antes do SIGKILL.
+    stop_grace_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ["observabilidade"]
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./observabilidade/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - dados_prometheus:/prometheus
+    depends_on:
+      - app
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    profiles: ["observabilidade"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      # Sem telemetria e sem atualização automática: ambiente interno.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      # Provisionamento automático: a fonte de dados e o painel já sobem
+      # configurados, sem ninguém clicar na interface.
+      - ./observabilidade/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observabilidade/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - dados_grafana:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  dados_postgres:
+  dados_prometheus:
+  dados_grafana:

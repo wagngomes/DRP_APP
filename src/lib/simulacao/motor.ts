@@ -303,11 +303,15 @@ function projetarEntrada(
 /**
  * Balanço dia a dia de uma posição.
  *
+ * Exportada para teste: é a função que produz a data de ruptura e o déficit, os
+ * dois números que a tela de cenários apresenta como conclusão. Errar um dia
+ * aqui não aparece na tela — o resultado continua plausível.
+ *
  * Consumo é diário e corrido — venda não pára no fim de semana, e é assim que
  * `diasDeEstoque` já trata em todo o sistema. As chegadas entram no dia em que
  * a projeção diz que chegam.
  */
-function balancear(
+export function balancear(
   estoqueInicial: number,
   consumoDiario: number,
   chegadas: { data: Date; quantidade: number }[],
