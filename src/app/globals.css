@@ -1,0 +1,203 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* DRP_AI brand palette */
+  --brand-turquoise: #7fd9cd;
+  --brand-petrol: #16455c;
+  --brand-graphite: #2b2b2b;
+  --brand-green: #2e9b7c;
+  --brand-gray-light: #f5f5f5;
+
+  --background: #ffffff;
+  --foreground: var(--brand-graphite);
+  --card: #ffffff;
+  --card-foreground: var(--brand-graphite);
+  --popover: #ffffff;
+  --popover-foreground: var(--brand-graphite);
+  --primary: var(--brand-turquoise);
+  --primary-foreground: var(--brand-petrol);
+  --secondary: var(--brand-gray-light);
+  --secondary-foreground: var(--brand-petrol);
+  --muted: var(--brand-gray-light);
+  --muted-foreground: #6b7280;
+  --accent: var(--brand-green);
+  --accent-foreground: #ffffff;
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --ring: var(--brand-turquoise);
+  --chart-1: var(--brand-turquoise);
+  --chart-2: var(--brand-petrol);
+  --chart-3: var(--brand-green);
+  --chart-4: #6b7280;
+  --chart-5: var(--brand-graphite);
+  --radius: 0.625rem;
+  --sidebar: var(--brand-petrol);
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: var(--brand-turquoise);
+  --sidebar-primary-foreground: var(--brand-petrol);
+  --sidebar-accent: var(--brand-green);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: var(--brand-turquoise);
+  /* --- Visualização de dados -------------------------------------------
+     Paleta categórica do guia de dataviz, validada para daltonismo nos dois
+     modos (ΔE adjacente 9,1 claro / 8,4 escuro). A ORDEM é o mecanismo de
+     segurança: não reordenar nem inserir cores no meio. */
+  --viz-cat-1: #2a78d6;
+  --viz-cat-2: #eb6834;
+  --viz-cat-3: #1baf7a;
+  --viz-cat-4: #eda100;
+  --viz-cat-5: #e87ba4;
+  --viz-cat-6: #008300;
+  --viz-outras: #8b8b86;
+  /* Barra de magnitude: uma cor só, o comprimento é que codifica o valor. */
+  --viz-barra: #2e9b7c;
+
+  /* Faixas de dias de estoque (página Disponibilidade). Escala ordenada de
+     severidade; vermelho, amarelo, azul e roxo são os RGB definidos pelo
+     negócio e não devem ser ajustados por conta de contraste — quem se adapta
+     é a tinta do rótulo (`-ink`), abaixo. */
+  --faixa-zero: #2b2b2b;
+  --faixa-critico: #ff0000;
+  --faixa-baixo: #ffff00;
+  --faixa-adequado: #008300;
+  --faixa-alto: #0070c0;
+  --faixa-excesso: #7030a0;
+
+  /* Tinta do percentual escrito dentro de cada segmento da barra. O amarelo
+     puro é claro demais para texto branco (contraste 1,07:1), então recebe
+     tinta escura e sombra clara; os outros seguem o inverso. */
+  --faixa-zero-ink: #ffffff;
+  --faixa-critico-ink: #ffffff;
+  --faixa-baixo-ink: #2b2b2b;
+  --faixa-adequado-ink: #ffffff;
+  --faixa-alto-ink: #ffffff;
+  --faixa-excesso-ink: #ffffff;
+
+  --faixa-zero-sombra: 0 1px 1px rgba(0, 0, 0, 0.45);
+  --faixa-critico-sombra: 0 1px 1px rgba(0, 0, 0, 0.45);
+  --faixa-baixo-sombra: 0 1px 1px rgba(255, 255, 255, 0.55);
+  --faixa-adequado-sombra: 0 1px 1px rgba(0, 0, 0, 0.45);
+  --faixa-alto-sombra: 0 1px 1px rgba(0, 0, 0, 0.45);
+  --faixa-excesso-sombra: 0 1px 1px rgba(0, 0, 0, 0.45);
+
+}
+
+.dark {
+  --background: #14181a;
+  --foreground: #f5f5f5;
+  --card: #1c2226;
+  --card-foreground: #f5f5f5;
+  --popover: #1c2226;
+  --popover-foreground: #f5f5f5;
+  --primary: var(--brand-turquoise);
+  --primary-foreground: var(--brand-petrol);
+  --secondary: #24292d;
+  --secondary-foreground: #f5f5f5;
+  --muted: #24292d;
+  --muted-foreground: #9aa4ab;
+  --accent: var(--brand-green);
+  --accent-foreground: #ffffff;
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: var(--brand-turquoise);
+  --chart-1: var(--brand-turquoise);
+  --chart-2: #8fb4c4;
+  --chart-3: var(--brand-green);
+  --chart-4: #9aa4ab;
+  --chart-5: #f5f5f5;
+  --sidebar: #0f2e3f;
+  --sidebar-foreground: #f5f5f5;
+  --sidebar-primary: var(--brand-turquoise);
+  --sidebar-primary-foreground: var(--brand-petrol);
+  --sidebar-accent: var(--brand-green);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: var(--brand-turquoise);
+  --viz-cat-1: #3987e5;
+  --viz-cat-2: #d95926;
+  --viz-cat-3: #199e70;
+  --viz-cat-4: #c98500;
+  --viz-cat-5: #d55181;
+  --viz-cat-6: #008300;
+  --viz-outras: #6f6f6a;
+  --viz-barra: #35b28e;
+
+  /* Vermelho, amarelo, azul e roxo repetem os RGB do tema claro — são cores
+     definidas pelo negócio e têm de ser as mesmas nos dois temas. Só "zero" e
+     "adequado" ganham step próprio: preto sobre fundo escuro desapareceria. */
+  --faixa-zero: #c9c9c3;
+  --faixa-critico: #ff0000;
+  --faixa-baixo: #ffff00;
+  --faixa-adequado: #19a05f;
+  --faixa-alto: #0070c0;
+  --faixa-excesso: #7030a0;
+
+  /* "zero" aqui é cinza claro, então o percentual dentro dele vai em tinta
+     escura — no claro esse mesmo segmento é quase preto e vai em branco. */
+  --faixa-zero-ink: #2b2b2b;
+  --faixa-zero-sombra: 0 1px 1px rgba(255, 255, 255, 0.55);
+
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}

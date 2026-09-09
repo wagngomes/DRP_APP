@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+.git
+.env
+.env.*
+!.env.example
+npm-debug.log*
+*.md
+.vscode
+src/generated

@@ -1,0 +1,591 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ---------------------------------------------------------------------------
+// Tabelas de importação de CSV (Task_02_imports_models_routes_page)
+// Todas as colunas são opcionais pois vêm de CSVs externos (dados podem faltar).
+// Colunas de "codigo" de produto usam relação lógica (mesmo tipo, indexada,
+// sem FK) com Produtos.codigo — CSVs de tabelas diferentes podem ser
+// importados em qualquer ordem sem depender de integridade referencial.
+// ---------------------------------------------------------------------------
+
+model Produtos {
+  codigo           String   @id
+  createdAt        DateTime @default(now())
+  descricao        String?
+  tipo             String?
+  unidade          String?
+  cod_barras       String?
+  cod_fabrica      String?
+  cod_marca        String?
+  marca            String?
+  grp_marca        String?
+  d_grp_marca      String?
+  grupo            String?
+  tag_medic        String?
+  tipo_medicamento String?
+  principio_ativo  String?
+  usa_refrig       String?
+
+  @@map("produtos")
+}
+
+model Fiscal {
+  id               Int      @id @default(autoincrement())
+  createdAt        DateTime @default(now())
+  codigo           String?
+  segmento_pricing String?
+  categoria_gc     String?
+  classe           String?
+  ean              String?
+  uf_fornecedor    String?
+  tributacao       String?
+
+  // Sem chave estrangeira para Produtos de propósito. A relação existia com
+  // `onDelete: SetNull`, e como o import de Produtos apaga a tabela antes de
+  // inserir, cada atualização do catálogo zerava `codigo` em cascata nestes
+  // snapshots — silenciosamente, porque SetNull não é erro. Snapshot é registro
+  // histórico e não pode ser mutado quando o catálogo muda. A validação de
+  // produto inexistente continua existindo, no import (`references` em
+  // src/lib/imports/config.ts), que é onde ela consegue reportar as linhas
+  // ignoradas para o usuário.
+
+  @@index([codigo])
+  @@map("fiscal")
+}
+
+model Filiais {
+  // `codigo` é a chave natural do cadastro, como em Produtos e Rotas: dispensa
+  // id artificial e faz o import descartar linhas repetidas do próprio CSV.
+  codigo    String   @id
+  createdAt DateTime @default(now())
+  sigla     String?
+  descricao String?
+
+  @@map("filiais")
+}
+
+model Fornecedores {
+  // Nome como vem nas bases de origem — chave natural, igual a Produtos e
+  // Filiais: dispensa id artificial e o import descarta repetições do CSV.
+  fornecedor             String   @id
+  createdAt              DateTime @default(now())
+  /** Nome padronizado, usado em toda a aplicação. */
+  fornecedor_normalizado String?
+
+  @@index([fornecedor_normalizado])
+  @@map("fornecedores")
+}
+
+model CenarioSalvo {
+  // Cenário hipotético analisado, guardado para consulta posterior.
+  //
+  // O JSON em `resultado` é o retrato completo do que a tela mostrou: os
+  // números do motor **e** o texto que a IA escreveu sobre eles. Recalcular ao
+  // reabrir produziria outro texto e outros números, e a análise deixaria de
+  // ser o que o usuário leu quando decidiu — por isso é retrato, não consulta
+  // ao vivo.
+  //
+  // Os campos soltos ao lado existem só para o card da lista: sem eles, montar
+  // a lista exigiria abrir e percorrer o JSON de cada análise.
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now())
+  fornecedor       String
+  pergunta         String
+  data_base        DateTime @db.Date
+  data_entrada     DateTime @db.Date
+  rompem           Int
+  dias_descobertos Int
+  unidades_faltando Int
+  resultado        Json
+
+  @@index([createdAt])
+  @@map("cenario_salvo")
+}
+
+model AnaliseIa {
+  // Análise gerada pelo modelo, gravada por data de referência.
+  //
+  // `resultado` guarda o texto **e** os números que o sustentavam no momento da
+  // geração. Mostrar texto antigo ao lado de números recalculados produziria uma
+  // tela incoerente — a análise é um retrato, não uma visão ao vivo.
+  //
+  // `entrada_hash` é o hash do dossiê: quando o dossiê atual diverge, a tela
+  // avisa que a análise envelheceu, sem apagar a anterior.
+  id             Int      @id @default(autoincrement())
+  createdAt      DateTime @default(now())
+  data_snapshot  DateTime @db.Date
+  modelo         String
+  parametros     Json
+  resultado      Json
+  entrada_hash   String
+  tokens_entrada Int      @default(0)
+  tokens_saida   Int      @default(0)
+
+  @@index([data_snapshot, createdAt])
+  @@map("analise_ia")
+}
+
+model LeadTimeFornecedor {
+  // Dias entre a colocação do pedido e a entrega no CD — o trecho que o SLA não
+  // cobre, já que `sla_transferencias` só descreve o percurso entre centros.
+  //
+  // Por (fornecedor, cd) e não só por fornecedor: o mesmo fornecedor entrega em
+  // prazos diferentes conforme o centro. Nos dados atuais, 236 dos 375 pares
+  // têm prazo único, contra apenas 40 dos 107 fornecedores.
+  //
+  // Cadastro próprio porque o `lt` de pedidos_de_compra é negociado por pedido e
+  // varia dentro do mesmo fornecedor (CREMER vai de 15 a 34 dias); aquela coluna
+  // serve como conferência, não como fonte.
+  //
+  // Substituição completa no import, como SLA e Filiais: o arquivo é a fonte de
+  // verdade e a chave é composta, o que o upsert por campo único não cobriria.
+  id         Int      @id @default(autoincrement())
+  createdAt  DateTime @default(now())
+  fornecedor String
+  cd         String
+  lead_time  Int?
+
+  @@unique([fornecedor, cd])
+  @@map("lead_time_fornecedor")
+}
+
+model Rotas {
+  codigo_rota      String   @id
+  createdAt        DateTime @default(now())
+  descricao        String?
+  descricao_cod    String?
+  filial_final     String?
+  filial_final_cod String?
+  empresa          String?
+
+  @@map("rotas")
+}
+
+model PedidosDeCompra {
+  id                      Int       @id @default(autoincrement())
+  createdAt               DateTime  @default(now())
+  // Dia do upload (não vem do CSV) — cada importação vira um novo snapshot em
+  // vez de sobrescrever o anterior, permitindo consultar o histórico dia a dia.
+  data_snapshot           DateTime  @default(now()) @db.Date
+  codigo                  String?
+  descricao               String?
+  armazem                 String?
+  cod_fornecedor          String?
+  data_emissao            DateTime?
+  data_entrega            DateTime?
+  filial                  String?
+  grupo_marca             String?
+  num_pedido              String?
+  quantidade_entregue     Int?
+  quantidade_total        Int?
+  quantidade_receber      Int?
+  unidade                 String?
+  saldo_ajustado          Decimal?  @db.Decimal(24, 10)
+  tp_ped_transf           String?
+  tp_ped_transf_descricao String?
+  rota_final              String?
+  porcentagem_entregue    Decimal?  @db.Decimal(24, 10)
+  categoria               String?
+  comprador               String?
+  tributacao              String?
+  supridor                String?
+  provider                String?
+  lt                      Int?
+  bo                      String?
+  frete                   String?
+  cob_cd                  Decimal?  @db.Decimal(24, 10)
+  cob_br                  Decimal?  @db.Decimal(24, 10)
+  data_pedra              DateTime?
+  status_lt               String?
+  ruptura_cd              String?
+  ruptura_br              String?
+  nota_fiscal             String?
+  status_logistica        String?
+  data_agendada           String?
+
+  // Sem chave estrangeira para Produtos de propósito. A relação existia com
+  // `onDelete: SetNull`, e como o import de Produtos apaga a tabela antes de
+  // inserir, cada atualização do catálogo zerava `codigo` em cascata nestes
+  // snapshots — silenciosamente, porque SetNull não é erro. Snapshot é registro
+  // histórico e não pode ser mutado quando o catálogo muda. A validação de
+  // produto inexistente continua existindo, no import (`references` em
+  // src/lib/imports/config.ts), que é onde ela consegue reportar as linhas
+  // ignoradas para o usuário.
+
+  @@index([codigo])
+  @@index([data_snapshot])
+  @@index([codigo, data_snapshot], map: "pedidos_codigo_snapshot_idx")
+  @@map("pedidos_de_compra")
+}
+
+model Simulador {
+  id                        Int      @id @default(autoincrement())
+  createdAt                 DateTime @default(now())
+  // Dia do upload (não vem do CSV) — cada importação vira um novo snapshot em
+  // vez de sobrescrever o anterior, permitindo consultar o histórico dia a dia.
+  data_snapshot             DateTime @default(now()) @db.Date
+  cod_prod_cod_filial       String?
+  codigo                    String?
+  filial                    String?
+  produto                   String?
+  marca                     String?
+  fornecedor                String?
+  est_arm_01                Decimal? @db.Decimal(24, 10)
+  est_arm_11                Decimal? @db.Decimal(24, 10)
+  est_arm_26                Decimal? @db.Decimal(24, 10)
+  est_arm_nac               Decimal? @db.Decimal(24, 10)
+  est_arm_q40               Decimal? @db.Decimal(24, 10)
+  est_arm_rc                Decimal? @db.Decimal(24, 10)
+  estoque_cmv               Decimal? @db.Decimal(24, 10)
+  cmv_unitario              Decimal? @db.Decimal(24, 10)
+  cmv_unitario_1            Decimal? @db.Decimal(24, 10)
+  compras_arm_01            Decimal? @db.Decimal(24, 10)
+  compras_arm_26            Decimal? @db.Decimal(24, 10)
+  compras_arm_nac           Decimal? @db.Decimal(24, 10)
+  valor_pedido_aberto_bruto Decimal? @db.Decimal(24, 10)
+  valor_pedido_aberto_cmv   Decimal? @db.Decimal(24, 10)
+  em_transf_arm_01          Decimal? @db.Decimal(24, 10)
+  em_transf_arm_11          Decimal? @db.Decimal(24, 10)
+  em_transf_arm_26          Decimal? @db.Decimal(24, 10)
+  total_trans               Decimal? @db.Decimal(24, 10)
+  reserva                   Decimal? @db.Decimal(24, 10)
+  qtd_pendente              Decimal? @db.Decimal(24, 10)
+  bloqueio                  String?
+  vendido_m0_arm_01         Decimal? @db.Decimal(24, 10)
+  vendido_m0_arm_26         Decimal? @db.Decimal(24, 10)
+  vendido_m0_arm_11         Decimal? @db.Decimal(24, 10)
+  vendido_m0_arm_tr         Decimal? @db.Decimal(24, 10)
+
+  @@index([codigo])
+  @@index([data_snapshot])
+  @@index([data_snapshot, codigo], map: "simulador_snapshot_codigo_idx")
+  @@map("simulador")
+}
+
+model Forecast {
+  id                     Int      @id @default(autoincrement())
+  createdAt              DateTime @default(now())
+  // Dia do upload (não vem do CSV) — cada importação vira um novo snapshot em
+  // vez de sobrescrever o anterior, permitindo consultar o histórico dia a dia.
+  data_snapshot          DateTime @default(now()) @db.Date
+  codigo                 String?
+  filial                 String?
+  rota_compra            String?
+  /** Classificação ABC do item (A, B ou C). */
+  curva                  String?
+  /** Unidade de negócio do item. */
+  b_u                    String?
+  /** Analista responsável pelo item no planejamento. */
+  analista               String?
+  forecast_m0            Decimal? @db.Decimal(24, 10)
+  forecast_m0_atualizado Decimal? @db.Decimal(24, 10)
+  politica               Decimal? @db.Decimal(24, 10)
+  politica_plano         Decimal? @db.Decimal(24, 10)
+  torre                  String?
+  m_4                    Decimal? @db.Decimal(24, 10)
+  m_3                    Decimal? @db.Decimal(24, 10)
+  m_2                    Decimal? @db.Decimal(24, 10)
+  m_1                    Decimal? @db.Decimal(24, 10)
+
+  // Sem chave estrangeira para Produtos de propósito. A relação existia com
+  // `onDelete: SetNull`, e como o import de Produtos apaga a tabela antes de
+  // inserir, cada atualização do catálogo zerava `codigo` em cascata nestes
+  // snapshots — silenciosamente, porque SetNull não é erro. Snapshot é registro
+  // histórico e não pode ser mutado quando o catálogo muda. A validação de
+  // produto inexistente continua existindo, no import (`references` em
+  // src/lib/imports/config.ts), que é onde ela consegue reportar as linhas
+  // ignoradas para o usuário.
+
+  @@index([codigo])
+  @@index([data_snapshot])
+  @@index([data_snapshot, codigo], map: "forecast_snapshot_codigo_idx")
+  @@map("forecast")
+}
+
+model PlanoCompra {
+  id              Int      @id @default(autoincrement())
+  createdAt       DateTime @default(now())
+  // Dia do upload (não vem do CSV) — cada importação vira um novo snapshot em
+  // vez de sobrescrever o anterior. Aqui a carga é mensal, então na prática há
+  // um snapshot por mês, mas a granularidade continua sendo diária.
+  data_snapshot   DateTime @default(now()) @db.Date
+  codigo          String?
+  empresa         String?
+  plano_de_compra Decimal? @db.Decimal(24, 10)
+
+  // Sem chave estrangeira para Produtos de propósito. A relação existia com
+  // `onDelete: SetNull`, e como o import de Produtos apaga a tabela antes de
+  // inserir, cada atualização do catálogo zerava `codigo` em cascata nestes
+  // snapshots — silenciosamente, porque SetNull não é erro. Snapshot é registro
+  // histórico e não pode ser mutado quando o catálogo muda. A validação de
+  // produto inexistente continua existindo, no import (`references` em
+  // src/lib/imports/config.ts), que é onde ela consegue reportar as linhas
+  // ignoradas para o usuário.
+
+  @@index([codigo])
+  @@index([data_snapshot])
+  @@index([data_snapshot, codigo], map: "plano_snapshot_codigo_idx")
+  @@map("plano_compra")
+}
+
+model TransferenciasAbertas {
+  id                       Int       @id @default(autoincrement())
+  createdAt                DateTime  @default(now())
+  // Dia do upload (não vem do CSV) — cada importação vira um novo snapshot em
+  // vez de sobrescrever o anterior, permitindo consultar o histórico dia a dia.
+  data_snapshot            DateTime  @default(now()) @db.Date
+  tipo_nf_saida            String?
+  filial_codigo_saida      String?
+  serie_nf_saida           String?
+  numero_nf_saida          String?
+  cfop                     String?
+  cliente_codigo           String?
+  loja_codigo              String?
+  empresa_saida            String?
+  cnpj_saida               String?
+  uf_saida                 String?
+  data_emissao             DateTime?
+  linha_item               Decimal?  @db.Decimal(24, 10)
+  codigo                   String?
+  un_produto               String?
+  descricao_produto        String?
+  qtde                     Decimal?  @db.Decimal(24, 10)
+  valor                    Decimal?  @db.Decimal(24, 10)
+  valor_sd2_custo_1        Decimal?  @db.Decimal(24, 10)
+  valor_icms_saida         Decimal?  @db.Decimal(24, 10)
+  valor_icms_st            Decimal?  @db.Decimal(24, 10)
+  local                    String?
+  pedido_venda_protheus    String?
+  item_pedido_venda        Decimal?  @db.Decimal(24, 10)
+  pedido_bo                String?
+  status_classificada      String?
+  empresa_entrada          String?
+  filial_codigo_entrada    String?
+  descricao_filial_entrada String?
+  cnpj_entrada             String?
+  estado_entrada           String?
+  lote                     String?
+  validade_lote            DateTime?
+  tipo_produto             String?
+  rota                     String?
+  passo                    Decimal?  @db.Decimal(24, 10)
+  qtde_passo               Decimal?  @db.Decimal(24, 10)
+  usuario_pedido_venda     String?
+
+  // Sem chave estrangeira para Produtos de propósito. A relação existia com
+  // `onDelete: SetNull`, e como o import de Produtos apaga a tabela antes de
+  // inserir, cada atualização do catálogo zerava `codigo` em cascata nestes
+  // snapshots — silenciosamente, porque SetNull não é erro. Snapshot é registro
+  // histórico e não pode ser mutado quando o catálogo muda. A validação de
+  // produto inexistente continua existindo, no import (`references` em
+  // src/lib/imports/config.ts), que é onde ela consegue reportar as linhas
+  // ignoradas para o usuário.
+
+  @@index([codigo])
+  @@index([data_snapshot])
+  @@index([data_snapshot, codigo], map: "transf_snapshot_codigo_idx")
+  @@map("transferencias_abertas")
+}
+
+model Recebimento {
+  id                  Int       @id @default(autoincrement())
+  createdAt           DateTime  @default(now())
+  armazem             String?
+  arq                 String?
+  tes                 String?
+  definicao           String?
+  cfop                String?
+  cidade              String?
+  cnpj                String?
+  ol                  String?
+  loja                String?
+  nome                String?
+  data_emissao        DateTime?
+  data                DateTime?
+  data_pedido         DateTime?
+  lead_time           Decimal?  @db.Decimal(24, 10)
+  documento           String?
+  estado              String?
+  filial              String?
+  cod_marca_cadastro  String?
+  nome_marca_cadastro String?
+  nome_grupo_marca    String?
+  grupo_marca_oficial String?
+  quantidade          Decimal?  @db.Decimal(24, 10)
+  codigo              String?
+  produto             String?
+  pedido              String?
+  lote                String?
+  data_validade       DateTime?
+  custo               Decimal?  @db.Decimal(24, 10)
+  valor_total         Decimal?  @db.Decimal(24, 10)
+  cofins              Decimal?  @db.Decimal(24, 10)
+  pis                 Decimal?  @db.Decimal(24, 10)
+  ipi                 Decimal?  @db.Decimal(24, 10)
+  icms                Decimal?  @db.Decimal(24, 10)
+  icms_complementar   Decimal?  @db.Decimal(24, 10)
+  icms_st             Decimal?  @db.Decimal(24, 10)
+  origem              String?
+  pis_cofins          String?
+  tributacao          String?
+  codigo_tributario   String?
+  grupo_tributario    String?
+  ncm                 String?
+  cst_pis             String?
+  tipo_credito        String?
+  aliq_icms           Decimal?  @db.Decimal(24, 10)
+
+  @@index([codigo])
+  @@index([codigo, data_pedido, data], map: "recebimento_codigo_datas_idx")
+  @@map("recebimento")
+}
+
+model SlaTransferencias {
+  id           Int      @id @default(autoincrement())
+  createdAt    DateTime @default(now())
+  filial_orig  String?
+  filial_dest  String?
+  mat_med      String?
+  ativo        Decimal? @db.Decimal(24, 10)
+  transit_time Decimal? @db.Decimal(24, 10)
+
+  @@map("sla_transferencias")
+}
+
+model ClientesGrupos {
+  id             Int      @id @default(autoincrement())
+  createdAt      DateTime @default(now())
+  cliente_codigo String?
+  cliente_loja   String?
+  cliente_nome   String?
+  cliente_cnpj   String?
+  cliente_grupo  String?
+
+  @@map("clientes_grupos")
+}
+
+model HistoricoVendas {
+  id                  Int       @id @default(autoincrement())
+  createdAt           DateTime  @default(now())
+  unidade_negocio_mov String?
+  data                DateTime?
+  documento           String?
+  total               Decimal?  @db.Decimal(24, 10)
+  ano                 Decimal?  @db.Decimal(24, 10)
+  mes                 String?
+  cod_prod            String?
+  armazem             String?
+  produto             String?
+  nome                String?
+  cidade              String?
+  cfop                String?
+  cnpj                String?
+  nome_marca_cadastro String?
+  nicho               String?
+  mercado             String?
+  cliente_money       String?
+  definicao           String?
+  grupo_marca_oficial String?
+  estado              String?
+  filial              String?
+  quantidade          Decimal?  @db.Decimal(24, 10)
+  custo               Decimal?  @db.Decimal(24, 10)
+  cliente_contr_icms  String?
+  empresa             String?
+  check_empresa       String?
+  bu                  String?
+  bu_ajustada         String?
+  regra               String?
+  filial_ideal_final  String?
+  tributacao          String?
+  cpf_ou_cnpj         String?
+  nome_grupo_marca    String?
+
+  @@index([cod_prod])
+  // Data isolada serve o MAX(data) que define a janela de comparação, e o
+  // recorte por período quando o histórico passar de alguns meses.
+  @@index([data])
+  // Composto para as consultas de um item só (curva diária, clientes do item).
+  @@index([cod_prod, data])
+  // ATENÇÃO: existe um terceiro índice que o Prisma não sabe declarar —
+  // expressão sobre EXTRACT(day FROM data) com INCLUDE das colunas agregadas.
+  // É ele que transforma a leitura da janela em Index Only Scan (1,9s -> 0,46s).
+  // Fica em prisma/indices.sql e precisa ser reaplicado depois de um db push,
+  // que apaga índices ausentes do schema.
+  @@map("historico_vendas")
+}
