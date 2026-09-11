@@ -52,6 +52,8 @@ export type ContagemFaixa = {
   curva: string;
   /** Unidade de negócio; "—" quando o item não tem BU definida. */
   bu: string;
+  /** Analista responsável; "—" quando o item não tem analista atribuído. */
+  analista: string;
   itens: number;
 };
 
@@ -87,9 +89,10 @@ export async function contarPorFaixa(
             ${faixaSql(DIAS_CHAO)} AS faixa,
             COALESCE(NULLIF(upper(trim(f.curva)), ''), '—') AS curva,
             COALESCE(NULLIF(trim(f.b_u), ''), '—') AS bu,
+            COALESCE(NULLIF(trim(f.analista), ''), '—') AS analista,
             COUNT(*)::int AS itens
        ${baseSql(Boolean(fornecedor))}
-      GROUP BY f.filial, 2, 3, 4
+      GROUP BY f.filial, 2, 3, 4, 5
       ORDER BY f.filial`,
     ...args
   );
@@ -103,6 +106,7 @@ export async function listarItens(
   fornecedor?: string,
   curva?: string,
   bu?: string,
+  analista?: string,
   limite = 500
 ): Promise<ItemDisponibilidade[]> {
   const [inicio, fim] = limitesDoMes(data);
@@ -114,6 +118,8 @@ export async function listarItens(
   if (curva) args.push(curva);
   const posBu = args.length + 1;
   if (bu) args.push(bu);
+  const posAnalista = args.length + 1;
+  if (analista) args.push(analista);
 
   return prisma.$queryRawUnsafe<ItemDisponibilidade[]>(
     `SELECT f.codigo,
@@ -128,6 +134,7 @@ export async function listarItens(
         AND ${faixaSql(DIAS_CHAO)} = $${posFilial + 1}
         ${curva ? `AND COALESCE(NULLIF(upper(trim(f.curva)), ''), '—') = $${posCurva}` : ""}
         ${bu ? `AND COALESCE(NULLIF(trim(f.b_u), ''), '—') = $${posBu}` : ""}
+        ${analista ? `AND COALESCE(NULLIF(trim(f.analista), ''), '—') = $${posAnalista}` : ""}
       ORDER BY ${DIAS_CHAO} ASC, f.codigo
       LIMIT ${limite}`,
     ...args
@@ -157,7 +164,13 @@ export async function listarFornecedores(data: string): Promise<string[]> {
  * Ou seja, é a mesma consulta das barras por CD sem o agrupamento por filial:
  * o total da barra Cia é igual à soma dos totais das demais.
  */
-export type ContagemCia = { curva: string; bu: string; faixa: FaixaId; itens: number };
+export type ContagemCia = {
+  curva: string;
+  bu: string;
+  analista: string;
+  faixa: FaixaId;
+  itens: number;
+};
 
 export async function contarCia(data: string, fornecedor?: string): Promise<ContagemCia[]> {
   const [inicio, fim] = limitesDoMes(data);
@@ -168,9 +181,10 @@ export async function contarCia(data: string, fornecedor?: string): Promise<Cont
     `SELECT ${faixaSql(DIAS_CHAO)} AS faixa,
             COALESCE(NULLIF(upper(trim(f.curva)), ''), '—') AS curva,
             COALESCE(NULLIF(trim(f.b_u), ''), '—') AS bu,
+            COALESCE(NULLIF(trim(f.analista), ''), '—') AS analista,
             COUNT(*)::int AS itens
        ${baseSql(Boolean(fornecedor))}
-      GROUP BY 1, 2, 3`,
+      GROUP BY 1, 2, 3, 4`,
     ...args
   );
 }
@@ -186,6 +200,7 @@ export async function listarItensCia(
   fornecedor?: string,
   curva?: string,
   bu?: string,
+  analista?: string,
   limite = 500
 ): Promise<ItemDisponibilidade[]> {
   const [inicio, fim] = limitesDoMes(data);
@@ -197,6 +212,8 @@ export async function listarItensCia(
   if (curva) args.push(curva);
   const posBu = args.length + 1;
   if (bu) args.push(bu);
+  const posAnalista = args.length + 1;
+  if (analista) args.push(analista);
 
   return prisma.$queryRawUnsafe<ItemDisponibilidade[]>(
     `SELECT f.codigo,
@@ -210,6 +227,7 @@ export async function listarItensCia(
         AND ${faixaSql(DIAS_CHAO)} = $${posFaixa}
         ${curva ? `AND COALESCE(NULLIF(upper(trim(f.curva)), ''), '—') = $${posCurva}` : ""}
         ${bu ? `AND COALESCE(NULLIF(trim(f.b_u), ''), '—') = $${posBu}` : ""}
+        ${analista ? `AND COALESCE(NULLIF(trim(f.analista), ''), '—') = $${posAnalista}` : ""}
       ORDER BY ${DIAS_CHAO} ASC, f.codigo, f.filial
       LIMIT ${limite}`,
     ...args

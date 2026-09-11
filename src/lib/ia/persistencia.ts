@@ -21,6 +21,8 @@ export type ContextoItem = {
   fornecedor: string;
   bu: string;
   curva: string;
+  /** Analista responsável, vindo do forecast. */
+  analista: string;
   secao: Secao;
   destaque: string;
   forecast: number;
@@ -76,6 +78,8 @@ export type ItemResumo = {
   fornecedor: string;
   bu: string;
   curva: string;
+  /** Analista responsável, vindo do forecast. */
+  analista: string;
   secao: Secao;
   destaque: string;
   diasChao: number | null;

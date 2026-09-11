@@ -46,6 +46,8 @@ export type ProdutoUrgente = {
   descricao: string | null;
   fornecedor: string;
   bu: string;
+  /** Analista responsável, vindo do forecast. */
+  analista: string;
   estoqueChao: number;
   transferencias: number;
   compras: number;
@@ -66,6 +68,8 @@ export type DadosComprasUrgentes = {
   produtos: ProdutoUrgente[];
   /** BUs presentes antes do recorte, para o filtro não se esvaziar sozinho. */
   bus: string[];
+  /** Analistas presentes antes do recorte, para o filtro não se esvaziar. */
+  analistas: string[];
   fornecedores: string[];
   /** Quantos produtos existem no universo, antes do corte de cobertura. */
   totalUniverso: number;
@@ -76,7 +80,8 @@ export async function carregarComprasUrgentes(
   /** Corte de cobertura total: traz o que está igual ou abaixo. */
   limiteDias: number,
   filtroBu?: string,
-  filtroFornecedor?: string
+  filtroFornecedor?: string,
+  filtroAnalista?: string
 ): Promise<DadosComprasUrgentes> {
   const [ano, mes] = data.split("-").map(Number);
   const inicioMes = new Date(Date.UTC(ano, mes - 1, 1)).toISOString().slice(0, 10);
@@ -88,13 +93,15 @@ export async function carregarComprasUrgentes(
     prisma.$queryRawUnsafe<
       {
         codigo: string; descricao: string | null; filial: string; fornecedor: string;
-        bu: string; forecast: number; chao: number; transf: number; compras: number;
+        bu: string; analista: string; forecast: number; chao: number;
+        transf: number; compras: number;
       }[]
     >(
       `SELECT f.codigo,
               pr.descricao,
               f.filial,
               COALESCE(NULLIF(trim(f.b_u), ''), '${VAZIO}') AS bu,
+              COALESCE(NULLIF(trim(f.analista), ''), '${VAZIO}') AS analista,
               COALESCE((
                 SELECT ${nomeFornecedor("s2")}
                   FROM simulador s2 ${joinFornecedor("s2")}
@@ -179,6 +186,7 @@ export async function carregarComprasUrgentes(
       descricao: cds[0].descricao,
       fornecedor: cds[0].fornecedor,
       bu: cds[0].bu,
+      analista: cds[0].analista,
       estoqueChao: chao,
       transferencias: transf,
       compras,
@@ -197,6 +205,9 @@ export async function carregarComprasUrgentes(
   const bus = [...new Set(todos.map((p) => p.bu))].sort((a, b) =>
     a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR")
   );
+  const analistas = [...new Set(todos.map((p) => p.analista))].sort((a, b) =>
+    a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR")
+  );
   const fornecedores = [...new Set(todos.map((p) => p.fornecedor))].sort((a, b) =>
     a.localeCompare(b, "pt-BR")
   );
@@ -207,6 +218,7 @@ export async function carregarComprasUrgentes(
         p.diasTotal !== null &&
         p.diasTotal <= limiteDias &&
         (!filtroBu || p.bu === filtroBu) &&
+        (!filtroAnalista || p.analista === filtroAnalista) &&
         (!filtroFornecedor || p.fornecedor === filtroFornecedor)
     )
     // Mais crítico primeiro: menos dias de cobertura e, no empate, mais CDs
@@ -218,5 +230,5 @@ export async function carregarComprasUrgentes(
         a.codigo.localeCompare(b.codigo)
     );
 
-  return { produtos, bus, fornecedores, totalUniverso: todos.length };
+  return { produtos, bus, analistas, fornecedores, totalUniverso: todos.length };
 }

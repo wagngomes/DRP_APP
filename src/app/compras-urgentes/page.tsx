@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { CelulasCds, type CdTexto } from "@/components/compras-urgentes/dica-cds";
 import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
+import { FiltroLista } from "@/components/ui/filtro-lista";
 import { carregarComprasUrgentes, type PosicaoCd } from "@/lib/compras-urgentes/consultas";
 import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
@@ -30,6 +31,7 @@ type SearchParams = {
   dias?: string | string[];
   bu?: string | string[];
   fornecedor?: string | string[];
+  analista?: string | string[];
   pag?: string | string[];
 };
 
@@ -64,11 +66,12 @@ export default async function ComprasUrgentes({
       : LIMITE_PADRAO;
   const bu = primeiro(params.bu);
   const fornecedor = primeiro(params.fornecedor);
+  const analista = primeiro(params.analista);
   const pagPedida = Number(primeiro(params.pag) ?? 1) || 1;
 
   const dataReferencia = await lerDataReferencia();
   const [dados, rotulos] = await Promise.all([
-    carregarComprasUrgentes(dataReferencia, limite, bu, fornecedor),
+    carregarComprasUrgentes(dataReferencia, limite, bu, fornecedor, analista),
     carregarRotulosFiliais(),
   ]);
 
@@ -95,6 +98,7 @@ export default async function ComprasUrgentes({
     if (limite !== LIMITE_PADRAO) p.set("dias", String(limite));
     if (bu) p.set("bu", bu);
     if (fornecedor) p.set("fornecedor", fornecedor);
+    if (analista) p.set("analista", analista);
     if (pagina > 1) p.set("pag", String(pagina));
     for (const [k, v] of Object.entries(extra)) {
       if (v === undefined) p.delete(k);
@@ -162,6 +166,17 @@ export default async function ComprasUrgentes({
                 ))}
               </div>
             ) : null}
+
+            <FiltroLista
+              rotulo="Analista"
+              atual={analista}
+              hrefTodos={href({ analista: undefined, pag: undefined })}
+              opcoes={dados.analistas.map((a) => ({
+                valor: a,
+                rotulo: a === VAZIO ? "Sem analista" : a,
+                href: href({ analista: a, pag: undefined }),
+              }))}
+            />
 
             <FiltroFornecedor
               fornecedores={dados.fornecedores}

@@ -55,6 +55,8 @@ export type PosicaoRompida = {
   bu: string;
   /** Classificação ABC do forecast (coluna curva); `VAZIO` quando ausente. */
   curva: string;
+  /** Analista responsável pelo item no planejamento (coluna do forecast). */
+  analista: string;
   forecast: number;
   categoria: Categoria;
   /** Quantidade e chegada da reposição que define a categoria. */
@@ -100,6 +102,13 @@ export function agregarPorFornecedor(posicoes: PosicaoRompida[]): ResumoForneced
 }
 
 /** BUs presentes nas posições, em ordem alfabética e com "sem BU" no fim. */
+/** Analistas presentes, com "sem analista" sempre por último. */
+export function listarAnalistas(posicoes: PosicaoRompida[]): string[] {
+  return [...new Set(posicoes.map((p) => p.analista))].sort((a, b) =>
+    a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR")
+  );
+}
+
 export function listarBus(posicoes: PosicaoRompida[]): string[] {
   return [...new Set(posicoes.map((p) => p.bu))].sort((a, b) =>
     a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR")

@@ -29,6 +29,7 @@ import { WorkflowRota } from "@/components/produto/workflow-rota";
 import {
   VAZIO,
   agregarPorFornecedor,
+  listarAnalistas,
   listarBus,
   listarCurvas,
   type Categoria,
@@ -119,26 +120,39 @@ export function TabelaFornecedores({
   const [filialAberta, setFilialAberta] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [bu, setBu] = useState<string | null>(null);
+  const [analista, setAnalista] = useState<string | null>(null);
   const [curva, setCurva] = useState<string | null>(null);
   const [pagina, setPagina] = useState(1);
   const [paginaDetalhe, setPaginaDetalhe] = useState(1);
 
-  const bus = useMemo(() => listarBus(posicoes), [posicoes]);
+  /**
+   * A lista de analistas vem das posições completas: escolher um não pode
+   * esvaziar o próprio seletor. Já BU e curva seguem o recorte de cima, pelo
+   * mesmo motivo que já valia entre elas — oferecer um chip que zera a tabela
+   * é enganoso.
+   */
+  const analistas = useMemo(() => listarAnalistas(posicoes), [posicoes]);
+  const porAnalista = useMemo(
+    () => (analista ? posicoes.filter((p) => p.analista === analista) : posicoes),
+    [posicoes, analista]
+  );
+
+  const bus = useMemo(() => listarBus(porAnalista), [porAnalista]);
   /**
    * As curvas disponíveis seguem a BU escolhida: uma BU pode não ter as três,
    * e oferecer um chip que zera a tabela seria enganoso. O contrário não vale —
    * as BUs são sempre as mesmas, para o filtro de cima não "sumir" ao filtrar.
    */
   const curvas = useMemo(
-    () => listarCurvas(bu ? posicoes.filter((p) => p.bu === bu) : posicoes),
-    [posicoes, bu]
+    () => listarCurvas(bu ? porAnalista.filter((p) => p.bu === bu) : porAnalista),
+    [porAnalista, bu]
   );
 
   /** Recorte ativo: alimenta os totais, a tabela e o detalhamento de uma vez. */
   const doRecorte = useMemo(
     () =>
-      posicoes.filter((p) => (bu ? p.bu === bu : true) && (curva ? p.curva === curva : true)),
-    [posicoes, bu, curva]
+      porAnalista.filter((p) => (bu ? p.bu === bu : true) && (curva ? p.curva === curva : true)),
+    [porAnalista, bu, curva]
   );
 
   const resumo = useMemo(() => agregarPorFornecedor(doRecorte), [doRecorte]);
@@ -216,6 +230,21 @@ export function TabelaFornecedores({
   const rotulo = (codigo: string | null) =>
     codigo ? rotulosFiliais[codigo] ?? codigo : "—";
 
+  /**
+   * Trocar de analista limpa BU e curva junto: o recorte anterior pode não
+   * existir dentro do novo, e manter um chip ativo que zera a tabela faz a
+   * tela parecer vazia por bug.
+   */
+  function trocarAnalista(novo: string | null) {
+    setAnalista(novo);
+    setBu(null);
+    setCurva(null);
+    setAberto(null);
+    setFilialAberta(null);
+    setPagina(1);
+    setPaginaDetalhe(1);
+  }
+
   /** Qualquer troca de filtro fecha o detalhe: ele pode não existir no novo recorte. */
   function trocarBu(novo: string | null) {
     setBu(novo);
@@ -235,21 +264,35 @@ export function TabelaFornecedores({
   }
 
   /** Base de contagem dos chips de curva: já respeita a BU escolhida. */
-  const baseCurva = bu ? posicoes.filter((p) => p.bu === bu) : posicoes;
+  const baseCurva = bu ? porAnalista.filter((p) => p.bu === bu) : porAnalista;
 
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
+        {analistas.length > 1 ? (
+          <GrupoFiltro
+            titulo="Analista"
+            opcoes={analistas.map((item) => ({
+              valor: item,
+              rotulo: item === VAZIO ? "Sem analista" : item,
+              total: posicoes.filter((p) => p.analista === item).length,
+            }))}
+            ativo={analista}
+            totalGeral={posicoes.length}
+            aoTrocar={trocarAnalista}
+          />
+        ) : null}
+
         {bus.length > 1 ? (
           <GrupoFiltro
             titulo="BU"
             opcoes={bus.map((item) => ({
               valor: item,
               rotulo: item === VAZIO ? "Sem BU" : item,
-              total: posicoes.filter((p) => p.bu === item).length,
+              total: porAnalista.filter((p) => p.bu === item).length,
             }))}
             ativo={bu}
-            totalGeral={posicoes.length}
+            totalGeral={porAnalista.length}
             aoTrocar={trocarBu}
           />
         ) : null}

@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
+import { FiltroLista } from "@/components/ui/filtro-lista";
 import { GraficoFaixas } from "@/components/disponibilidade/grafico-faixas";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import {
@@ -45,6 +46,7 @@ type SearchParams = {
   faixa?: string | string[];
   curva?: string | string[];
   bu?: string | string[];
+  analista?: string | string[];
 };
 
 const primeiro = (v: string | string[] | undefined) =>
@@ -72,6 +74,7 @@ export default async function Disponibilidade({
     : undefined;
 
   const curva = primeiro(params.curva);
+  const analista = primeiro(params.analista);
   const dataReferencia = await lerDataReferencia();
 
   const [todasContagens, contagensCia, fornecedores] = await Promise.all([
@@ -80,21 +83,41 @@ export default async function Disponibilidade({
     listarFornecedores(dataReferencia),
   ]);
 
-  // Uma guia por unidade de negócio. Sem BU na URL, abre na primeira — a tela
-  // sempre mostra um recorte válido em vez de somar unidades diferentes.
-  const busPresentes = [...new Set(todasContagens.map((c) => c.bu))].sort((a, b) =>
-    a === "—" ? 1 : b === "—" ? -1 : a.localeCompare(b, "pt-BR")
-  );
+  /** URL de cada opção de analista, preservando o fornecedor escolhido. */
+  const hrefAnalista = (valor: string | undefined) => {
+    const p = new URLSearchParams();
+    if (fornecedor) p.set("fornecedor", fornecedor);
+    if (valor) p.set("analista", valor);
+    const qs = p.toString();
+    return qs ? `/disponibilidade?${qs}` : "/disponibilidade";
+  };
+
+  const ordemRotulo = (a: string, b: string) =>
+    a === "—" ? 1 : b === "—" ? -1 : a.localeCompare(b, "pt-BR");
+
+  // A lista de analistas sai das contagens completas, antes de qualquer
+  // recorte: senão escolher um analista esvaziaria o próprio seletor.
+  const analistasPresentes = [...new Set(todasContagens.map((c) => c.analista))].sort(ordemRotulo);
+
+  // O analista recorta o gráfico também, e não só a tabela: um filtro que
+  // mudasse a lista sem mudar as barras faria as duas discordarem na mesma tela.
+  const porAnalista = analista
+    ? todasContagens.filter((c) => c.analista === analista)
+    : todasContagens;
+
+  // Uma guia por unidade de negócio, já dentro do recorte do analista — sem
+  // isso a tela ofereceria uma BU que ficou sem nenhuma posição.
+  const busPresentes = [...new Set(porAnalista.map((c) => c.bu))].sort(ordemRotulo);
   const buParam = primeiro(params.bu);
   const bu = buParam && busPresentes.includes(buParam) ? buParam : busPresentes[0];
 
-  const contagens = bu ? todasContagens.filter((c) => c.bu === bu) : todasContagens;
+  const contagens = bu ? porAnalista.filter((c) => c.bu === bu) : porAnalista;
   const ehCia = filial === FILIAL_CIA;
   const itens =
     filial && faixa
       ? ehCia
-        ? await listarItensCia(dataReferencia, faixa, fornecedor, curva, bu)
-        : await listarItens(dataReferencia, filial, faixa, fornecedor, curva, bu)
+        ? await listarItensCia(dataReferencia, faixa, fornecedor, curva, bu, analista)
+        : await listarItens(dataReferencia, filial, faixa, fornecedor, curva, bu, analista)
       : [];
 
   // Reposições a caminho, só quando há tabela para preencher: o cálculo projeta
@@ -150,11 +173,25 @@ export default async function Disponibilidade({
         </div>
 
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="grid gap-4 pt-6">
             <FiltroFornecedor
               fornecedores={fornecedores}
               atual={fornecedor}
               basePath="/disponibilidade"
+            />
+
+            <FiltroLista
+              rotulo="Analista"
+              atual={analista}
+              hrefTodos={hrefAnalista(undefined)}
+              opcoes={analistasPresentes.map((a) => ({
+                valor: a,
+                rotulo: a === "—" ? "Sem analista" : a,
+                href: hrefAnalista(a),
+                total: todasContagens
+                  .filter((c) => c.analista === a)
+                  .reduce((soma, c) => soma + c.itens, 0),
+              }))}
             />
           </CardContent>
         </Card>
@@ -164,9 +201,10 @@ export default async function Disponibilidade({
             {busPresentes.map((item) => {
               const p = new URLSearchParams();
               if (fornecedor) p.set("fornecedor", fornecedor);
+              if (analista) p.set("analista", analista);
               p.set("bu", item);
               const ativo = bu === item;
-              const total = todasContagens
+              const total = porAnalista
                 .filter((c) => c.bu === item)
                 .reduce((soma, c) => soma + c.itens, 0);
               return (
