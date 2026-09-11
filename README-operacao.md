@@ -115,3 +115,70 @@ Os números do compose escalam por proporção: `shared_buffers` em torno de 1,5
 o tamanho do banco, `work_mem × max_connections` sempre abaixo do teto de
 memória do contêiner, e o heap do Node acima do pico da maior importação. O
 bloco de comentários no topo do `docker-compose.yml` traz a conta inteira.
+
+## Resiliência
+
+O que acontece quando algo cai, e o que não acontece sozinho.
+
+| Cenário | Recuperação |
+|---|---|
+| Processo da app morre (erro fatal, OOM) | `restart: unless-stopped` sobe de novo |
+| Processo do banco morre | idem |
+| App viva mas **travada** | o serviço `vigia` reinicia após ~90s |
+| Banco vivo mas sem responder | o `vigia` reinicia após ~100s de falha contínua |
+| `docker compose down` manual | nada sobe — é o que `unless-stopped` significa |
+| Reboot da VPS | **só se o daemon do Docker estiver habilitado no boot** |
+
+### Por que o vigia existe
+
+`restart: unless-stopped` só reage ao processo **sair**. Um processo vivo e
+travado deixa o contêiner marcado como `unhealthy` para sempre, e o Docker
+sozinho não age sobre esse estado. Foi exatamente o que aconteceu aqui depois
+de uma importação: processo de pé, nenhuma tela carregando, até alguém
+perceber.
+
+O `vigia` observa o status de saúde e reinicia quem estiver doente. Age apenas
+sobre contêineres com o rótulo `autoheal: "true"` — hoje, a app e o banco.
+
+Ele recebe o socket do Docker, o que equivale a acesso root ao host. É uma
+escolha consciente, proporcional a um sistema interno; o rótulo limita o que
+ele faz, não o que poderia fazer.
+
+### Habilitar o Docker no boot
+
+Sem isto, um reboot da VPS derruba tudo até alguém entrar na máquina:
+
+```bash
+sudo systemctl enable docker
+```
+
+### Conferir que a recuperação funciona
+
+Vale testar uma vez, antes de confiar. Trave a aplicação de propósito e
+acompanhe:
+
+```bash
+# Em um terminal, observando:
+docker compose logs -f vigia
+
+# Em outro, parando o Node sem matar o contêiner:
+docker compose exec app kill -STOP 1
+```
+
+O contêiner fica `unhealthy` em ~90s (3 falhas × 30s do HEALTHCHECK) e o vigia
+reinicia em seguida. `docker compose ps` mostra a transição. Se nada acontecer,
+o rótulo `autoheal` não chegou ao contêiner — confira com
+`docker inspect --format '{{.Config.Labels}}' $(docker compose ps -q app)`.
+
+### O que ainda não é automático
+
+**A ordem de subida depois de um reboot.** O `depends_on` com
+`condition: service_healthy` só vale no `docker compose up`. Quando o daemon
+reinicia sozinho, todos os contêineres sobem juntos e a app pode chegar antes
+do banco. Na prática ela se recupera — o Prisma reconecta na consulta seguinte
+— mas há uma janela de segundos servindo erro.
+
+**Aviso de que algo reiniciou.** O vigia resolve em silêncio. Se um contêiner
+estiver reiniciando em laço, só o `docker compose ps` ou o painel do Grafana
+mostram. Um alerta no Prometheus sobre `restarts` resolveria, e ainda não
+existe.

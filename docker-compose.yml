@@ -8,7 +8,7 @@
 #
 # Prometheus e Grafana ficam no perfil `observabilidade`, fora do `up` padrão:
 # quem quer só rodar o sistema não deve carregar dois serviços a mais.
-#   docker compose up                              → banco + aplicação
+#   docker compose up                              → banco, aplicação e vigia
 #   docker compose --profile observabilidade up    → tudo, com painel
 #
 # ---------------------------------------------------------------------------
@@ -44,9 +44,10 @@
 #   host + Docker        ~800 MB
 #   banco                   2 GB   (uso típico ~1,4 GB)
 #   aplicação               3 GB   (uso típico ~300 MB; 3 GB é o pico de carga)
+#   vigia                  64 MB
 #   observabilidade       768 MB   (só no perfil, fora do `up` padrão)
 #   ------------------------------
-#   sobra                 ~1,4 GB  mesmo com tudo em pé
+#   sobra                 ~1,3 GB  mesmo com tudo em pé
 #
 # São tetos, não reservas: os contêineres usam o que precisam. O teto existe
 # para que uma importação grande não mate o banco por OOM — e vice-versa.
@@ -58,6 +59,8 @@ services:
   banco:
     image: postgres:17-alpine
     restart: unless-stopped
+    labels:
+      autoheal: "true"
     # 768 MB de cache para 467 MB de dados: o banco inteiro fica em memória, com
     # 60% de folga para crescer. Passar disso não compraria nada — o que não
     # cabe em 768 MB também não existe.
@@ -110,11 +113,17 @@ services:
       LANG: C.UTF-8
     volumes:
       - dados_postgres:/var/lib/postgresql/data
+    # `retries` alto de propósito, agora que o vigia age sobre a saúde: são
+    # precisos ~100s de falha contínua para o banco ser declarado doente. Numa
+    # importação grande, com os dois núcleos ocupados pelo parse e pelo COPY, o
+    # `pg_isready` pode demorar a responder — e reiniciar o banco por causa
+    # disso mataria justamente a carga que estava em curso. Banco realmente
+    # morto continua sendo pego; soluço sob carga, não.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-drp} -d ${POSTGRES_DB:-drp_ai}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 20s
     # Sem `ports` de propósito: o banco só é alcançável pela rede interna do
     # compose. Para inspecionar de fora, descomente — e saiba que está expondo.
@@ -136,6 +145,8 @@ services:
       context: .
       target: runner
     restart: unless-stopped
+    labels:
+      autoheal: "true"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-drp}:${POSTGRES_PASSWORD:-drp_local}@banco:5432/${POSTGRES_DB:-drp_ai}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?defina BETTER_AUTH_SECRET no .env}
@@ -166,6 +177,44 @@ services:
     # Encerramento gracioso: o Node recebe SIGTERM via dumb-init e tem 30s para
     # concluir o que está em curso antes do SIGKILL.
     stop_grace_period: 30s
+
+  vigia:
+    # Reinicia contêiner que ficou `unhealthy`.
+    #
+    # Existe porque `restart: unless-stopped` só reage ao processo **sair**. Um
+    # processo vivo e travado — laço de eventos bloqueado, pool de conexões
+    # esgotado, banco respondendo devagar demais — deixa o contêiner marcado
+    # como `unhealthy` para sempre, e o Docker sozinho não age sobre isso. Foi
+    # exatamente o estado em que este sistema ficou depois de uma importação:
+    # processo de pé, nenhuma tela carregando, até alguém perceber.
+    #
+    # O `HEALTHCHECK` da aplicação consulta /api/health, que verifica o banco de
+    # verdade em vez de só confirmar que a porta abriu — então "saudável" aqui
+    # significa capaz de atender, não apenas vivo.
+    #
+    # ATENÇÃO, e é uma escolha consciente: este contêiner recebe o socket do
+    # Docker, o que na prática equivale a acesso root ao host. `AUTOHEAL_
+    # CONTAINER_LABEL` limita o que ele **faz** — só reinicia quem tem o rótulo
+    # `autoheal: "true"` — mas não limita o que ele **poderia** fazer. A
+    # alternativa sem essa exposição é um proxy de socket na frente, que é mais
+    # uma peça para manter. Num sistema interno de 15 usuários a troca vale;
+    # numa máquina com carga de terceiros, não valeria.
+    image: willfarrell/autoheal:1.2.0
+    restart: unless-stopped
+    mem_limit: 64m
+    environment:
+      # Só quem tem o rótulo. O padrão alternativo ("all") vigiaria qualquer
+      # contêiner da máquina, inclusive os que não são deste projeto.
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: 10
+      # Carência maior que o `start-period` do HEALTHCHECK da aplicação (40s):
+      # sem ela, o vigia reiniciaria a app no meio da própria subida.
+      AUTOHEAL_START_PERIOD: 120
+      # Mesmo prazo do `stop_grace_period` da app, para o reinício respeitar o
+      # encerramento gracioso em vez de cortar no meio.
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: 30
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   prometheus:
     image: prom/prometheus:v3.1.0
