@@ -16,6 +16,12 @@ import {
 import { projetar, type Projecao } from "@/utils/projecao-transferencias";
 import { projetarPedido, type ProjecaoPedido } from "@/utils/projecao-pedidos";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
+import {
+  FATOR_CLIENTE,
+  MESES_BASELINE,
+  MINIMO_MESES_HISTORICO,
+  MINIMO_UNIDADES_CLIENTE,
+} from "@/lib/aceleracao/consultas";
 
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
 const EST_TOTAL = somaSql(COLUNAS_ESTOQUE_TOTAL, "s");
@@ -55,12 +61,35 @@ export type EstoqueArmazem = { rotulo: string; quantidade: number };
 /** Venda de um mês anterior, vinda das colunas m_1..m_4 do forecast. */
 export type VendaMes = { rotulo: string; quantidade: number | null };
 
+/**
+ * Cliente que comprou fora do próprio padrão **neste CD**.
+ *
+ * Mesma régua da tela de aceleração — mesma janela do mês, mínimo de meses com
+ * histórico e fator sobre a mediana — reusando as constantes de lá, para as
+ * duas telas nunca discordarem sobre o que é "fora do padrão".
+ */
+export type ClienteAcelerando = {
+  cnpj: string;
+  cliente: string;
+  /** Comprado na janela do mês corrente, neste CD. */
+  atual: number;
+  /** Mediana do próprio cliente na mesma janela dos meses anteriores. */
+  mediana: number;
+  excedente: number;
+};
+
 export type PosicaoFilial = {
   filial: string;
   estoqueChao: number;
   /** Abertura do estoque chão por armazém, na ordem das colunas de origem. */
   armazens: EstoqueArmazem[];
   estoqueTotal: number;
+  /**
+   * Clientes fora do padrão neste CD, quando há. Vazio não significa "não
+   * houve": os CDs virtuais nunca terão, porque o histórico de vendas não
+   * separa o armazém 11.
+   */
+  clientesAcelerando: ClienteAcelerando[];
   /** Vendas do mês corrente nesta filial (simulador). */
   vendidoMes: number;
   /** Pedidos de compra em aberto com destino a esta filial. */
@@ -84,6 +113,8 @@ export type DetalheProduto = {
   marca: string | null;
   grupo: string | null;
   unidade: string | null;
+  /** Se o item exige cadeia fria, conforme o cadastro de produtos. */
+  refrigeracao: Refrigeracao;
   resumo: ResumoMensal;
   /** Posição consolidada entre todos os CDs, como se a rede fosse um armazém só. */
   cia: PosicaoFilial;
@@ -91,6 +122,28 @@ export type DetalheProduto = {
   /** Meses (yyyy-mm) que têm movimento, para orientar quando o mês está vazio. */
   mesesComDados: string[];
 };
+
+/**
+ * Como a coluna `usa_refrig` deve ser lida.
+ *
+ * A base tem quatro valores: "S" (3.441 itens), "N" (47.777), "2" (2.321) e
+ * nulo (103). O "2" não é um terceiro estado de refrigeração — concentra em
+ * "PRODUTO PARA SAUDE" e "NUTRICAO", com meias, seringas e chupetas. É código
+ * de outra coisa que veio parar nessa coluna.
+ *
+ * Então só "S" afirma refrigerado, só "N" afirma que não, e o resto é
+ * desconhecido. Tratar "2" como "não" seria uma afirmação sem respaldo sobre
+ * cadeia fria — e é justamente o tipo de erro que só aparece quando o produto
+ * chega estragado.
+ */
+export type Refrigeracao = "sim" | "nao" | "desconhecido";
+
+export function lerRefrigeracao(valor: string | null | undefined): Refrigeracao {
+  const v = valor?.trim().toUpperCase();
+  if (v === "S") return "sim";
+  if (v === "N") return "nao";
+  return "desconhecido";
+}
 
 function limitesDoMes(data: string): [string, string] {
   const [ano, mes] = data.split("-").map(Number);
@@ -105,9 +158,14 @@ export async function buscarProdutos(termo: string, limite = 40) {
   const t = termo.trim();
   if (!t) return [];
   return prisma.$queryRawUnsafe<
-    { codigo: string; descricao: string | null; marca: string | null }[]
+    {
+      codigo: string;
+      descricao: string | null;
+      marca: string | null;
+      usa_refrig: string | null;
+    }[]
   >(
-    `SELECT codigo, descricao, marca
+    `SELECT codigo, descricao, marca, usa_refrig
        FROM produtos
       WHERE codigo = $1 OR descricao ILIKE '%' || $1 || '%'
       ORDER BY (codigo = $1) DESC, descricao
@@ -127,6 +185,7 @@ export async function listarProdutosComDados(data: string, limite = 50) {
       codigo: string;
       descricao: string | null;
       marca: string | null;
+      usa_refrig: string | null;
       filiais: number;
       estoque: number;
     }[]
@@ -134,6 +193,7 @@ export async function listarProdutosComDados(data: string, limite = 50) {
     `SELECT s.codigo,
             MIN(p.descricao) AS descricao,
             MIN(p.marca)     AS marca,
+            MIN(p.usa_refrig) AS usa_refrig,
             COUNT(DISTINCT s.filial)::int AS filiais,
             SUM(${EST_CHAO} * COALESCE(s.cmv_unitario,0))::float8 AS estoque
        FROM ${simuladorPorCd("s.data_snapshot = $1::date")} s
@@ -155,7 +215,14 @@ export async function carregarDetalheProduto(
 
   const produto = await prisma.produtos.findUnique({
     where: { codigo },
-    select: { codigo: true, descricao: true, marca: true, grupo: true, unidade: true },
+    select: {
+      codigo: true,
+      descricao: true,
+      marca: true,
+      grupo: true,
+      unidade: true,
+      usa_refrig: true,
+    },
   });
   if (!produto) return null;
 
@@ -169,6 +236,7 @@ export async function carregarDetalheProduto(
     mesesLinhas,
     sla,
     siglaParaCodigo,
+    clientesLinhas,
   ] = await Promise.all([
     // Os três números do mês numa consulta só. Sem deduplicar plano_compra e
     // sem excluir pedidos já recebidos: é a leitura literal da regra definida.
@@ -274,7 +342,68 @@ export async function carregarDetalheProduto(
     ),
     carregarSla(),
     carregarFiliais(),
+    // Clientes fora do padrão por CD. Entra no mesmo `Promise.all` de propósito:
+    // executa em ~5 ms no servidor e é mais rápida que as que já estão aqui, então
+    // não acrescenta tempo perceptível ao carregamento da página.
+    prisma.$queryRawUnsafe<
+      { filial: string; cnpj: string; nome: string; atual: number; med: number }[]
+    >(
+      // A janela de comparação é resolvida dentro da própria consulta, e não
+      // numa chamada antes: buscá-la à parte custava uma ida e voltar serial
+      // (~130 ms) que atrasava a página inteira, já que o `Promise.all` só
+      // começa depois. Aqui ela é um InitPlan, calculado uma vez.
+      `WITH ref AS (
+         SELECT MAX(data) AS ultima FROM historico_vendas
+       ),
+       limites AS (
+         SELECT extract(day FROM ultima)::int AS dia_corte,
+                to_char(ultima, 'YYYY-MM') AS mes_corrente,
+                (date_trunc('month', ultima) - interval '${MESES_BASELINE} months')::date AS inicio
+           FROM ref
+       ),
+       janela AS (
+         SELECT h.filial, h.cnpj, MIN(h.nome) AS nome,
+                to_char(h.data, 'YYYY-MM') AS mes,
+                SUM(-h.quantidade)::float8 AS qtd
+           FROM historico_vendas h, limites l
+          WHERE h.cod_prod = $1
+            AND h.cnpj IS NOT NULL AND h.filial IS NOT NULL
+            AND h.data >= l.inicio
+            AND extract(day FROM h.data) <= l.dia_corte
+          GROUP BY 1, 2, 4
+       ),
+       comparado AS (
+         SELECT j.filial, j.cnpj, MIN(j.nome) AS nome,
+                SUM(j.qtd) FILTER (WHERE j.mes = l.mes_corrente) AS atual,
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY j.qtd)
+                  FILTER (WHERE j.mes < l.mes_corrente) AS med,
+                COUNT(*) FILTER (WHERE j.mes < l.mes_corrente) AS meses
+           FROM janela j, limites l GROUP BY 1, 2
+       )
+       SELECT filial, cnpj, nome, atual::float8, med::float8
+         FROM comparado
+        WHERE atual IS NOT NULL AND med > 0
+          AND meses >= ${MINIMO_MESES_HISTORICO}
+          AND atual >= ${MINIMO_UNIDADES_CLIENTE}
+          AND atual >= med * ${FATOR_CLIENTE}
+        ORDER BY filial, (atual - med) DESC`,
+      codigo
+    ),
   ]);
+
+  // Agrupa por CD para o card de cada filial receber só os seus.
+  const clientesPorFilial = new Map<string, ClienteAcelerando[]>();
+  for (const l of clientesLinhas) {
+    const lista = clientesPorFilial.get(l.filial) ?? [];
+    lista.push({
+      cnpj: l.cnpj,
+      cliente: l.nome,
+      atual: l.atual,
+      mediana: l.med,
+      excedente: l.atual - l.med,
+    });
+    clientesPorFilial.set(l.filial, lista);
+  }
 
   const bruto = resumoLinhas[0] ?? { plano: 0, em_aberto: 0, recebido: 0 };
   const resumo: ResumoMensal = {
@@ -324,6 +453,8 @@ export async function carregarDetalheProduto(
         estoqueChao: 0,
         armazens: [],
         estoqueTotal: 0,
+        // Já resolvido na criação da posição: o card só precisa ler.
+        clientesAcelerando: clientesPorFilial.get(filial) ?? [],
         vendidoMes: 0,
         comprasEmAberto: 0,
         pedidos: [],
@@ -389,6 +520,7 @@ export async function carregarDetalheProduto(
 
   return {
     ...produto,
+    refrigeracao: lerRefrigeracao(produto.usa_refrig),
     resumo,
     cia: consolidar(lista),
     filiais: lista,
@@ -434,11 +566,29 @@ function consolidar(filiais: PosicaoFilial[]): PosicaoFilial {
 
   const consumoDiario = forecastM0 && forecastM0 > 0 ? forecastM0 / DIAS_NO_MES : null;
 
+  // Na linha Cia o mesmo cliente pode ter comprado de mais de um CD: soma as
+  // parcelas em vez de repetir o nome. Sem isto o card consolidado apareceria
+  // acelerado e sem nenhum cliente para explicar.
+  const clientesCia = new Map<string, ClienteAcelerando>();
+  for (const f of filiais) {
+    for (const c of f.clientesAcelerando) {
+      const atual = clientesCia.get(c.cnpj);
+      if (atual) {
+        atual.atual += c.atual;
+        atual.mediana += c.mediana;
+        atual.excedente += c.excedente;
+      } else {
+        clientesCia.set(c.cnpj, { ...c });
+      }
+    }
+  }
+
   return {
     filial: "Cia",
     estoqueChao,
     armazens,
     estoqueTotal,
+    clientesAcelerando: [...clientesCia.values()].sort((a, b) => b.excedente - a.excedente),
     vendidoMes: somar((f) => f.vendidoMes),
     comprasEmAberto: somar((f) => f.comprasEmAberto),
     rotaCompra: null,

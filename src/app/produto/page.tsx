@@ -14,11 +14,27 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BuscaProduto } from "@/components/produto/busca-produto";
-import { buscarProdutos, listarProdutosComDados } from "@/lib/produto/consultas";
+import {
+  buscarProdutos,
+  lerRefrigeracao,
+  listarProdutosComDados,
+  type Refrigeracao,
+} from "@/lib/produto/consultas";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { dataBr, moedaCurta } from "@/lib/visao-geral/formato";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * "Não informado" em vez de "Não" para o que não é S nem N: a base tem 2.321
+ * itens com o valor "2", que é código de outra coisa. Afirmar que não precisam
+ * de frio seria uma conclusão sem respaldo sobre cadeia fria.
+ */
+const ROTULO_REFRIG: Record<Refrigeracao, string> = {
+  sim: "Sim",
+  nao: "Não",
+  desconhecido: "Não informado",
+};
 
 type SearchParams = { q?: string | string[] };
 
@@ -41,6 +57,7 @@ export default async function BuscaProdutoPage({
     codigo: string;
     descricao: string | null;
     marca: string | null;
+    usa_refrig: string | null;
     filiais?: number;
     estoque?: number;
   }[] = termo
@@ -86,6 +103,7 @@ export default async function BuscaProdutoPage({
                       <TableHead>Código</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead>Marca</TableHead>
+                      <TableHead>Refrigerado</TableHead>
                       {listagemPadrao ? (
                         <>
                           <TableHead className="text-right">Filiais</TableHead>
@@ -107,6 +125,7 @@ export default async function BuscaProdutoPage({
                         </TableCell>
                         <TableCell>{p.descricao ?? "—"}</TableCell>
                         <TableCell className="text-muted-foreground">{p.marca ?? "—"}</TableCell>
+                        <TableCell>{ROTULO_REFRIG[lerRefrigeracao(p.usa_refrig)]}</TableCell>
                         {listagemPadrao ? (
                           <>
                             <TableCell className="text-right font-mono tabular-nums">

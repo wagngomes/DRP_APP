@@ -6,6 +6,7 @@ import {
   TrendingDown,
   TrendingUp,
   Truck,
+  Users,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +15,7 @@ import { BadgeDias } from "@/components/produto/badge-dias";
 import { WorkflowRota } from "@/components/produto/workflow-rota";
 import type { PosicaoFilial } from "@/lib/produto/consultas";
 import { ROTULO_STATUS, calcularRitmo, type StatusRitmo } from "@/utils/ritmo-venda";
+import { ehCdVirtual } from "@/utils/cds-virtuais";
 
 function numero(v: number): string {
   return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
@@ -226,6 +228,56 @@ export function CardFilial({
             </div>
           </Tile>
         </div>
+
+        {/* Só aparece quando a venda deste CD está acelerada: em qualquer outro
+            ritmo, "quem comprou fora do padrão" é curiosidade, não explicação. */}
+        {ritmo.status === "acelerada" && posicao.clientesAcelerando.length > 0 ? (
+          <section className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 dark:border-red-500/25 dark:bg-red-950/20">
+            <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-red-700 dark:text-red-400">
+              <Users className="size-4" />
+              {`Quem puxou a aceleração (${posicao.clientesAcelerando.length})`}
+            </p>
+            <p className="mb-2 text-xs text-muted-foreground">
+              {ehCia
+                ? "Clientes que compraram acima do próprio padrão, somando todos os CDs."
+                : "Clientes que compraram acima do próprio padrão neste CD."}
+            </p>
+            <ul className="grid gap-1.5">
+              {posicao.clientesAcelerando.slice(0, 6).map((c) => (
+                <li
+                  key={c.cnpj}
+                  className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 rounded-md border bg-card px-2.5 py-1.5"
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs" title={c.cliente}>
+                    {c.cliente}
+                  </span>
+                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                    {`${numero(c.atual)} un · padrão ${numero(c.mediana)}`}
+                  </span>
+                  <span className="font-mono text-sm font-semibold tabular-nums text-red-700 dark:text-red-400">
+                    {`+${numero(c.excedente)}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {posicao.clientesAcelerando.length > 6 ? (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {`e mais ${posicao.clientesAcelerando.length - 6} cliente(s).`}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {/* Aceleração sem cliente identificado é informação, não ausência de
+            dado: quando o aumento está diluído entre muitos, o forecast é que
+            está defasado. Nos CDs virtuais é limite da base de origem. */}
+        {ritmo.status === "acelerada" && posicao.clientesAcelerando.length === 0 ? (
+          <p className="rounded-lg border border-dashed p-2.5 text-xs text-muted-foreground">
+            {ehCdVirtual(posicao.filial)
+              ? "O histórico de vendas não separa o armazém 11, então não há como atribuir esta aceleração a clientes deste CD."
+              : "Nenhum cliente isolado explica esta aceleração — o aumento está diluído entre vários, o que costuma indicar forecast defasado e não pedido pontual."}
+          </p>
+        ) : null}
 
         {!ehCia && posicao.rotaCompra ? (
           <p className="text-xs text-muted-foreground">

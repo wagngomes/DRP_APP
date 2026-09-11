@@ -1,7 +1,17 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, CalendarOff, ClipboardList, PackageCheck, ShoppingCart, Sigma } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarOff,
+  CircleHelp,
+  ClipboardList,
+  PackageCheck,
+  ShoppingCart,
+  Sigma,
+  Snowflake,
+  Sun,
+} from "lucide-react";
 
 import { auth } from "@/lib/auth";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -11,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { CardFilial } from "@/components/produto/card-filial";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { lerParametros } from "@/lib/parametros.server";
-import { carregarDetalheProduto } from "@/lib/produto/consultas";
+import { carregarDetalheProduto, type Refrigeracao } from "@/lib/produto/consultas";
 import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import { dataBr } from "@/lib/visao-geral/formato";
 
@@ -65,6 +75,47 @@ function CardResumo({
   );
 }
 
+/**
+ * Selo de cadeia fria.
+ *
+ * Três estados e não dois: 2.321 itens têm "2" na coluna `usa_refrig`, valor
+ * que não é nem S nem N e se concentra em produto para saúde (meias, seringas,
+ * chupetas). Desenhar o cadeado do "não" em cima disso afirmaria algo que o
+ * cadastro não diz. O estado desconhecido fica visível de propósito — é assim
+ * que o dado errado chega a quem pode corrigi-lo na origem.
+ */
+function SeloRefrigeracao({ estado }: { estado: Refrigeracao }) {
+  const selo = {
+    sim: {
+      Icone: Snowflake,
+      texto: "Refrigerado",
+      classe:
+        "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-300",
+    },
+    nao: {
+      Icone: Sun,
+      texto: "Temperatura ambiente",
+      classe: "border-transparent bg-muted text-muted-foreground",
+    },
+    desconhecido: {
+      Icone: CircleHelp,
+      texto: "Refrigeração não informada",
+      classe:
+        "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-400",
+    },
+  }[estado];
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${selo.classe}`}
+      title={selo.texto}
+    >
+      <selo.Icone className="size-3.5" aria-hidden />
+      {selo.texto}
+    </span>
+  );
+}
+
 export default async function ProdutoDetalhe({ params }: { params: Promise<Params> }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
@@ -99,9 +150,12 @@ export default async function ProdutoDetalhe({ params }: { params: Promise<Param
               <ArrowLeft className="size-4" />
               Buscar outro produto
             </Button>
-            <h1 className="text-2xl font-semibold text-(--brand-petrol) dark:text-foreground">
-              {detalhe.descricao ?? detalhe.codigo}
-            </h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold text-(--brand-petrol) dark:text-foreground">
+                {detalhe.descricao ?? detalhe.codigo}
+              </h1>
+              <SeloRefrigeracao estado={detalhe.refrigeracao} />
+            </div>
             <p className="text-muted-foreground">
               {[detalhe.codigo, detalhe.marca, detalhe.grupo, detalhe.unidade]
                 .filter(Boolean)
