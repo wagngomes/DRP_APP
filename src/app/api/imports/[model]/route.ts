@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getIdField, getImportModel, IMPORT_MODEL_KEYS } from "@/lib/imports/config";
+import { getIdField, getImportModel, getTableName, IMPORT_MODEL_KEYS } from "@/lib/imports/config";
 import { bulkLoadRecords } from "@/lib/imports/bulk-copy";
 import { decodificarCsv, parseCsvForModel, SkipTracker } from "@/lib/imports/csv";
 import { filterByReferences } from "@/lib/imports/references";
@@ -310,6 +310,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   const delegate = getDelegate(model.delegate);
   const { count } = await delegate.deleteMany(where ? { where } : undefined);
+
+  // Apagar também invalida as estatísticas: uma tabela que ficou muito menor
+  // continua sendo planejada como se fosse grande, e o efeito é o mesmo da
+  // importação sem ANALYZE — plano ruim, tela lenta.
+  try {
+    await prisma.$executeRawUnsafe(`ANALYZE "${getTableName(model)}"`);
+  } catch (erro) {
+    console.warn(`[import] ANALYZE após limpeza de ${model.key} falhou:`, erro);
+  }
 
   limparCacheReferencia();
 

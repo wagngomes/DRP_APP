@@ -143,7 +143,12 @@ Responda APENAS com JSON, sem texto antes ou depois:
 }
 
 "fracao" é a parte do saldo que entra nessa data (1 = todo o saldo). Datas relativas devem
-ser resolvidas contra a data de referência. Se a pergunta não puder ser convertida nesse
+ser resolvidas contra a data de referência.
+
+"dataEntrada" NUNCA pode ser anterior à data de referência: o saldo que ainda não foi
+colocado não tem como entrar no passado. Se a pergunta descrever algo já ocorrido — "colocamos
+ontem", "pedimos na semana passada" —, o que se simula é quando essa carga **chega**, e não
+quando foi pedida; use a data de referência ou a data futura que a pergunta indicar. Se a pergunta não puder ser convertida nesse
 tipo, responda {"erro": "explique em uma frase o que faltou"}.`;
 
   const resposta = await gerarTexto(SYSTEM, prompt);

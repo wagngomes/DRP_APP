@@ -239,6 +239,12 @@ export function PainelCenario({
             </CardHeader>
             <CardContent className="grid gap-3 text-sm">
               <p>{estado.interpretacao}</p>
+              {estado.avisoPremissa ? (
+                <p className="rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-xs">
+                  <span className="font-semibold">Premissa corrigida: </span>
+                  {estado.avisoPremissa}
+                </p>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Badge variant="secondary">{estado.fornecedor}</Badge>
                 <Badge variant="secondary">

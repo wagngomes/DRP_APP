@@ -78,6 +78,19 @@ describe("balancear", () => {
     expect(duas.faltaUnidades).toBe(uma.faltaUnidades);
   });
 
+  it("não perde carga datada antes da data de referência", () => {
+    // Bug real: a IA interpretou "colocamos ontem" como entrada em 09/09 com
+    // referência em 10/09. O laço começa na base, então a chegada anterior caía
+    // numa chave nunca visitada e a quantidade sumia — o cenário subestimava o
+    // que estava entrando, sem nenhum sinal.
+    const ontem = new Date(Date.UTC(2026, 8, 7));
+    const semCarga = balancear(50, 10, [], base, null);
+    const comCargaDeOntem = balancear(50, 10, [{ data: ontem, quantidade: 1000 }], base, null);
+    expect(iso(semCarga.dataRuptura)).toBe("2026-09-13");
+    // Com a carga tratada como disponível já no primeiro dia, não rompe.
+    expect(comCargaDeOntem.dataRuptura).toBeNull();
+  });
+
   it("aceita saída negativa, que é a origem de uma transferência", () => {
     // A ação de transferir tira do CD de origem no mesmo dia.
     // Restam 40 depois da saída; a 10 por dia isso zera no fim de 11/09 e fica

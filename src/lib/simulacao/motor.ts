@@ -148,6 +148,15 @@ export type PosicaoSimulada = {
 
 export type ResultadoSimulacao = {
   premissa: Premissa;
+  /**
+   * Preenchido quando a data da premissa precisou ser corrigida.
+   *
+   * Acontece quando a pergunta descreve algo no passado ("colocamos ontem") e a
+   * interpretação devolve uma data anterior à referência. Entrada futura que
+   * chega antes de hoje é contradição, e deixar passar produzia percurso inteiro
+   * datado no passado.
+   */
+  avisoPremissa?: string;
   /** Data de referência do sistema — início do balanço. */
   dataBase: string;
   posicoes: PosicaoSimulada[];
@@ -325,8 +334,13 @@ export function balancear(
   faltaUnidades: number;
 } {
   const porDia = new Map<number, number>();
+  const primeiroDia = dia(base);
   for (const c of chegadas) {
-    const k = dia(c.data);
+    // Chegada datada antes da base entra no primeiro dia, não some. O laço
+    // começa em `base`, então uma chave anterior nunca seria visitada e a
+    // quantidade desapareceria em silêncio — o cenário subestimaria o que
+    // está entrando sem dar nenhum sinal de que algo foi ignorado.
+    const k = Math.max(dia(c.data), primeiroDia);
     porDia.set(k, (porDia.get(k) ?? 0) + c.quantidade);
   }
 
@@ -379,8 +393,18 @@ export async function simular(
   acoes: Acao[] = []
 ): Promise<ResultadoSimulacao> {
   const base = new Date(`${data}T00:00:00.000Z`);
-  const entrada = new Date(`${premissa.dataEntrada}T00:00:00.000Z`);
+  const pedida = new Date(`${premissa.dataEntrada}T00:00:00.000Z`);
   const fracao = premissa.fracao ?? 1;
+
+  // O saldo ainda não foi colocado: ele não tem como entrar antes de hoje.
+  // Corrige para a data de referência e registra, em vez de simular o
+  // impossível — ou de recusar a análise inteira por causa de uma palavra.
+  const anterior = pedida.getTime() < base.getTime();
+  const entrada = anterior ? base : pedida;
+  const avisoPremissa = anterior
+    ? `A data informada (${premissa.dataEntrada}) é anterior à data de referência (${data}). ` +
+      `O saldo ainda não colocado não pode entrar no passado, então a simulação considerou a entrada a partir de ${data}.`
+    : undefined;
 
   const [posicoes, saldos, sla, chegadasAtuais] = await Promise.all([
     carregarPosicoes(data, premissa.fornecedor),
@@ -529,6 +553,7 @@ export async function simular(
 
   return {
     premissa,
+    avisoPremissa,
     dataBase: data,
     posicoes: simuladas,
     saldoTotal,

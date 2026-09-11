@@ -166,6 +166,27 @@ export async function bulkLoadRecords(
     }
 
     await client.query("COMMIT");
+
+    // ANALYZE logo após a carga, fora da transação.
+    //
+    // Sem isto o planejador continua com as estatísticas de antes da
+    // importação e subestima grosseiramente o snapshot novo. Aconteceu de
+    // verdade: com o simulador estimado em 1 linha quando tinha 13.191, o
+    // Postgres escolheu laço aninhado e comparou 78 milhões de pares de linhas
+    // — a tela de compras urgentes foi de 0,5 s para 25 s.
+    //
+    // O `autoanalyze` não é confiável aqui: o gatilho dele olha a proporção de
+    // linhas alteradas, e uma carga que apaga e reinsere a mesma ordem de
+    // grandeza nem sempre o dispara.
+    //
+    // Falha aqui não invalida a importação — os dados já foram gravados. Vira
+    // aviso no log, e o autoanalyze acaba corrigindo mais tarde.
+    try {
+      await client.query(`ANALYZE ${table}`);
+    } catch (erro) {
+      console.warn(`[import] ANALYZE de ${table} falhou:`, erro);
+    }
+
     return { insertedCount: rows.length, duplicatesInBatch };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});

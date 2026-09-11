@@ -88,6 +88,8 @@ export type ResultadoTela = {
   depois: ResumoCenario | null;
   /** Ações propostas que o motor não conseguiu aplicar, e por quê. */
   ignoradas: { descricao: string; motivo: string }[];
+  /** Correção aplicada à premissa, quando houve. */
+  avisoPremissa?: string;
 };
 
 export type EstadoCenario = ResultadoTela | { ok: false; erro: string } | null;
@@ -194,7 +196,11 @@ export async function rodarCenario(
     fornecedor,
     pergunta,
     interpretacao: interpretada.interpretacao,
-    dataEntrada: interpretada.premissa.dataEntrada,
+    // A data efetivamente simulada, que pode ter sido corrigida pelo motor.
+    dataEntrada: antes.premissa.dataEntrada < antes.dataBase
+      ? antes.dataBase
+      : interpretada.premissa.dataEntrada,
+    avisoPremissa: antes.avisoPremissa,
     dataBase: antes.dataBase,
     saldoTotal: antes.saldoTotal,
     itensComSaldo: antes.itensComSaldo,
