@@ -10,11 +10,97 @@
 # quem quer só rodar o sistema não deve carregar dois serviços a mais.
 #   docker compose up                              → banco + aplicação
 #   docker compose --profile observabilidade up    → tudo, com painel
+#
+# ---------------------------------------------------------------------------
+# Dimensionamento
+# ---------------------------------------------------------------------------
+# Os limites abaixo foram calculados para uma VPS de 2 vCPU e 8 GB, com até 15
+# usuários — e a partir de medições do banco real, não de estimativas:
+#
+#   banco inteiro        467 MB, crescendo ~5,6 MB por dia útil (~1,4 GB/ano)
+#   maior carga          historico_vendas: 187,5 MB brutos, 512.069 linhas
+#   latência atual       141ms por ida e volta ao Supabase em us-east-2
+#
+# Aquele último número é o motivo de tudo isto valer a pena: uma consulta real
+# leva 144ms, dos quais 141ms são rede e 3ms são banco. Com o Postgres nesta
+# mesma máquina a latência cai para frações de milissegundo, e as telas ficam
+# mais rápidas do que na nuvem — apesar dos 2 vCPU.
+#
+# A divisão da memória parte de onde está o risco. Não é a navegação: o banco
+# inteiro cabe em cache e o Node em regime usa ~300 MB. É a **importação de
+# CSV**, que mantém o arquivo na memória três vezes ao mesmo tempo — bytes
+# crus, texto decodificado e objetos parseados. Sobre os 187,5 MB da maior
+# base, isso dá algo como 180 MB de buffer + ~360 MB de string + ~600 MB de
+# objetos: pico na casa de 1,5 GB contando folga de coleta. Já derrubou este
+# sistema por falta de heap uma vez.
+#
+# Daí o heap declarado explicitamente em 2,5 GB. Sem limite dito, o Node
+# dimensiona sozinho pelo total da máquina e avança sobre o que o banco
+# precisa. E `IMPORTACAO_SIMULTANEA = 1`, no código, é o que garante que esse
+# pico aconteça uma vez por vez.
+#
+# Orçamento de 8 GB, com os tetos abaixo:
+#
+#   host + Docker        ~800 MB
+#   banco                   2 GB   (uso típico ~1,4 GB)
+#   aplicação               3 GB   (uso típico ~300 MB; 3 GB é o pico de carga)
+#   observabilidade       768 MB   (só no perfil, fora do `up` padrão)
+#   ------------------------------
+#   sobra                 ~1,4 GB  mesmo com tudo em pé
+#
+# São tetos, não reservas: os contêineres usam o que precisam. O teto existe
+# para que uma importação grande não mate o banco por OOM — e vice-versa.
+#
+# Vale criar 2 GB de swap no host. Em operação normal nunca será tocado; existe
+# para a importação grande degradar em vez de morrer.
 
 services:
   banco:
     image: postgres:17-alpine
     restart: unless-stopped
+    # 768 MB de cache para 467 MB de dados: o banco inteiro fica em memória, com
+    # 60% de folga para crescer. Passar disso não compraria nada — o que não
+    # cabe em 768 MB também não existe.
+    #
+    # `effective_cache_size` não reserva memória: só informa ao planner quanta
+    # existe. Sem isso ele subestima o cache e escolhe varredura sequencial onde
+    # o índice seria melhor.
+    #
+    # `max_connections=30` porque o pool do Prisma abre `vCPUs × 2 + 1` — cinco
+    # conexões nesta máquina. Trinta cobre a aplicação, as migrations e um psql
+    # aberto para inspeção, com folga. O teto importa porque `work_mem` é por
+    # operação de ordenação: 30 × 24 MB no pior caso são 720 MB, que somados aos
+    # 768 MB de cache cabem nos 2 GB do contêiner. Com os 100 conexões e 32 MB
+    # do padrão, o pior caso passaria do teto e o banco morreria por OOM
+    # justamente sob carga.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=768MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=24MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=30
+      # Importação usa COPY em lote: checkpoints mais espaçados evitam que a
+      # carga pare para gravar a cada poucos megabytes.
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - checkpoint_completion_target=0.9
+      # NVMe: acesso aleatório custa quase o mesmo que sequencial. O padrão 4.0
+      # é de disco mecânico e empurra o planner para longe dos índices.
+      - -c
+      - random_page_cost=1.1
+    mem_limit: 2g
+    # O padrão do Docker para /dev/shm é 64 MB, e o Postgres aloca memória
+    # compartilhada dinâmica ali para query paralela. No padrão, uma agregação
+    # grande falha com "could not resize shared memory segment" — erro que só
+    # aparece sob volume, que é exatamente quando ninguém quer descobri-lo.
+    shm_size: 256mb
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-drp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-drp_local}
@@ -58,6 +144,18 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Heap declarado, e não deixado ao critério do Node: o padrão é calculado
+      # sobre a memória total da máquina e ignora que o Postgres também mora
+      # aqui. 2,5 GB cobrem com folga o pico medido da maior importação (~1,5
+      # GB) e deixam espaço para a base crescer.
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=2560}
+    mem_limit: 3g
+    # Sem limite de CPU de propósito. São dois serviços e dois vCPUs: em regime,
+    # o Node ocupa um núcleo para o JavaScript e o Postgres o outro. Os dois só
+    # disputam de verdade durante uma importação — o parse do CSV de um lado, o
+    # COPY do outro — e é justamente aí que limitar faria a carga demorar mais
+    # sem proteger nada. A tela fica lenta nesse intervalo; é o preço conhecido
+    # de 2 vCPU, e vale pagá-lo uma vez por manhã.
     ports:
       - "${APP_PORT:-3000}:3000"
     depends_on:
@@ -73,6 +171,7 @@ services:
     image: prom/prometheus:v3.1.0
     profiles: ["observabilidade"]
     restart: unless-stopped
+    mem_limit: 384m
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=15d"
@@ -86,6 +185,7 @@ services:
     image: grafana/grafana:11.5.1
     profiles: ["observabilidade"]
     restart: unless-stopped
+    mem_limit: 384m
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
