@@ -33,6 +33,55 @@ há nada aqui que precise desse poder.
 > conhecido e aceitável para quem administra a máquina; o que se evita é a
 > **aplicação** rodar como root, e o contêiner já usa usuário sem privilégio.
 
+## 1b. Proteger o SSH
+
+Obrigatório quando o acesso é **por senha**. Com chave, o SSH só aceita quem tem
+o arquivo; com senha, aceita quem adivinhar — e numa VPS nova as tentativas de
+força bruta começam em minutos, vindas de varreduras automáticas.
+
+```bash
+sudo apt update && sudo apt install -y fail2ban
+
+sudo tee /etc/fail2ban/jail.local >/dev/null <<'FIM'
+[sshd]
+enabled  = true
+# Cinco erros em dez minutos = uma hora de banimento. Suficiente para tornar a
+# força bruta inviável (milhões de tentativas viram dezenas por dia) e folgado
+# o bastante para quem só errou a senha duas vezes.
+maxretry = 5
+findtime = 10m
+bantime  = 1h
+# Reincidente fica mais tempo fora: quem tentou, foi banido e voltou a tentar
+# não está errando a senha.
+bantime.increment = true
+bantime.factor    = 4
+bantime.maxtime   = 1w
+FIM
+
+sudo systemctl enable --now fail2ban
+sudo fail2ban-client status sshd     # confere que a jaula está ativa
+```
+
+O `deploy/firewall.sh` já aplica `ufw limit 22/tcp`, que é uma segunda camada:
+barra IP que abre conexões demais em pouco tempo, antes mesmo de o SSH pedir
+senha.
+
+Duas medidas que valem a pena, mas exigem decisão:
+
+**Trocar a porta do SSH** (ex.: 2222) não é segurança de verdade — quem procura
+acha —, mas tira do log 95% do ruído das varreduras automáticas, o que faz uma
+tentativa real ficar visível. Se fizer, ajuste o firewall junto, **na mesma
+sessão**, e teste em outra janela antes de fechar.
+
+**Acessar por um usuário comum em vez de root.** Força um passo a mais para
+quem entra: precisa acertar o usuário *e* a senha, e a conta não tem poder
+imediato. Com `PermitRootLogin no`, o alvo mais óbvio some.
+
+> Adicionar chave SSH continua possível depois, pelo painel da Hostinger ou
+> copiando a chave pública para `~/.ssh/authorized_keys`. Ela funciona de
+> quantas máquinas você quiser — basta uma chave por máquina, ou a mesma chave
+> copiada. Não é preciso escolher entre chave e acesso de vários lugares.
+
 ## 2. Docker
 
 ```bash
