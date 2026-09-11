@@ -13,11 +13,21 @@ datasource db {
 }
 
 model User {
+  // `role` guarda "admin" ou "user" — os dois únicos papéis do sistema.
+  //
+  // Texto e não enum de propósito: o Better Auth lê e escreve este campo como
+  // campo adicional do usuário, e um enum do Postgres exigiria migração a cada
+  // papel novo. A validação do valor vive em `src/lib/autorizacao.ts`, que é
+  // quem o sistema inteiro consulta.
+  //
+  // O padrão é "user": conta nova não nasce podendo. Promover é ato explícito,
+  // feito na tela de usuários ou pelo script de primeiro acesso.
   id            String    @id
   name          String
   email         String
   emailVerified Boolean   @default(false)
   image         String?
+  role          String    @default("user")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   sessions      Session[]

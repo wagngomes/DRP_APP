@@ -1,9 +1,8 @@
 "use server";
 
-import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { exigirAdminOuErro } from "@/lib/autorizacao";
 import { gerarAnalise, prepararEntrada } from "@/lib/ia/analise";
 import { montarResultado } from "@/lib/ia/resultado";
 import { gravarAnalise, lerAnalise } from "@/lib/ia/persistencia";
@@ -19,8 +18,10 @@ import { lerCoberturas, lerParametros } from "@/lib/parametros.server";
 export async function gerarAnaliseCockpit(): Promise<
   { ok: true; itens: number } | { ok: false; erro: string }
 > {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return { ok: false, erro: "Não autenticado" };
+  // Gerar análise consome a API do modelo e custa dinheiro por chamada: é o
+  // recurso mais caro do sistema e o que mais precisa de dono.
+  const autorizado = await exigirAdminOuErro();
+  if (!autorizado.ok) return { ok: false, erro: autorizado.erro };
 
   const [data, parametros, coberturas] = await Promise.all([
     lerDataReferencia(),

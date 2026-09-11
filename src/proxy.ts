@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
 
+import { registrar } from "@/lib/seguranca/auditoria";
 import { NAVEGACAO } from "@/lib/seguranca/limites";
 import { origemDaRequisicao, verificarCamadas } from "@/lib/seguranca/rate-limit";
 
@@ -22,6 +23,7 @@ export function proxy(request: NextRequest) {
   const origem = origemDaRequisicao(request.headers);
   const veredito = verificarCamadas(`nav:${origem}`, NAVEGACAO);
   if (!veredito.permitido) {
+    registrar("limite_excedido", { origem, detalhe: `navegação em ${pathname}` });
     return new NextResponse("Requisições demais. Tente novamente em instantes.", {
       status: 429,
       headers: {

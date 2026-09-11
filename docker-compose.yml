@@ -44,10 +44,11 @@
 #   host + Docker        ~800 MB
 #   banco                   2 GB   (uso típico ~1,4 GB)
 #   aplicação               3 GB   (uso típico ~300 MB; 3 GB é o pico de carga)
+#   backup                512 MB   (dorme quase o tempo todo)
 #   vigia                  64 MB
 #   observabilidade       768 MB   (só no perfil, fora do `up` padrão)
 #   ------------------------------
-#   sobra                 ~1,3 GB  mesmo com tudo em pé
+#   sobra                 ~800 MB  mesmo com tudo em pé
 #
 # São tetos, não reservas: os contêineres usam o que precisam. O teto existe
 # para que uma importação grande não mate o banco por OOM — e vice-versa.
@@ -167,8 +168,18 @@ services:
     # COPY do outro — e é justamente aí que limitar faria a carga demorar mais
     # sem proteger nada. A tela fica lenta nesse intervalo; é o preço conhecido
     # de 2 vCPU, e vale pagá-lo uma vez por manhã.
+    # Escuta só no próprio host, não em 0.0.0.0.
+    #
+    # Com `"3000:3000"` o Docker abre a porta para a internet inteira, e o
+    # proxy reverso na frente vira decoração: qualquer um acessa
+    # http://IP-DA-VPS:3000 e conversa direto com a aplicação, sem TLS e sem os
+    # limites do nginx. O firewall do sistema também não salva — o Docker
+    # escreve as próprias regras no iptables, antes das do ufw.
+    #
+    # Prefixado com 127.0.0.1, o único que alcança a aplicação é o nginx
+    # rodando na mesma máquina.
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:3000"
     depends_on:
       banco:
         condition: service_healthy
@@ -177,6 +188,34 @@ services:
     # Encerramento gracioso: o Node recebe SIGTERM via dumb-init e tem 30s para
     # concluir o que está em curso antes do SIGKILL.
     stop_grace_period: 30s
+
+  backup:
+    # Dump diário do banco, com retenção.
+    #
+    # Mesma imagem do banco, porque `pg_dump` precisa ser da mesma versão do
+    # servidor — um dump feito por cliente mais antigo falha ou sai incompleto,
+    # e descobrir isso na hora de restaurar é tarde.
+    #
+    # Não expõe porta, não recebe requisição, não tem healthcheck: é um laço que
+    # dorme e acorda. Se o contêiner morrer, `unless-stopped` o traz de volta e
+    # o primeiro ciclo roda na subida.
+    image: postgres:17-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      PGHOST: banco
+      PGUSER: ${POSTGRES_USER:-drp}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-drp_local}
+      PGDATABASE: ${POSTGRES_DB:-drp_ai}
+      RETENCAO_DIAS: ${BACKUP_RETENCAO_DIAS:-14}
+      INTERVALO_SEGUNDOS: ${BACKUP_INTERVALO_SEGUNDOS:-86400}
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - dados_backup:/backups
+    depends_on:
+      banco:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/backup.sh"]
 
   vigia:
     # Reinicia contêiner que ficou `unhealthy`.
@@ -254,5 +293,10 @@ services:
 
 volumes:
   dados_postgres:
+  # Volume separado do banco de propósito: backup guardado dentro do volume de
+  # dados desaparece junto com ele, que é exatamente o caso contra o qual o
+  # backup existe. Ainda assim mora na mesma máquina — cópia para fora do host
+  # continua sendo necessária, e está anotada no README-operacao.md.
+  dados_backup:
   dados_prometheus:
   dados_grafana:

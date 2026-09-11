@@ -3,7 +3,10 @@ import { z } from "zod";
 export const signUpSchema = z.object({
   name: z.string().trim().min(2, "Informe seu nome completo"),
   email: z.email("E-mail inválido"),
-  password: z.string().min(8, "A senha deve ter no mínimo 8 caracteres"),
+  // Espelha `minPasswordLength` em `lib/auth.ts`. Divergir aqui faria o
+  // formulário aceitar uma senha que o servidor recusa, e a pessoa veria um
+  // erro genérico sem saber o que corrigir.
+  password: z.string().min(12, "A senha deve ter no mínimo 12 caracteres"),
 });
 
 export type SignUpInput = z.infer<typeof signUpSchema>;

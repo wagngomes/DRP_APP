@@ -1,9 +1,7 @@
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { UploadCloud } from "lucide-react";
+import { ShieldAlert, UploadCloud } from "lucide-react";
 
-import { auth } from "@/lib/auth";
+import { exigirSessao } from "@/lib/autorizacao";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,12 +15,17 @@ import { descreverEscopo } from "@/lib/data-referencia";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { IMPORT_MODELS } from "@/lib/imports/config";
 
-export default async function Home() {
-  const session = await auth.api.getSession({ headers: await headers() });
-
-  if (!session) {
-    redirect("/login");
-  }
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ negado?: string | string[] }>;
+}) {
+  const sessao = await exigirSessao();
+  // `exigirAdmin()` manda para cá com esta marca quando alguém de consulta
+  // tenta abrir uma tela restrita. Sem o aviso, a pessoa só veria o Painel
+  // aparecer do nada e concluiria que o sistema falhou.
+  const params = await searchParams;
+  const negado = (Array.isArray(params.negado) ? params.negado[0] : params.negado) === "1";
 
   const [dataReferencia, parametros, coberturas] = await Promise.all([
     lerDataReferencia(),
@@ -36,11 +39,31 @@ export default async function Home() {
   const afetadas = IMPORT_MODELS.filter((model) => model.snapshotScope);
 
   return (
-    <DashboardShell user={{ name: session.user.name, email: session.user.email }}>
+    <DashboardShell
+      user={{ name: sessao.usuario.name, email: sessao.usuario.email }}
+      papel={sessao.usuario.papel}
+    >
       <div className="space-y-6">
+        {negado ? (
+          <Card className="border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40">
+            <CardContent className="flex items-start gap-3 py-4">
+              <ShieldAlert className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-400" />
+              <div>
+                <p className="font-medium text-amber-900 dark:text-amber-200">
+                  Essa tela exige perfil de administrador
+                </p>
+                <p className="text-sm text-amber-800 dark:text-amber-300">
+                  Cockpit, cenários, exportações e gestão de usuários são restritos. Peça a um
+                  administrador para alterar seu perfil, se precisar de acesso.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <div>
           <h1 className="text-2xl font-semibold text-(--brand-petrol)">
-            Olá, {session.user.name.split(" ")[0]}
+            Olá, {sessao.usuario.name.split(" ")[0]}
           </h1>
           <p className="text-muted-foreground">
             Visão geral do abastecimento e riscos de ruptura da sua rede.

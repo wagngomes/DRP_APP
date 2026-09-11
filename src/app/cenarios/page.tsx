@@ -1,7 +1,5 @@
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 
-import { auth } from "@/lib/auth";
+import { exigirAdmin } from "@/lib/autorizacao";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { PainelCenario } from "@/components/cenarios/painel-cenario";
@@ -19,8 +17,7 @@ export default async function Cenarios({
 }: {
   searchParams: Promise<{ analise?: string | string[] }>;
 }) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) redirect("/login");
+  const sessao = await exigirAdmin();
 
   const params = await searchParams;
   const analiseId = (Array.isArray(params.analise) ? params.analise[0] : params.analise)?.trim();
@@ -34,7 +31,10 @@ export default async function Cenarios({
   ]);
 
   return (
-    <DashboardShell user={{ name: session.user.name, email: session.user.email }}>
+    <DashboardShell
+      user={{ name: sessao.usuario.name, email: sessao.usuario.email }}
+      papel={sessao.usuario.papel}
+    >
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

@@ -179,15 +179,54 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 }
 
+/**
+ * Teto do arquivo de importação.
+ *
+ * A maior base já carregada tem 162 MB, e o teto fica em quase o dobro para não
+ * barrar crescimento normal. Existe porque o parser mantém o arquivo na memória
+ * três vezes ao mesmo tempo — bytes crus, texto decodificado e objetos — o que
+ * dá um pico perto de 1,5 GB para 187 MB de dados. Sem teto, um arquivo de
+ * poucos gigabytes derruba o processo por falta de heap, e o servidor tem 8 GB
+ * divididos com o banco.
+ *
+ * Recusar é melhor que morrer: quem enviou recebe 413 com o tamanho, em vez de
+ * ver o sistema inteiro cair para todo mundo.
+ */
+export const TAMANHO_MAXIMO_BYTES = 300 * 1024 * 1024;
+
+function mb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+}
+
+function erroDeTamanho(bytes: number): string {
+  return (
+    `Arquivo de ${mb(bytes)} — o limite é ${mb(TAMANHO_MAXIMO_BYTES)}. ` +
+    "Divida a carga em partes ou fale com o administrador."
+  );
+}
+
 /** Corpo da importação, separado para o controle de concorrência envolvê-lo. */
 async function executarImportacao(
   request: NextRequest,
   model: NonNullable<ReturnType<typeof getImportModel>>
 ) {
+  // Recusa pelo cabeçalho antes de ler o corpo: com `formData()` o arquivo
+  // inteiro já entrou na memória, e aí o dano de um envio grande demais está
+  // feito. `content-length` é do cliente e pode mentir, então o tamanho real é
+  // conferido de novo logo abaixo — este teste barato evita o caso comum.
+  const anunciado = Number(request.headers.get("content-length") ?? 0);
+  if (anunciado > TAMANHO_MAXIMO_BYTES) {
+    return NextResponse.json({ error: erroDeTamanho(anunciado) }, { status: 413 });
+  }
+
   const formData = await request.formData().catch(() => null);
   const file = formData?.get("file");
   if (!file || typeof file === "string") {
     return NextResponse.json({ error: "Envie um arquivo CSV" }, { status: 400 });
+  }
+
+  if (file.size > TAMANHO_MAXIMO_BYTES) {
+    return NextResponse.json({ error: erroDeTamanho(file.size) }, { status: 413 });
   }
 
   const csvText = decodificarCsv(await file.arrayBuffer());

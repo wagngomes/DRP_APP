@@ -1,9 +1,8 @@
 "use server";
 
-import { headers } from "next/headers";
 import { z } from "zod";
 
-import { auth } from "@/lib/auth";
+import { exigirAdminOuErro } from "@/lib/autorizacao";
 import { prisma } from "@/lib/prisma";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 
@@ -24,8 +23,12 @@ const Entrada = z.object({
 export async function marcarTarefa(
   entrada: z.input<typeof Entrada>
 ): Promise<{ ok: true; feito: boolean; por: string } | { ok: false; erro: string }> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return { ok: false, erro: "Não autenticado" };
+  // Administrador, e não apenas sessão: o checklist é do cockpit, que é
+  // restrito. A tela já não aparece para quem é consulta, mas Server Action é
+  // um endpoint — e endpoint que confia na interface para se proteger não está
+  // protegido.
+  const autorizado = await exigirAdminOuErro();
+  if (!autorizado.ok) return { ok: false, erro: autorizado.erro };
 
   const parsed = Entrada.safeParse(entrada);
   if (!parsed.success) return { ok: false, erro: "Dados inválidos" };
@@ -33,7 +36,7 @@ export async function marcarTarefa(
 
   const data = await lerDataReferencia();
   const dataSnapshot = new Date(`${data}T00:00:00.000Z`);
-  const por = session.user.name || session.user.email;
+  const por = autorizado.sessao.usuario.name || autorizado.sessao.usuario.email;
 
   if (feito) {
     // Upsert e não create: dois analistas podem clicar na mesma linha quase

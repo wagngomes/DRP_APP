@@ -182,3 +182,135 @@ do banco. Na prática ela se recupera — o Prisma reconecta na consulta seguint
 estiver reiniciando em laço, só o `docker compose ps` ou o painel do Grafana
 mostram. Um alerta no Prometheus sobre `restarts` resolveria, e ainda não
 existe.
+
+## Contas e acesso
+
+Dois papéis: **administrador** opera o sistema (cockpit, cenários, exportação,
+gestão de usuários); **consulta** vê as telas de análise. Conta nova nasce como
+consulta — poder é concedido, não herdado.
+
+### Primeiro acesso num banco vazio
+
+Ninguém é administrador, e a tela que promove alguém exige ser administrador.
+A porta de fora:
+
+```bash
+npm run admin -- pessoa@empresa.com.br      # promove
+npm run admin -- --listar                   # mostra todas as contas
+```
+
+Na VPS, sem precisar do repositório:
+
+```bash
+docker compose exec banco psql -U drp -d drp_ai   -c "UPDATE \"user\" SET role='admin' WHERE email='pessoa@empresa.com.br'"
+```
+
+Depois de promover, é preciso sair e entrar de novo para a sessão recarregar.
+
+### Quem pode criar conta
+
+O formulário de cadastro é público. Duas travas, que respondem a perguntas
+diferentes:
+
+| Variável | Pergunta que responde |
+|---|---|
+| `EMAIL_DOMINIOS_PERMITIDOS` | Essa pessoa é da empresa? |
+| `EXIGIR_EMAIL_VERIFICADO` | Esse endereço é mesmo dela? |
+
+A primeira é a que fecha o buraco: confirmar um e-mail do Gmail prova que a
+caixa existe, não que a pessoa pertence à companhia — e a conta criada enxerga
+estoque, vendas, fornecedores e clientes.
+
+### Ligar a verificação de e-mail
+
+Depende de o domínio estar verificado no Resend. Com o remetente de sandbox
+(`onboarding@resend.dev`), a mensagem **só chega ao dono da conta Resend** — as
+demais pessoas se cadastram e nunca recebem o link, sem erro visível.
+
+1. No Resend, adicionar o domínio; ele exibe os registros DNS (SPF, DKIM e o de
+   retorno)
+2. Colar esses registros na zona DNS do provedor do domínio
+3. Aguardar a verificação no painel do Resend
+4. No `.env`: `EMAIL_FROM="DRP_AI <nao-responda@seudominio.com.br>"` e
+   `EXIGIR_EMAIL_VERIFICADO="true"`
+
+## Backup
+
+O serviço `backup` roda `pg_dump -Fc` a cada 24h no volume `dados_backup`, com
+14 dias de retenção. Um dump roda na subida do contêiner, para configuração
+errada aparecer na hora e não no dia seguinte.
+
+```bash
+docker compose logs backup                              # acompanhar
+docker compose exec backup ls -lh /backups              # listar
+```
+
+### Restaurar
+
+```bash
+docker compose exec backup   pg_restore -d drp_ai --clean --if-exists /backups/drp_ai-AAAAMMDD-HHMMSS.dump
+```
+
+O formato custom também permite trazer **uma tabela só**, que é o caso comum
+quando uma importação estraga uma base:
+
+```bash
+docker compose exec backup   pg_restore -d drp_ai --clean --if-exists -t simulador /backups/ARQUIVO.dump
+```
+
+### Duas coisas que ainda faltam
+
+**Cópia fora do host.** O volume mora na mesma máquina do banco. Perder a VPS é
+perder os dois. Um `rsync` ou `rclone` do volume para outro lugar fecha isso.
+
+**Restauração testada.** Backup que nunca foi restaurado não é backup — é um
+arquivo com nome bonito. Vale fazer uma vez, contra um banco descartável, e
+anotar quanto tempo levou.
+
+## Registro de eventos de segurança
+
+Login, falha de login, cadastro bloqueado, troca de papel, acesso negado e teto
+de requisições saem em JSON no stdout da aplicação, prefixados com `SEGURANCA`:
+
+```bash
+docker compose logs app | grep SEGURANCA
+```
+
+Vai para stdout e não para uma tabela de propósito: sobrevive quando o banco é o
+que está com problema, e nenhuma ação da aplicação consegue apagar o próprio
+rastro. Nenhum segredo, senha ou token é registrado.
+
+## Quando a importação "trava"
+
+Sintoma: a barra de progresso chega ao fim e congela, sem mensagem de erro.
+Quase sempre **não é travamento, é `413`** — o arquivo passou do limite, o
+servidor fechou a conexão e o navegador seguiu enviando sem perceber.
+
+Há três limites em série, e todos precisam concordar:
+
+| Onde | Diretiva | Valor | Se for menor |
+|---|---|---|---|
+| nginx | `client_max_body_size` | 300m | 413 que parece travamento |
+| Aplicação | `TAMANHO_MAXIMO_BYTES` | 300 MB | 413 com mensagem clara |
+| nginx | `proxy_read_timeout` | 600s | 504 no meio da carga |
+
+**O padrão do nginx é 1 MB** — sem a linha no arquivo de configuração, toda
+importação morre.
+
+O firewall não entra nessa lista: o ufw decide por porta, no início da conexão,
+e não olha o que trafega depois. Upload grande não é problema dele.
+
+Dois outros culpados possíveis, se o sintoma persistir:
+
+- **Cloudflare na frente** limita o corpo da requisição a 100 MB nos planos
+  gratuitos, e o erro chega antes de o nginx ver qualquer coisa.
+- **Importação simultânea**: `IMPORTACAO_SIMULTANEA = 1` faz a segunda carga
+  esperar. É proposital — cada arquivo grande tem pico perto de 1,5 GB de
+  memória — mas para quem enviou parece lentidão sem explicação.
+
+Para descobrir qual é, a ordem é olhar o log do nginx primeiro:
+
+```bash
+sudo tail -f /var/log/nginx/error.log        # 413 e 504 aparecem aqui
+docker compose logs -f app | grep -i import  # o que a aplicação viu
+```

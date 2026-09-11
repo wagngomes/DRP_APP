@@ -1,5 +1,3 @@
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -14,7 +12,7 @@ import {
   Wallet,
 } from "lucide-react";
 
-import { auth } from "@/lib/auth";
+import { exigirAdmin } from "@/lib/autorizacao";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -128,8 +126,7 @@ export default async function Cockpit({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) redirect("/login");
+  const sessao = await exigirAdmin();
   const params = await searchParams;
 
   const [data, parametros, coberturas] = await Promise.all([
@@ -199,7 +196,10 @@ export default async function Cockpit({
   }));
 
   return (
-    <DashboardShell user={{ name: session.user.name, email: session.user.email }}>
+    <DashboardShell
+      user={{ name: sessao.usuario.name, email: sessao.usuario.email }}
+      papel={sessao.usuario.papel}
+    >
       <div className="space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

@@ -18,6 +18,7 @@ import {
   Shuffle,
   Sparkles,
   UploadCloud,
+  Users,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -31,9 +32,16 @@ type DashboardUser = {
   email: string;
 };
 
+/**
+ * `admin: true` esconde o item de quem é apenas consulta.
+ *
+ * Esconder não é proteger: a proteção de verdade está em `exigirAdmin()`, no
+ * servidor, e continua valendo para quem digitar a URL na mão. Isto é cortesia
+ * de interface — não oferecer a porta que vai bater na cara de quem abrir.
+ */
 const NAV_ITEMS = [
   { label: "Painel", icon: LayoutDashboard, href: "/" },
-  { label: "Cockpit", icon: Sparkles, href: "/cockpit" },
+  { label: "Cockpit", icon: Sparkles, href: "/cockpit", admin: true },
   { label: "Visão geral", icon: BarChart3, href: "/visao-geral" },
   { label: "Disponibilidade", icon: Gauge, href: "/disponibilidade" },
   { label: "Produto", icon: Package, href: "/produto" },
@@ -41,16 +49,24 @@ const NAV_ITEMS = [
   { label: "Triangulações", icon: Shuffle, href: "/triangulacoes" },
   { label: "Compras urgentes", icon: ShoppingCart, href: "/compras-urgentes" },
   { label: "Aceleração", icon: Flame, href: "/aceleracao" },
-  { label: "Cenários", icon: FlaskConical, href: "/cenarios" },
+  { label: "Cenários", icon: FlaskConical, href: "/cenarios", admin: true },
   { label: "Importar CSV", icon: UploadCloud, href: "/uploads" },
+  { label: "Usuários", icon: Users, href: "/usuarios", admin: true },
   { label: "Configurações", icon: Settings, href: null },
 ];
 
 export function DashboardShell({
   user,
+  papel = "user",
   children,
 }: {
   user: DashboardUser;
+  /**
+   * Papel de quem está na tela. O padrão é o menor privilégio: uma página que
+   * esqueça de passar a propriedade esconde itens de administrador em vez de
+   * revelá-los a quem não deve ver.
+   */
+  papel?: "admin" | "user";
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -105,7 +121,7 @@ export function DashboardShell({
 
         {/* Rola só o menu, caso um dia os itens não caibam na altura da janela. */}
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.filter((item) => !item.admin || papel === "admin").map((item) => (
             <button
               key={item.label}
               type="button"

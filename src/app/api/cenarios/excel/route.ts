@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { auth } from "@/lib/auth";
+import { exigirAdminOuErro } from "@/lib/autorizacao";
 import type { ResultadoTela } from "@/app/actions/cenario";
 import { gerarPlanilhaCenario, nomeArquivoCenario } from "@/lib/simulacao/planilha";
 import { exportarCenarioSchema } from "@/lib/openapi";
@@ -8,13 +8,17 @@ import { exportarCenarioSchema } from "@/lib/openapi";
 /**
  * Download do cenário em Excel.
  *
- * Fina de propósito: sessão, leitura da entrada e resposta. Toda a montagem e a
- * formatação ficam em `lib/simulacao/planilha.ts`, onde dá para testar sem HTTP.
+ * Fina de propósito: autorização, leitura da entrada e resposta. Toda a montagem
+ * e a formatação ficam em `lib/simulacao/planilha.ts`, onde dá para testar sem
+ * HTTP.
+ *
+ * Exporta dado para fora do sistema, onde nenhum controle daqui alcança mais —
+ * por isso exige administrador, e não só sessão.
  */
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  const autorizado = await exigirAdminOuErro();
+  if (!autorizado.ok) {
+    return NextResponse.json({ error: autorizado.erro }, { status: autorizado.status });
   }
 
   const form = await request.formData();

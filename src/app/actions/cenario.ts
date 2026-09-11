@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 
 import { revalidatePath } from "next/cache";
 
-import { auth } from "@/lib/auth";
+import { exigirAdminOuErro } from "@/lib/autorizacao";
 import { prisma } from "@/lib/prisma";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { lerParametros } from "@/lib/parametros.server";
@@ -142,8 +142,8 @@ export async function rodarCenario(
   _anterior: EstadoCenario,
   form: FormData
 ): Promise<EstadoCenario> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return { ok: false, erro: "Sessão expirada. Entre novamente." };
+  const autorizado = await exigirAdminOuErro();
+  if (!autorizado.ok) return { ok: false, erro: autorizado.erro };
 
   const fornecedor = String(form.get("fornecedor") ?? "").trim();
   const pergunta = String(form.get("pergunta") ?? "").trim();
@@ -265,6 +265,12 @@ export type CenarioResumo = {
 };
 
 export async function listarCenarios(limite = 24): Promise<CenarioResumo[]> {
+  // Sem verificação nenhuma até aqui: a lista só era alcançada pela página, que
+  // exige sessão, e isso bastava enquanto todo mundo tinha o mesmo acesso.
+  // Deixou de bastar — Server Action é um endpoint, e endpoint sem porteiro
+  // depende de ninguém achar o caminho.
+  if (!(await exigirAdminOuErro()).ok) return [];
+
   const linhas = await prisma.cenarioSalvo.findMany({
     orderBy: { createdAt: "desc" },
     take: limite,
@@ -307,6 +313,8 @@ export async function listarCenarios(limite = 24): Promise<CenarioResumo[]> {
  * foi guardado — e vazio é honesto: quer dizer "não sei", não "não havia".
  */
 export async function carregarCenario(id: string): Promise<ResultadoTela | null> {
+  if (!(await exigirAdminOuErro()).ok) return null;
+
   const linha = await prisma.cenarioSalvo.findUnique({
     where: { id },
     select: { resultado: true },
@@ -334,8 +342,7 @@ export async function carregarCenario(id: string): Promise<ResultadoTela | null>
 }
 
 export async function excluirCenario(form: FormData): Promise<void> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return;
+  if (!(await exigirAdminOuErro()).ok) return;
 
   const id = String(form.get("id") ?? "");
   if (!id) return;
