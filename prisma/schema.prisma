@@ -144,7 +144,9 @@ model Fornecedores {
   // Filiais: dispensa id artificial e o import descarta repetições do CSV.
   fornecedor             String   @id
   createdAt              DateTime @default(now())
-  /** Nome padronizado, usado em toda a aplicação. */
+  /**
+   * Nome padronizado, usado em toda a aplicação.
+   */
   fornecedor_normalizado String?
 
   @@index([fornecedor_normalizado])
@@ -162,16 +164,16 @@ model CenarioSalvo {
   //
   // Os campos soltos ao lado existem só para o card da lista: sem eles, montar
   // a lista exigiria abrir e percorrer o JSON de cada análise.
-  id               String   @id @default(cuid())
-  createdAt        DateTime @default(now())
-  fornecedor       String
-  pergunta         String
-  data_base        DateTime @db.Date
-  data_entrada     DateTime @db.Date
-  rompem           Int
-  dias_descobertos Int
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  fornecedor        String
+  pergunta          String
+  data_base         DateTime @db.Date
+  data_entrada      DateTime @db.Date
+  rompem            Int
+  dias_descobertos  Int
   unidades_faltando Int
-  resultado        Json
+  resultado         Json
 
   @@index([createdAt])
   @@map("cenario_salvo")
@@ -346,11 +348,17 @@ model Forecast {
   codigo                 String?
   filial                 String?
   rota_compra            String?
-  /** Classificação ABC do item (A, B ou C). */
+  /**
+   * Classificação ABC do item (A, B ou C).
+   */
   curva                  String?
-  /** Unidade de negócio do item. */
+  /**
+   * Unidade de negócio do item.
+   */
   b_u                    String?
-  /** Analista responsável pelo item no planejamento. */
+  /**
+   * Analista responsável pelo item no planejamento.
+   */
   analista               String?
   forecast_m0            Decimal? @db.Decimal(24, 10)
   forecast_m0_atualizado Decimal? @db.Decimal(24, 10)
@@ -588,4 +596,36 @@ model HistoricoVendas {
   // Fica em prisma/indices.sql e precisa ser reaplicado depois de um db push,
   // que apaga índices ausentes do schema.
   @@map("historico_vendas")
+}
+
+model TarefaCockpit {
+  // Uma tarefa do checklist do cockpit marcada como feita.
+  //
+  // A presença da linha é o "ok": desmarcar apaga. Não há coluna booleana
+  // porque a esmagadora maioria das posições nunca é marcada — guardar uma
+  // linha `false` para cada uma das 1.340 ações de cada dia seria carregar o
+  // peso do que não aconteceu.
+  //
+  // Marcação compartilhada, com autor: a fila é da equipe, e quem já cobrou um
+  // fornecedor precisa que o colega veja isso em vez de ligar de novo. Por isso
+  // `concluida_por` guarda o nome — a informação útil é quem tratou, não apenas
+  // que alguém tratou.
+  //
+  // Presa à data de referência: o checklist é do dia. Um item que continuar
+  // crítico amanhã reaparece desmarcado, que é o comportamento certo — a
+  // cobrança de ontem não resolve a ruptura de hoje.
+  id            Int      @id @default(autoincrement())
+  data_snapshot DateTime @db.Date
+  codigo        String
+  filial        String
+  /**
+   * Ação vigente quando foi marcada — permite ver depois o que foi feito.
+   */
+  acao          String
+  concluida_em  DateTime @default(now())
+  concluida_por String
+
+  @@unique([data_snapshot, codigo, filial])
+  @@index([data_snapshot])
+  @@map("tarefa_cockpit")
 }

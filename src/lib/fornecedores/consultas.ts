@@ -11,6 +11,7 @@ import {
 } from "@/utils/dias-estoque";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
 import { carregarChegadas, chaveChegada } from "@/lib/reposicoes/chegadas";
+import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
 import { VAZIO, type Categoria, type PosicaoRompida } from "./agregacao";
 
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
@@ -49,7 +50,7 @@ export async function carregarFornecedores(
 ): Promise<DadosFornecedores> {
   const [inicioMes, proximoMes] = limitesDoMes(data);
 
-  const [rompidas, saldos, chegadas, ignoradas] =
+  const [rompidas, chegadas, ignoradas, saldos] =
     await Promise.all([
       // Posições da faixa escolhida: itens válidos (torre "considerar") com
       // forecast no mês, classificados pela mesma régua da Disponibilidade.
@@ -66,6 +67,7 @@ export async function carregarFornecedores(
         {
           codigo: string; descricao: string | null; filial: string;
           fornecedor: string; forecast: number; bu: string; curva: string;
+          analista: string;
         }[]
       >(
         `SELECT f.codigo,
@@ -73,6 +75,7 @@ export async function carregarFornecedores(
                 f.filial,
                 COALESCE(NULLIF(trim(f.b_u), ''), '${VAZIO}') AS bu,
                 COALESCE(NULLIF(trim(f.curva), ''), '${VAZIO}') AS curva,
+                COALESCE(NULLIF(trim(f.analista), ''), '${VAZIO}') AS analista,
                 COALESCE((
                   SELECT ${nomeFornecedor("s2")}
                     FROM simulador s2 ${joinFornecedor("s2")}
@@ -96,32 +99,6 @@ export async function carregarFornecedores(
         proximoMes,
         faixa
       ),
-      // Saldo a comprar do mês, por produto: plano − em aberto − recebido.
-      //
-      // `pedidos_de_compra` é cumulativa: o filtro de snapshot é obrigatório
-      // além do recorte por mês de emissão. Sem ele o mesmo pedido soma uma vez
-      // por importação — em agosto isso inflava o total em 6,8x.
-      prisma.$queryRawUnsafe<{ codigo: string; saldo: number }[]>(
-        `SELECT c.codigo, (c.plano - c.aberto - c.recebido)::float8 AS saldo FROM (
-           SELECT p.codigo,
-                  SUM(p.plano_de_compra) AS plano,
-                  COALESCE((SELECT SUM(quantidade_receber) FROM pedidos_de_compra pc
-                             WHERE pc.codigo = p.codigo AND pc.quantidade_receber > 0
-                               AND pc.data_snapshot = $3::date
-                               AND pc.data_emissao >= $1::date AND pc.data_emissao < $2::date), 0) AS aberto,
-                  COALESCE((SELECT SUM(quantidade) FROM recebimento r
-                             WHERE r.codigo = p.codigo
-                               AND r.data_pedido >= $1::date AND r.data_pedido < $2::date
-                               AND r.data >= $1::date AND r.data < $2::date), 0) AS recebido
-             FROM plano_compra p
-            WHERE p.data_snapshot >= $1::date AND p.data_snapshot < $2::date
-              AND ${snapshotMensalSql("plano_compra", "p", "$3")}
-            GROUP BY p.codigo
-         ) c`,
-        inicioMes,
-        proximoMes,
-        data
-      ),
       // Projeção das chegadas: mesma fonte usada pelos motores de risco.
       carregarChegadas(data, parametros),
       // Restrito ao snapshot em uso, e não à tabela inteira, por dois motivos.
@@ -136,9 +113,10 @@ export async function carregarFornecedores(
                   WHERE codigo IS NULL AND data_snapshot = $1::date)::bigint AS transferencias`,
         data
       ),
+      // Saldo do plano de compra do mês — fonte única em `lib/compras`, também
+      // usada pelo cockpit. Duas cópias da mesma conta já divergiram aqui antes.
+      carregarSaldoPlano(data),
     ]);
-
-  const saldoPorCodigo = new Map(saldos.map((s) => [s.codigo, s.saldo]));
 
   const posicoes: PosicaoRompida[] = rompidas.map((r) => {
     // Já vem ordenada por data de chegada de `carregarChegadas`.
@@ -146,7 +124,7 @@ export async function carregarFornecedores(
     // A primeira a chegar define a categoria; as demais são redundantes para
     // a pergunta "quando esta ruptura acaba".
     const primeira = lista[0];
-    const saldoComprar = saldoPorCodigo.get(r.codigo) ?? 0;
+    const saldoComprar = saldos.get(r.codigo)?.saldo ?? 0;
 
     const categoria: Categoria = primeira
       ? primeira.origem
@@ -161,6 +139,7 @@ export async function carregarFornecedores(
       fornecedor: r.fornecedor,
       bu: r.bu,
       curva: r.curva,
+      analista: r.analista,
       forecast: r.forecast,
       categoria,
       quantidade: primeira?.quantidade ?? null,

@@ -6,6 +6,8 @@
  * em `src/lib/riscos/` que devolva este mesmo tipo — o dossiê e a tela não mudam.
  */
 import type { Reposicao } from "@/lib/reposicoes/chegadas";
+import type { SaldoPlano } from "@/lib/compras/saldo-plano";
+import type { Ritmo } from "@/utils/ritmo-venda";
 
 /**
  * Seções da tela, do mais urgente para o mais informativo.
@@ -49,6 +51,8 @@ export type PosicaoRisco = {
   fornecedor: string;
   bu: string;
   curva: string;
+  /** Analista responsável pelo item, vindo do forecast. */
+  analista: string;
   forecast: number;
   estoqueChao: number;
   estoqueTotal: number;
@@ -72,6 +76,21 @@ export type PosicaoRisco = {
   severidade: Severidade;
   /** Todas as reposições a caminho, da que chega antes para a que chega depois. */
   reposicoes: Reposicao[];
+  /** Vendido no mês corrente neste CD. */
+  vendidoMes: number;
+  /** Ritmo de venda do mês contra o forecast proporcional aos dias decorridos. */
+  ritmo: Ritmo;
+  /**
+   * Cobertura do estoque chão pelo consumo **observado** no mês, em vez do
+   * previsto. `null` quando não houve venda no mês. É o que revela a ruptura
+   * que o forecast não vê.
+   */
+  diasNoRitmo: number | null;
+  /**
+   * Saldo do plano de compra do mês, do produto inteiro (não do CD). `null`
+   * quando o produto não está no plano — que é diferente de saldo zerado.
+   */
+  saldoPlano: SaldoPlano | null;
 };
 
 /** Item pronto para a tela e para o dossiê da IA. */

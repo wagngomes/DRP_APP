@@ -11,16 +11,20 @@ export function FiltroBu({
   bus,
   atual,
   vista,
+  analista,
 }: {
   bus: { valor: string; total: number }[];
   atual?: string;
   vista: string;
+  /** Preservado no link: trocar de BU não pode perder o analista escolhido. */
+  analista?: string;
 }) {
   if (bus.length <= 1) return null;
 
   const href = (bu?: string) => {
     const p = new URLSearchParams();
     if (vista === "curva") p.set("vista", vista);
+    if (analista) p.set("analista", analista);
     if (bu) p.set("bu", bu);
     const qs = p.toString();
     return qs ? `/cockpit?${qs}` : "/cockpit";

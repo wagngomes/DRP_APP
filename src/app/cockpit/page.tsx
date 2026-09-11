@@ -1,17 +1,17 @@
-﻿import { headers } from "next/headers";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import {
-  AlertOctagon,
   ArrowRight,
-  Factory,
-  Info,
-  ListChecks,
+  CircleSlash,
+  Clock,
+  PhoneCall,
   ShoppingCart,
   Sparkles,
   TrendingUp,
   TriangleAlert,
   Truck,
+  Wallet,
 } from "lucide-react";
 
 import { auth } from "@/lib/auth";
@@ -19,55 +19,108 @@ import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BotaoGerar } from "@/components/cockpit/botao-gerar";
-import { SeletorVista, type Vista } from "@/components/cockpit/seletor-vista";
-import { FiltroBu } from "@/components/cockpit/filtro-bu";
-import { ListaCompleta } from "@/components/cockpit/lista-completa";
-import { lerAnalise, type Avisos, type ContextoItem } from "@/lib/ia/persistencia";
-import type { ItemAnalise } from "@/lib/ia/schema";
+import { FiltroLista } from "@/components/ui/filtro-lista";
+import {
+  ChecklistProvider,
+  LinhaTarefa,
+  Progresso,
+  type TarefaInicial,
+} from "@/components/cockpit/checklist";
+import { carregarCockpit, type LinhaCockpit } from "@/lib/cockpit/consultas";
+import { lerAnalise } from "@/lib/ia/persistencia";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
-import { ORDEM_SECOES, ROTULO_SECAO, type Secao } from "@/lib/riscos/tipos";
+import { lerCoberturas, lerParametros } from "@/lib/parametros.server";
+import {
+  EXPLICACAO_ACAO,
+  ORDEM_ACOES,
+  ROTULO_ACAO,
+  type TipoAcao,
+} from "@/lib/riscos/acao";
 import { dataBr, inteiro } from "@/lib/visao-geral/formato";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Quantas linhas de cada grupo aparecem antes do "ver todas".
+ *
+ * A tela existe para dirigir trabalho, não para inventariar risco: uma lista de
+ * quinhentas ações não é mais informativa que uma de dez, é menos. A contagem
+ * completa fica sempre visível no cabeçalho do grupo, então nada é escondido —
+ * o que muda é o que disputa a atenção primeiro.
+ */
+const LIMITE_GRUPO = 6;
+
 type SearchParams = {
-  vista?: string | string[];
+  analista?: string | string[];
   bu?: string | string[];
-  /** Qual lista completa está aberta (seção ou curva). */
-  lista?: string | string[];
-  pag?: string | string[];
-  q?: string | string[];
+  /** Grupos expandidos, no formato "faixa:acao". */
+  ver?: string | string[];
 };
 
 const primeiro = (v: string | string[] | undefined) =>
   (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
 
-/** Cor e ícone por seção — do mais urgente ao mais informativo. */
-const ESTILO: Record<Secao, { icone: typeof AlertOctagon; cor: string; borda: string }> = {
-  urgente: {
-    icone: AlertOctagon,
-    cor: "text-red-700 dark:text-red-400",
-    borda: "border-red-500/50",
+const lista = (v: string | string[] | undefined) =>
+  v === undefined ? [] : Array.isArray(v) ? v : [v];
+
+/**
+ * As quatro seções, na ordem em que o analista deve atacá-las.
+ *
+ * As três primeiras são as faixas da Disponibilidade — mesma régua, mesmas
+ * cores. A quarta não vem da régua: são posições que o forecast diz estarem
+ * confortáveis e a venda do mês desmente. Fica por último porque ainda há
+ * estoque, e em primeiro lugar entre os avisos porque é a única que enxerga uma
+ * ruptura antes de ela existir.
+ */
+const SECOES = [
+  {
+    id: "zero" as const,
+    rotulo: "Sem estoque",
+    sub: "CD parado hoje — cada dia aqui é venda perdida",
+    icone: CircleSlash,
+    cor: "var(--faixa-zero)",
   },
-  recomendada: {
-    icone: ListChecks,
-    cor: "text-amber-700 dark:text-amber-400",
-    borda: "border-amber-500/50",
-  },
-  alerta: {
+  {
+    id: "critico" as const,
+    rotulo: "Crítico",
+    sub: "Até 10 dias de cobertura",
     icone: TriangleAlert,
-    cor: "text-sky-700 dark:text-sky-300",
-    borda: "border-sky-500/50",
+    cor: "var(--faixa-critico)",
   },
-  aviso: {
-    icone: Info,
-    cor: "text-muted-foreground",
-    borda: "border-foreground/20",
+  {
+    id: "baixo" as const,
+    rotulo: "Atenção",
+    sub: "Entre 10 e 20 dias de cobertura",
+    icone: Clock,
+    cor: "var(--faixa-baixo)",
   },
+  {
+    id: "aceleracao" as const,
+    rotulo: "Venda acelerada",
+    sub: "Cobertura boa no forecast, apertada na venda real do mês",
+    icone: TrendingUp,
+    cor: "var(--brand-green)",
+  },
+];
+
+type SecaoId = (typeof SECOES)[number]["id"];
+
+const ICONE_ACAO: Record<TipoAcao, typeof PhoneCall> = {
+  cobrar: PhoneCall,
+  transferir: Truck,
+  comprar: ShoppingCart,
+  verba: Wallet,
 };
 
-function num(v: number | null, casas = 0): string {
-  return v === null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: casas });
+function num(v: number | null | undefined, casas = 0): string {
+  return v === null || v === undefined
+    ? "—"
+    : v.toLocaleString("pt-BR", { maximumFractionDigits: casas });
+}
+
+/** Em qual seção a linha aparece. */
+function secaoDe(l: LinhaCockpit): SecaoId {
+  return l.origem === "aceleracao" ? "aceleracao" : (l.faixa as SecaoId);
 }
 
 export default async function Cockpit({
@@ -79,84 +132,85 @@ export default async function Cockpit({
   if (!session) redirect("/login");
   const params = await searchParams;
 
-  const data = await lerDataReferencia();
-  const gravada = await lerAnalise(data);
+  const [data, parametros, coberturas] = await Promise.all([
+    lerDataReferencia(),
+    lerParametros(),
+    lerCoberturas(),
+  ]);
 
-  const vista: Vista = primeiro(params.vista) === "curva" ? "curva" : "criticidade";
+  const analista = primeiro(params.analista);
   const bu = primeiro(params.bu);
-  const listaAberta = primeiro(params.lista);
-  const pagina = Number(primeiro(params.pag) ?? 1) || 1;
-  const busca = primeiro(params.q) ?? "";
+  const expandidos = new Set(lista(params.ver));
 
-  /** URLs preservando vista e BU — o recorte inteiro cabe num link. */
-  const href = (extra: Record<string, string | undefined>) => {
+  const [{ linhas, totalPosicoes }, gravada] = await Promise.all([
+    carregarCockpit(data, parametros, coberturas),
+    lerAnalise(data),
+  ]);
+
+  /** URL preservando o recorte; `extra` sobrescreve ou remove (undefined). */
+  const href = (extra: Record<string, string | string[] | undefined>) => {
     const p = new URLSearchParams();
-    if (vista === "curva") p.set("vista", vista);
-    if (bu) p.set("bu", bu);
-    for (const [k, v] of Object.entries(extra)) if (v) p.set(k, v);
+    const base: Record<string, string | string[] | undefined> = {
+      analista,
+      bu,
+      ver: [...expandidos],
+      ...extra,
+    };
+    for (const [k, v] of Object.entries(base)) {
+      if (Array.isArray(v)) for (const x of v) p.append(k, x);
+      else if (v) p.set(k, v);
+    }
     const qs = p.toString();
     return qs ? `/cockpit?${qs}` : "/cockpit";
   };
 
-  const contexto = new Map(
-    (gravada?.resultado.contexto ?? []).map((c) => [`${c.codigo}|${c.filial}`, c])
-  );
-  const todos = gravada?.resultado.todos ?? [];
+  // Analistas sempre sobre o conjunto completo: escolher um não pode esvaziar o
+  // próprio seletor.
+  const analistasMapa = new Map<string, number>();
+  for (const l of linhas) analistasMapa.set(l.analista, (analistasMapa.get(l.analista) ?? 0) + 1);
+  const analistas = [...analistasMapa.entries()]
+    .map(([valor, total]) => ({ valor, total }))
+    .sort((a, b) => (a.valor === "—" ? 1 : b.valor === "—" ? -1 : b.total - a.total));
 
-  // BUs disponíveis com o total de posições em risco de cada uma.
+  const doAnalista = analista ? linhas.filter((l) => l.analista === analista) : linhas;
+
   const busMapa = new Map<string, number>();
-  for (const t of todos) busMapa.set(t.bu, (busMapa.get(t.bu) ?? 0) + 1);
+  for (const l of doAnalista) busMapa.set(l.bu, (busMapa.get(l.bu) ?? 0) + 1);
   const bus = [...busMapa.entries()]
     .map(([valor, total]) => ({ valor, total }))
     .sort((a, b) => (a.valor === "—" ? 1 : b.valor === "—" ? -1 : b.total - a.total));
 
-  /** O filtro vale para tudo: itens comentados, contadores e lista completa. */
-  const noRecorte = (b: string) => (bu ? b === bu : true);
-  const todosFiltrados = todos.filter((t) => noRecorte(t.bu));
-  const itensFiltrados = (gravada?.resultado.analise.itens ?? []).filter((i) =>
-    noRecorte(contexto.get(`${i.codigo}|${i.filial}`)?.bu ?? "—")
-  );
+  const recorte = doAnalista.filter((l) => (bu ? l.bu === bu : true));
 
-  // Contadores recalculados sobre o recorte, senão o cartão mostra 907 com a
-  // seção listando 3.
-  const totais = Object.fromEntries(
-    ORDEM_SECOES.map((s) => [
-      s,
-      s === "aviso"
-        ? (gravada?.resultado.totais.aviso ?? 0)
-        : todosFiltrados.filter((t) => t.secao === s).length,
-    ])
-  ) as Record<Secao, number>;
-
-  const porSecao = (itens: ItemAnalise[], secao: Secao) =>
-    itens.filter((i) => i.secao === secao);
-
-  const porCurva = new Map<string, ItemAnalise[]>();
-  for (const item of itensFiltrados) {
-    const c = contexto.get(`${item.codigo}|${item.filial}`)?.curva ?? "—";
-    porCurva.set(c, [...(porCurva.get(c) ?? []), item]);
+  const porSecao = new Map<SecaoId, LinhaCockpit[]>();
+  const totalSecao = new Map<SecaoId, number>();
+  for (const l of recorte) {
+    const s = secaoDe(l);
+    porSecao.set(s, [...(porSecao.get(s) ?? []), l]);
+    totalSecao.set(s, (totalSecao.get(s) ?? 0) + 1);
   }
-  const ordemAbc = ["A", "B", "C"];
-  const curvas = [...porCurva.keys()].sort(
-    (a, b) =>
-      (ordemAbc.indexOf(a) === -1 ? 99 : ordemAbc.indexOf(a)) -
-      (ordemAbc.indexOf(b) === -1 ? 99 : ordemAbc.indexOf(b))
-  );
+
+  // Só a chave e a seção atravessam para o cliente: é o bastante para contar o
+  // progresso sem mandar as 1.340 linhas inteiras pelo fio.
+  const tarefas: TarefaInicial[] = recorte.map((l) => ({
+    chave: l.chave,
+    secao: secaoDe(l),
+    feitoPor: l.feito?.por ?? null,
+  }));
 
   return (
     <DashboardShell user={{ name: session.user.name, email: session.user.email }}>
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-(--brand-petrol) dark:text-foreground">
               Cockpit
             </h1>
             <p className="text-muted-foreground">
-              Riscos priorizados por IA sobre os números do dia.
+              O que fazer hoje, na ordem em que perde valor se não for feito.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {gravada ? <SeletorVista atual={vista} /> : null}
             <Badge variant="secondary" className="text-sm">
               {`Referência: ${dataBr(data)}`}
             </Badge>
@@ -164,408 +218,365 @@ export default async function Cockpit({
           </div>
         </div>
 
-        {gravada && bus.length > 1 ? (
+        {analistas.length > 1 || bus.length > 1 ? (
           <Card>
-            <CardContent className="pt-6">
-              <FiltroBu bus={bus} atual={bu} vista={vista} />
+            <CardContent className="grid gap-3 pt-6">
+              {analistas.length > 1 ? (
+                <FiltroLista
+                  rotulo="Analista"
+                  atual={analista}
+                  hrefTodos={href({ analista: undefined, bu: undefined })}
+                  opcoes={analistas.map((a) => ({
+                    valor: a.valor,
+                    rotulo: a.valor === "—" ? "Sem analista" : a.valor,
+                    href: href({ analista: a.valor, bu: undefined }),
+                    total: a.total,
+                  }))}
+                />
+              ) : null}
+              {bus.length > 1 ? (
+                <FiltroLista
+                  rotulo="BU"
+                  atual={bu}
+                  hrefTodos={href({ bu: undefined })}
+                  opcoes={bus.map((b) => ({
+                    valor: b.valor,
+                    rotulo: b.valor === "—" ? "Sem BU" : b.valor,
+                    href: href({ bu: b.valor }),
+                    total: b.total,
+                  }))}
+                />
+              ) : null}
             </CardContent>
           </Card>
         ) : null}
 
-        {!gravada ? (
+        {/* O provider não emite elemento; o div interno é quem mantém o
+            espaçamento vertical entre o progresso e as seções. */}
+        <ChecklistProvider tarefas={tarefas}>
+          <div className="space-y-5">
+            <Progresso
+              tarefas={tarefas}
+              totalPosicoes={totalPosicoes}
+              secoes={SECOES.map((s) => ({ id: s.id, rotulo: s.rotulo, cor: s.cor }))}
+            />
+
+        {recorte.length === 0 ? (
           <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-              <Sparkles className="size-8 text-(--brand-turquoise)" />
-              <div>
-                <p className="font-medium text-(--brand-petrol) dark:text-foreground">
-                  Nenhuma análise para {dataBr(data)}
-                </p>
-                <p className="mt-1 max-w-lg text-sm text-muted-foreground">
-                  A geração roda os motores de risco sobre todas as posições e envia as mais
-                  críticas para o modelo priorizar. Leva 2 a 3 minutos e fica gravada — abrir
-                  esta tela de novo não gera custo nem espera.
-                </p>
-              </div>
+            <CardContent className="py-12 text-center">
+              <p className="font-medium text-(--brand-petrol) dark:text-foreground">
+                Nenhuma ação neste recorte
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {`Das ${inteiro(totalPosicoes)} posições avaliadas, nenhuma está descoberta aqui.`}
+              </p>
             </CardContent>
           </Card>
-        ) : (
-          <>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="size-4 text-(--brand-turquoise)" />
-                  Briefing do dia
-                </CardTitle>
-                <CardDescription>
-                  {`${gravada.resultado.totalPosicoes.toLocaleString("pt-BR")} posições avaliadas · ` +
-                    `${gravada.resultado.analisadas.enviadas} das ${inteiro(gravada.resultado.analisadas.disponiveis)} em risco enviadas ao modelo · ` +
-                    `gerada em ${gravada.criadoEm.toLocaleString("pt-BR")} · ${gravada.modelo}`}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm leading-relaxed">{gravada.resultado.analise.briefing}</p>
-              </CardContent>
-            </Card>
+        ) : null}
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {ORDEM_SECOES.map((s) => {
-                const e = ESTILO[s];
+        {SECOES.map((s) => {
+          const daSecao = porSecao.get(s.id) ?? [];
+          const total = totalSecao.get(s.id) ?? 0;
+          if (total === 0) return null;
+
+          return (
+            <section key={s.id} className="space-y-3">
+              <div
+                className="flex flex-wrap items-center gap-3 rounded-lg px-4 py-3"
+                style={{ background: s.cor, color: `var(--faixa-${s.id}-ink, #fff)` }}
+              >
+                <s.icone className="size-5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-semibold">{s.rotulo}</p>
+                  <p className="text-sm opacity-80">{s.sub}</p>
+                </div>
+                <p className="font-mono text-2xl font-bold tabular-nums">{inteiro(total)}</p>
+              </div>
+
+              {ORDEM_ACOES.map((acao) => {
+                const doGrupo = daSecao.filter((l) => l.acao === acao);
+                if (doGrupo.length === 0) return null;
+
+                const chaveGrupo = `${s.id}:${acao}`;
+                const aberto = expandidos.has(chaveGrupo);
+                const mostradas = aberto ? doGrupo : doGrupo.slice(0, LIMITE_GRUPO);
+                const Icone = ICONE_ACAO[acao];
+
                 return (
-                  <div
-                    key={s}
-                    className={`rounded-lg border-l-4 bg-card p-3 ring-1 ring-foreground/5 ${e.borda}`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-xs text-muted-foreground">{ROTULO_SECAO[s]}</p>
-                        <p className="font-mono text-2xl font-semibold tabular-nums">
-                          {inteiro(totais[s] ?? 0)}
-                        </p>
-                      </div>
-                      <e.icone className={`size-5 shrink-0 ${e.cor}`} />
+                  <div key={acao} className="space-y-2 pl-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2 border-b pb-1.5">
+                      <Icone className="size-4 shrink-0 self-center text-(--brand-petrol) dark:text-(--brand-turquoise)" />
+                      <p className="font-semibold text-(--brand-petrol) dark:text-foreground">
+                        {ROTULO_ACAO[acao]}
+                      </p>
+                      <span className="font-mono text-sm tabular-nums text-muted-foreground">
+                        {doGrupo.length}
+                      </span>
+                      <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+                        {EXPLICACAO_ACAO[acao]}
+                      </span>
                     </div>
+
+                    <div className="grid gap-2">
+                      {mostradas.map((l) => (
+                        <LinhaTarefa
+                          key={l.chave}
+                          chave={l.chave}
+                          codigo={l.codigo}
+                          filial={l.filial}
+                          acao={l.acao}
+                        >
+                          <Conteudo linha={l} critico={coberturas.critico} />
+                        </LinhaTarefa>
+                      ))}
+                    </div>
+
+                    {doGrupo.length > LIMITE_GRUPO ? (
+                      <Link
+                        href={href({
+                          ver: aberto
+                            ? [...expandidos].filter((x) => x !== chaveGrupo)
+                            : [...expandidos, chaveGrupo],
+                        })}
+                        scroll={false}
+                        className="inline-block text-sm font-medium text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
+                      >
+                        {aberto
+                          ? "Ver menos"
+                          : `Ver as outras ${doGrupo.length - LIMITE_GRUPO}`}
+                      </Link>
+                    ) : null}
                   </div>
                 );
               })}
-            </div>
+            </section>
+            );
+          })}
+          </div>
+        </ChecklistProvider>
 
-            {gravada.resultado.analise.temas.length > 0 ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Padrões</CardTitle>
-                  <CardDescription>
-                    O que se repete entre vários itens — em geral é aqui que está a causa.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-3">
-                  {gravada.resultado.analise.temas.map((t, i) => (
-                    <div key={i} className="rounded-lg border bg-muted/30 p-3">
-                      <p className="text-sm font-semibold text-(--brand-petrol) dark:text-foreground">
-                        {t.titulo}
-                      </p>
-                      <p className="mt-1 text-sm text-muted-foreground">{t.resumo}</p>
-                      {t.codigos.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {t.codigos.map((c) => (
-                            <Link
-                              key={c}
-                              href={`/produto/${encodeURIComponent(c)}`}
-                              className="rounded-md bg-background px-1.5 py-0.5 font-mono text-xs ring-1 ring-foreground/10 hover:ring-foreground/30"
-                            >
-                              {c}
-                            </Link>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            ) : null}
-
-            {vista === "criticidade"
-              ? ORDEM_SECOES.filter((s) => s !== "aviso").map((secao) => {
-                  const itens = porSecao(itensFiltrados, secao);
-                  const daSecao = todosFiltrados.filter((t) => t.secao === secao);
-                  if (itens.length === 0 && daSecao.length === 0) return null;
-                  const e = ESTILO[secao];
-                  return (
-                    <Card key={secao} className={`border-t-4 ${e.borda}`}>
-                      <CardHeader>
-                        <CardTitle className={`flex items-center gap-2 text-lg ${e.cor}`}>
-                          <e.icone className="size-5" />
-                          {ROTULO_SECAO[secao]}
-                          <span className="font-mono text-2xl font-bold tabular-nums">
-                            {inteiro(totais[secao] ?? 0)}
-                          </span>
-                        </CardTitle>
-                        <CardDescription>
-                          {itens.length > 0
-                            ? `A IA destacou ${itens.length}; as demais estão na lista completa abaixo.`
-                            : "Nenhuma destacada pela IA neste recorte — veja a lista completa."}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="grid gap-3">
-                          {itens.map((item, i) => (
-                            <ItemCard
-                              key={`${item.codigo}-${item.filial}-${i}`}
-                              item={item}
-                              ctx={contexto.get(`${item.codigo}|${item.filial}`)}
-                              borda={e.borda}
-                            />
-                          ))}
-                        </div>
-                        <ListaCompleta
-                          itens={daSecao}
-                          chave={secao}
-                          rotulo={ROTULO_SECAO[secao]}
-                          aberta={listaAberta === secao}
-                          pagina={pagina}
-                          busca={busca}
-                          href={href}
-                        />
-                      </CardContent>
-                    </Card>
-                  );
-                })
-              : curvas.map((curva) => (
-                  <Card key={curva} className="border-t-4 border-(--brand-turquoise)">
-                    <CardHeader>
-                      <CardTitle className="text-lg">
-                        {curva === "—" ? "Sem curva" : `Curva ${curva}`}
-                        <span className="ml-2 font-mono text-2xl font-bold tabular-nums">
-                          {inteiro(todosFiltrados.filter((t) => t.curva === curva).length)}
-                        </span>
-                      </CardTitle>
-                      <CardDescription>
-                        {`A IA destacou ${porCurva.get(curva)!.length} nesta curva; as demais estão na lista completa ao fim.`}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="grid gap-4">
-                      {ORDEM_SECOES.map((secao) => {
-                        const daSecao = porCurva
-                          .get(curva)!
-                          .filter((i) => i.secao === secao);
-                        if (daSecao.length === 0) return null;
-                        const e = ESTILO[secao];
-
-                        // Dentro da seção, um bloco por fornecedor: é assim que a
-                        // conversa com o laboratório acontece.
-                        const fornecedores = new Map<string, typeof daSecao>();
-                        for (const i of daSecao) {
-                          const f = contexto.get(`${i.codigo}|${i.filial}`)?.fornecedor ?? "—";
-                          fornecedores.set(f, [...(fornecedores.get(f) ?? []), i]);
-                        }
-
-                        return (
-                          <div key={secao} className="space-y-2">
-                            <p
-                              className={`flex items-center gap-1.5 border-b pb-1 text-sm font-semibold ${e.cor}`}
-                            >
-                              <e.icone className="size-4" />
-                              {ROTULO_SECAO[secao]}
-                              <span className="font-mono font-normal text-muted-foreground">
-                                {daSecao.length}
-                              </span>
-                            </p>
-                            {[...fornecedores.entries()]
-                              .sort((a, b) => b[1].length - a[1].length)
-                              .map(([fornecedor, itens]) => (
-                                <div key={fornecedor} className="space-y-2 pl-1">
-                                  <p className="flex items-center gap-1.5 text-sm font-medium">
-                                    <Factory className="size-3.5 shrink-0 text-muted-foreground" />
-                                    {fornecedor}
-                                    <span className="font-mono text-xs text-muted-foreground">
-                                      {itens.length}
-                                    </span>
-                                  </p>
-                                  <div className="grid gap-2 pl-5">
-                                    {itens.map((item, i) => (
-                                      <ItemCard
-                                        key={`${item.codigo}-${item.filial}-${i}`}
-                                        item={item}
-                                        ctx={contexto.get(`${item.codigo}|${item.filial}`)}
-                                        borda={e.borda}
-                                      />
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                          </div>
-                        );
-                      })}
-
-                      <ListaCompleta
-                        itens={todosFiltrados.filter((t) => t.curva === curva)}
-                        chave={`curva:${curva}`}
-                        rotulo={curva === "—" ? "sem curva" : `curva ${curva}`}
-                        aberta={listaAberta === `curva:${curva}`}
-                        pagina={pagina}
-                        busca={busca}
-                        href={href}
-                      />
-                    </CardContent>
-                  </Card>
-                ))}
-
-            <SecaoAvisos avisos={gravada.resultado.avisos} />
-          </>
-        )}
+        {gravada ? <LeituraIa briefing={gravada.resultado.analise.briefing} /> : null}
       </div>
     </DashboardShell>
   );
 }
 
 /**
- * Seção Avisos: o que não é item × CD.
+ * O conteúdo de uma linha: identificação, a ação em uma frase, e o número que a
+ * justifica.
  *
- * Aceleração de venda é item × cliente e lacuna de cadastro não tem posição —
- * nenhum dos dois cabe na lista de itens, e foi por isso que os avisos
- * apareceram zerados na primeira versão desta tela.
+ * Três camadas em ordem de leitura. Quem já conhece o item lê só a primeira; quem
+ * vai agir lê a segunda; quem precisa justificar a decisão lê a terceira.
  */
-function SecaoAvisos({ avisos }: { avisos?: Avisos }) {
-  // Análises gravadas antes desta seção existir não têm o campo. Some em vez de
-  // quebrar a tela; a próxima geração já vem completa.
-  const anomalias = avisos?.vendas?.anomalias ?? [];
-  const lacunas = avisos?.lacunas ?? [];
-  if (anomalias.length === 0 && lacunas.length === 0) return null;
+function Conteudo({ linha: l, critico }: { linha: LinhaCockpit; critico: number }) {
+  const acao = frase(l, critico);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-muted-foreground">
-          <Info className="size-5" />
-          {ROTULO_SECAO.aviso}
-        </CardTitle>
-        <CardDescription>
-          Contexto e qualidade de dado — não exigem ação imediata, mas explicam ou
-          limitam o que as outras seções conseguem enxergar.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        {anomalias.length > 0 ? (
-          <div className="space-y-2">
-            <p className="flex items-center gap-1.5 border-b pb-1 text-sm font-semibold">
-              <TrendingUp className="size-4 text-(--brand-green)" />
-              Aceleração de venda por cliente
-              <span className="font-mono text-xs font-normal text-muted-foreground">
-                {`mês ${avisos!.vendas.mesAnalisado} contra ${avisos!.vendas.baseline.join(", ")}`}
-              </span>
-            </p>
-            <div className="grid gap-1.5">
-              {anomalias.map((a, i) => (
-                <div
-                  key={`${a.codigo}-${a.cliente}-${i}`}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border bg-muted/30 px-3 py-2 text-sm"
-                >
-                  <Link
-                    href={`/produto/${encodeURIComponent(a.codigo)}`}
-                    className="font-mono font-semibold text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
-                  >
-                    {a.codigo}
-                  </Link>
-                  <span className="min-w-0 flex-1 truncate">{a.cliente}</span>
-                  {a.grupo ? (
-                    <Badge variant="secondary" className="text-xs">
-                      {a.grupo}
-                    </Badge>
-                  ) : null}
-                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                    {`${num(a.mediana)}/mês → ${num(a.mesAtual)}`}
-                  </span>
-                  <Badge className="bg-(--brand-green)/15 font-mono text-(--brand-green)">
-                    {`${a.fator.toFixed(1)}x`}
-                  </Badge>
-                  <span className="font-mono text-xs font-semibold tabular-nums">
-                    {`+${num(a.excedente)} un`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {lacunas.length > 0 ? (
-          <div className="space-y-2">
-            <p className="flex items-center gap-1.5 border-b pb-1 text-sm font-semibold">
-              <TriangleAlert className="size-4 text-amber-600" />
-              Cadastros faltando
-            </p>
-            <div className="grid gap-1.5">
-              {lacunas.map((l) => (
-                <div
-                  key={l.rotulo}
-                  className="flex flex-wrap items-baseline gap-x-2 rounded-md border bg-muted/30 px-3 py-2 text-sm"
-                >
-                  <span className="font-mono font-semibold tabular-nums">
-                    {inteiro(l.quantidade)}
-                  </span>
-                  <span>{l.rotulo}</span>
-                  <span className="text-xs text-muted-foreground">— {l.efeito}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-/** Um item: o texto do modelo em cima, os números que o sustentam embaixo. */
-function ItemCard({
-  item,
-  ctx,
-  borda,
-}: {
-  item: ItemAnalise;
-  ctx?: ContextoItem;
-  borda: string;
-}) {
-  const { titulo, justificativa, acao, codigo, filial } = item;
-  return (
-    <div className={`rounded-lg border-l-4 bg-card p-3 ring-1 ring-foreground/5 ${borda}`}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <>
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <Link
-          href={`/produto/${encodeURIComponent(codigo)}`}
+          href={`/produto/${encodeURIComponent(l.codigo)}`}
           className="font-mono text-sm font-semibold text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
         >
-          {codigo}
+          {l.codigo}
         </Link>
-        <Badge variant="secondary" className="font-mono">
-          {`CD ${filial}`}
+        <Badge variant="secondary" className="font-mono text-xs">
+          {`CD ${l.filial}`}
         </Badge>
-        {ctx ? (
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-            {ctx.descricao ?? "—"} · {ctx.fornecedor}
-          </span>
+        <DiasBadge linha={l} />
+        {l.acelerada && l.origem !== "aceleracao" ? (
+          <Badge className="bg-(--brand-green)/15 text-xs font-medium text-(--brand-green)">
+            {`Venda ${num(l.indiceRitmo, 1)}× o previsto`}
+          </Badge>
+        ) : null}
+        {l.curva !== "—" ? (
+          <Badge variant="outline" className="text-xs">{`Curva ${l.curva}`}</Badge>
         ) : null}
       </div>
 
-      <p className="mt-2 text-sm font-medium">{titulo}</p>
-      <p className="mt-0.5 text-sm text-muted-foreground">{justificativa}</p>
-
-      <p className="mt-2 flex items-start gap-1.5 text-sm">
-        <ArrowRight className="mt-0.5 size-4 shrink-0 text-(--brand-green)" />
-        <span>{acao}</span>
+      <p className="mt-1 truncate text-xs text-muted-foreground">
+        {`${l.descricao ?? "sem descrição"} · ${l.fornecedor}`}
       </p>
 
-      {/* Os números do modelo vieram daqui; ficam visíveis para conferência. */}
-      {ctx ? (
-        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t pt-2 text-[11px] text-muted-foreground">
-          <span>{`Forecast ${num(ctx.forecast)} un`}</span>
-          <span>{`Chão ${num(ctx.estoqueChao)} un`}</span>
-          <span>{`${num(ctx.diasChao, 1)} dias`}</span>
-          {ctx.dataRuptura ? <span>{`Rompe ${dataBr(ctx.dataRuptura)}`}</span> : null}
-          <span className="font-medium">{`${num(ctx.diasDescobertos)} dias descobertos`}</span>
-          {ctx.limiteCompra ? (
-            <span className="inline-flex items-center gap-1">
-              <ShoppingCart className="size-3" />
-              {`Limite ${dataBr(ctx.limiteCompra)}`}
-            </span>
-          ) : null}
-          {ctx.chegada ? (
-            <span className="inline-flex items-center gap-1">
-              {ctx.chegada.origem === "compra" ? (
-                <ShoppingCart className="size-3" />
-              ) : (
-                <Truck className="size-3" />
-              )}
-              {`${num(ctx.chegada.quantidade)} un em ${dataBr(ctx.chegada.data)}`}
-              {ctx.chegada.reprojetada ? " (reprojetada)" : ""}
-            </span>
-          ) : (
-            <span>Nada a caminho</span>
-          )}
-          {ctx.transferencia ? (
-            <span className="inline-flex items-center gap-1 text-teal-700 dark:text-teal-300">
-              <Truck className="size-3" />
-              {`Sugerido: ${num(ctx.transferencia.quantidade)} un de ${ctx.transferencia.origem}`}
-            </span>
-          ) : null}
-        </div>
+      <p className="mt-2 flex items-start gap-1.5 text-sm font-medium">
+        <ArrowRight className="mt-0.5 size-4 shrink-0 text-(--brand-green)" />
+        <span>{acao.titulo}</span>
+      </p>
+      {acao.detalhe ? (
+        <p className="ml-5.5 mt-0.5 text-sm text-muted-foreground">{acao.detalhe}</p>
       ) : null}
-    </div>
+      {acao.alternativa ? (
+        <p className="ml-5.5 mt-1 flex items-start gap-1.5 text-sm text-teal-700 dark:text-teal-300">
+          <Truck className="mt-0.5 size-3.5 shrink-0" />
+          <span>{acao.alternativa}</span>
+        </p>
+      ) : null}
+
+      <p className="mt-2 border-t pt-1.5 text-[11px] text-muted-foreground">{acao.numeros}</p>
+    </>
+  );
+}
+
+/** Badge da cobertura, na cor da faixa da Disponibilidade. */
+function DiasBadge({ linha: l }: { linha: LinhaCockpit }) {
+  // Na seção de aceleração o número que importa é o do ritmo real: o do
+  // forecast é justamente o que está enganando.
+  const usaRitmo = l.origem === "aceleracao";
+  const dias = usaRitmo ? l.diasNoRitmo : l.diasChao;
+  const cor = usaRitmo ? "var(--brand-green)" : `var(--faixa-${l.faixa})`;
+  const tinta = usaRitmo ? "#fff" : `var(--faixa-${l.faixa}-ink)`;
+
+  return (
+    <span
+      className="rounded-md px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums"
+      style={{ background: cor, color: tinta }}
+      title={usaRitmo ? "Cobertura no ritmo de venda do mês" : "Cobertura pelo forecast"}
+    >
+      {`${num(dias, dias !== null && dias < 10 ? 1 : 0)} dias`}
+    </span>
+  );
+}
+
+/**
+ * A frase da ação.
+ *
+ * Cada caso diz o que fazer, com quem e até quando — nunca "avaliar" ou
+ * "acompanhar". Se a tela não consegue nomear a próxima ação concreta, ela não
+ * deveria estar pedindo a atenção do analista.
+ */
+function frase(
+  l: LinhaCockpit,
+  critico: number
+): { titulo: string; detalhe: string; alternativa: string | null; numeros: string } {
+  const qtd = l.quantidade === null ? "" : `${num(l.quantidade)} un`;
+
+  // Números de apoio, iguais em todas as ações: é a conferência de quem
+  // questionar a prioridade.
+  const numeros = [
+    `Forecast ${num(l.forecast)} un/mês`,
+    `chão ${num(l.estoqueChao)} un`,
+    `vendido no mês ${num(l.vendidoMes)} un`,
+    l.origem === "aceleracao"
+      ? `cobertura real ${num(l.diasNoRitmo, 1)} dias contra ${num(l.diasChao, 0)} do forecast`
+      : `${num(l.diasDescobertos, 0)} dias descobertos`,
+    `${num(l.impacto)} un em risco`,
+  ].join(" · ");
+
+  // Transferência como alternativa quando a ação principal é outra: existe uma
+  // carga a caminho, mas ela chega tarde e há CD que resolve antes.
+  const alternativa =
+    l.acao !== "transferir" && l.transferencia
+      ? `Alternativa: transferir ${num(l.transferencia.quantidade)} un do CD ${l.transferencia.origem}` +
+        ` — chega ${dataBr(l.transferencia.data)}, ${l.transferencia.sla} dias úteis.`
+      : null;
+
+  if (l.acao === "cobrar" && l.chegada) {
+    const c = l.chegada;
+    const doc = c.documento
+      ? `${c.origem === "compra" ? "pedido" : "NF"} ${c.documento}`
+      : c.origem === "compra"
+        ? "o pedido"
+        : "a transferência";
+    return {
+      titulo: `Cobrar ${doc} com ${l.fornecedor}: ${num(c.quantidade)} un previstas para ${dataBr(c.data)}.`,
+      detalhe: [
+        c.reprojetada ? "A data original já venceu e foi reprojetada pelo prazo do Painel." : null,
+        l.dataRuptura ? `O estoque acaba em ${dataBr(l.dataRuptura)}.` : null,
+        c.rota ? `Percurso ${c.rota}.` : null,
+        c.statusLogistica && c.statusLogistica !== "—" ? `Status: ${c.statusLogistica}.` : null,
+        c.dataAgendada && c.dataAgendada !== "—" ? `Agendamento: ${c.dataAgendada}.` : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      alternativa,
+      numeros,
+    };
+  }
+
+  if (l.acao === "transferir" && l.transferencia) {
+    const t = l.transferencia;
+    return {
+      titulo: `Transferir ${qtd} do CD ${t.origem} — chega ${dataBr(t.data)}.`,
+      detalhe:
+        (t.tipo === "ponte"
+          ? "Cobre só o vão até a carga já colocada chegar. "
+          : "Não há nada a caminho; a remessa leva a cobertura ao alvo. ") +
+        `${t.sla} dias úteis de trânsito. O CD de origem continua coberto depois de doar.`,
+      alternativa: null,
+      numeros,
+    };
+  }
+
+  if (l.acao === "comprar") {
+    const p = l.plano!;
+    return {
+      titulo: `Pedir colocação de ${qtd} — ainda há saldo no plano do mês.`,
+      detalhe:
+        `Plano ${num(p.plano)} un · já colocado ${num(p.aberto)} · recebido ${num(p.recebido)}` +
+        ` · saldo ${num(p.saldo)} un. ${baseDoCalculo(l, critico)}`,
+      alternativa,
+      numeros,
+    };
+  }
+
+  // Verba: o único item da lista que o analista não resolve sozinho.
+  const p = l.plano;
+  // Plano zerado e produto ausente do plano são a mesma situação para quem vai
+  // pedir a aprovação — e chamar "plano de 0 un já consumido" de plano seria
+  // uma frase sem sentido para quem lê.
+  const semPlano = !p || p.plano <= 0;
+  return {
+    titulo: `Pedir aprovação de verba para ${qtd}.`,
+    detalhe:
+      (semPlano
+        ? `Este produto não tem plano de compra para o mês${
+            p && p.recebido > 0 ? `, embora já tenham entrado ${num(p.recebido)} un` : ""
+          }. `
+        : `O plano do mês (${num(p.plano)} un) já foi consumido: ${num(p.aberto)} colocadas e ${num(p.recebido)} recebidas. `) +
+      `Não há CD de origem disponível para transferir. ${baseDoCalculo(l, critico)}`,
+    alternativa,
+    numeros,
+  };
+}
+
+/**
+ * De onde saiu a quantidade pedida.
+ *
+ * Nas posições de aceleração o consumo usado é o observado no mês, que pode ser
+ * muito maior que o previsto — a diferença entre 480 mil e 15 mil unidades. Quem
+ * vai levar esse número a uma aprovação precisa saber em que ritmo ele foi
+ * calculado, senão o número parece arbitrário e é descartado.
+ */
+function baseDoCalculo(l: LinhaCockpit, critico: number): string {
+  return l.origem === "aceleracao"
+    ? `Quantidade para cobrir ${critico} dias no ritmo atual de venda` +
+        ` (${num(l.vendidoMes)} un no mês, ${num(l.indiceRitmo, 1)}× o previsto).`
+    : `Quantidade para cobrir os ${num(l.diasDescobertos, 0)} dias descobertos.`;
+}
+
+/**
+ * A leitura da IA, embaixo e recolhida.
+ *
+ * Continua valendo como contexto, mas deixou de abrir a tela: quem chega aqui
+ * de manhã precisa da fila, não de um parágrafo. Fica a um clique.
+ */
+function LeituraIa({ briefing }: { briefing: string }) {
+  return (
+    <Card>
+      <details>
+        <summary className="cursor-pointer list-none p-6 pb-0">
+          <CardHeader className="p-0">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="size-4 text-(--brand-turquoise)" />
+              Leitura da IA sobre o dia
+            </CardTitle>
+            <CardDescription>Contexto e padrões — clique para abrir.</CardDescription>
+          </CardHeader>
+        </summary>
+        <CardContent className="pt-4">
+          <p className="text-sm leading-relaxed">{briefing}</p>
+        </CardContent>
+      </details>
+    </Card>
   );
 }

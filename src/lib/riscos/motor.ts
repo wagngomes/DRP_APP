@@ -15,12 +15,15 @@ import { simuladorPorCd } from "@/utils/cds-virtuais";
 import {
   COLUNAS_ESTOQUE_CHAO,
   COLUNAS_ESTOQUE_TOTAL,
+  COLUNAS_VENDIDO_M0,
   DIAS_NO_MES,
   somaSql,
   torreValidaSql,
   snapshotMensalSql,
 } from "@/utils/dias-estoque";
 import { VAZIO } from "@/lib/fornecedores/agregacao";
+import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
+import { calcularRitmo } from "@/utils/ritmo-venda";
 import {
   carregarChegadas,
   chaveChegada,
@@ -31,6 +34,7 @@ import type { PosicaoRisco, Severidade } from "./tipos";
 
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
 const EST_TOTAL = somaSql(COLUNAS_ESTOQUE_TOTAL, "s");
+const VENDIDO = somaSql(COLUNAS_VENDIDO_M0, "s");
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
@@ -64,7 +68,8 @@ async function carregarPosicoes(data: string) {
   return prisma.$queryRawUnsafe<
     {
       codigo: string; descricao: string | null; filial: string; fornecedor: string;
-      bu: string; curva: string; forecast: number; chao: number; total: number;
+      bu: string; curva: string; analista: string;
+      forecast: number; chao: number; total: number; vendido: number;
     }[]
   >(
     `SELECT f.codigo,
@@ -72,6 +77,7 @@ async function carregarPosicoes(data: string) {
             f.filial,
             COALESCE(NULLIF(trim(f.b_u), ''), '${VAZIO}') AS bu,
             COALESCE(NULLIF(upper(trim(f.curva)), ''), '${VAZIO}') AS curva,
+            COALESCE(NULLIF(trim(f.analista), ''), '${VAZIO}') AS analista,
             COALESCE((
               SELECT ${nomeFornecedor("s2")}
                 FROM simulador s2 ${joinFornecedor("s2")}
@@ -81,7 +87,8 @@ async function carregarPosicoes(data: string) {
             ), 'Sem fornecedor') AS fornecedor,
             f.forecast_m0::float8 AS forecast,
             COALESCE(${EST_CHAO}, 0)::float8  AS chao,
-            COALESCE(${EST_TOTAL}, 0)::float8 AS total
+            COALESCE(${EST_TOTAL}, 0)::float8 AS total,
+            COALESCE(${VENDIDO}, 0)::float8   AS vendido
        FROM forecast f
        LEFT JOIN ${simuladorPorCd("s.data_snapshot = $1::date")} s
          ON s.codigo = f.codigo AND s.filial = f.filial AND s.data_snapshot = $1::date
@@ -109,13 +116,25 @@ export async function calcularRiscos(
   coberturas: Coberturas
 ): Promise<DadosRisco> {
   const referencia = new Date(`${data}T00:00:00.000Z`);
-  const [linhas, chegadas] = await Promise.all([
+  // Dias decorridos do mês: denominador do consumo observado.
+  const diaDoMes = Number(data.slice(8, 10));
+  const [linhas, chegadas, saldos] = await Promise.all([
     carregarPosicoes(data),
     carregarChegadas(data, parametros),
+    carregarSaldoPlano(data),
   ]);
 
   const posicoes = linhas.map((l): PosicaoRisco => {
     const consumoDiario = l.forecast / DIAS_NO_MES;
+    // Ritmo no nível item × CD: é a venda daquele CD contra o forecast daquele
+    // CD, não a visão Cia. Um item pode estar acelerado em um CD e parado noutro,
+    // e é o CD que define o que o analista faz.
+    const ritmo = calcularRitmo(l.vendido, l.forecast, data);
+    // Cobertura medida pela venda que está acontecendo, não pela prevista.
+    // Quando o forecast está defasado, é este número que enxerga a ruptura: há
+    // itens com 45 dias de cobertura pelo forecast e 1 dia pelo ritmo real.
+    const consumoRitmo = l.vendido > 0 ? l.vendido / diaDoMes : 0;
+    const diasNoRitmo = consumoRitmo > 0 ? l.chao / consumoRitmo : null;
     // Forecast > 0 é filtrado no SQL, mas a divisão fica protegida mesmo assim.
     const diasChao = consumoDiario > 0 ? l.chao / consumoDiario : null;
     const diasTotal = consumoDiario > 0 ? l.total / consumoDiario : null;
@@ -153,6 +172,7 @@ export async function calcularRiscos(
       fornecedor: l.fornecedor,
       bu: l.bu,
       curva: l.curva,
+      analista: l.analista,
       forecast: l.forecast,
       estoqueChao: l.chao,
       estoqueTotal: l.total,
@@ -165,6 +185,10 @@ export async function calcularRiscos(
       diasDescobertos,
       severidade,
       reposicoes,
+      vendidoMes: l.vendido,
+      ritmo,
+      diasNoRitmo,
+      saldoPlano: saldos.get(l.codigo) ?? null,
     };
   });
 
