@@ -88,7 +88,7 @@ function FaixaCelular() {
       <div className="relative z-10 space-y-1">
         <span className="text-xl font-bold tracking-tight">DRP_AI</span>
         <p className="text-sm leading-snug text-white/80">
-          Previsibilidade de abastecimento para toda a sua rede de CDs
+          Previsibilidade de abastecimento para toda a rede de CDs
         </p>
       </div>
     </div>
