@@ -327,7 +327,13 @@ export default async function Aceleracao({
                 </Button>
               </CardTitle>
               <CardDescription>
-                {`Venda acumulada dia a dia. A linha vermelha é ${dados.mesCorrente}; a tracejada marca o dia ${dados.diaCorte}, último com dado.`}
+                {/* Sem histórico importado, `mesCorrente` vem vazio e a frase
+                    saía quebrada — "A linha vermelha é ; a tracejada marca o
+                    dia 0". Pior que feio: parecia defeito do item, quando o que
+                    falta é a base inteira. */}
+                {dados.mesCorrente
+                  ? `Venda acumulada dia a dia. A linha vermelha é ${dados.mesCorrente}; a tracejada marca o dia ${dados.diaCorte}, último com dado.`
+                  : "O gráfico compara a venda diária deste item entre os meses — e depende da base de histórico de vendas, que ainda não foi importada."}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6 xl:grid-cols-[1fr_24rem]">
@@ -341,7 +347,11 @@ export default async function Aceleracao({
                 <p className="mb-2 text-sm font-semibold">
                   {`Clientes fora do padrão (${detalhe.clientes.length})`}
                 </p>
-                {detalhe.clientes.length === 0 ? (
+                {!dados.mesCorrente ? (
+                  <p className="text-xs text-muted-foreground">
+                    A análise por cliente também sai do histórico de vendas.
+                  </p>
+                ) : detalhe.clientes.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
                     Nenhum cliente isolado explica esta aceleração — o aumento está diluído
                     entre muitos, o que costuma indicar forecast defasado e não pedido pontual.

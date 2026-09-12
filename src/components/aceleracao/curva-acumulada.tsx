@@ -47,9 +47,16 @@ export function CurvaAcumulada({
 
   const comDados = curvas.filter((c) => c.pontos.length > 0);
   if (comDados.length === 0) {
+    // Dois casos diferentes, e confundi-los custa caro. Sem `mesCorrente` a
+    // base de histórico está vazia e o problema é de toda a tela; com ele, a
+    // base existe e este item específico é que não vendeu. Dizer "sem
+    // histórico para este item" no primeiro caso manda procurar defeito onde
+    // não há — foi o que aconteceu na primeira vez em produção.
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        Sem histórico de venda para este item.
+        {mesCorrente
+          ? "Sem histórico de venda para este item."
+          : "Base de histórico de vendas não importada — o gráfico depende dela."}
       </p>
     );
   }
