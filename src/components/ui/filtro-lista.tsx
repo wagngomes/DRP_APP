@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 
 /**
  * Filtro de lista fechada em forma de chips.
@@ -11,6 +12,15 @@ import Link from "next/link";
  *
  * Quem monta as URLs é a página, que é quem conhece os outros filtros ativos e
  * precisa preservá-los.
+ *
+ * No celular vira acordeão. Doze analistas com nome e sobrenome quebram em
+ * cinco linhas numa tela de 375px, e a pessoa abre o sistema num paredão de
+ * nomes antes de chegar ao conteúdo. Fechado, o acordeão ocupa uma linha e já
+ * diz o que está selecionado; aberto, mostra a mesma grade do desktop.
+ *
+ * Feito com `<details>`, que abre e fecha sem JavaScript — o componente
+ * continua sendo de servidor, e o acordeão funciona antes de qualquer script
+ * carregar.
  */
 export type OpcaoFiltro = {
   valor: string;
@@ -33,9 +43,11 @@ export function FiltroLista({
 }) {
   if (opcoes.length <= 1) return null;
 
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-1 text-sm font-medium text-muted-foreground">{rotulo}</span>
+  const selecionada = atual ? opcoes.find((o) => o.valor === atual) : undefined;
+  const resumo = selecionada?.rotulo ?? "Todos";
+
+  const chips = (
+    <>
       <Chip href={hrefTodos} ativo={!atual}>
         Todos
       </Chip>
@@ -47,7 +59,29 @@ export function FiltroLista({
           ) : null}
         </Chip>
       ))}
-    </div>
+    </>
+  );
+
+  return (
+    <>
+      {/* Celular: acordeão. Fechado mostra só o filtro em uso. */}
+      <details className="group md:hidden">
+        <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm">
+          <span className="shrink-0 font-medium text-muted-foreground">{rotulo}</span>
+          <span className="min-w-0 flex-1 truncate font-medium text-(--brand-petrol) dark:text-(--brand-turquoise)">
+            {resumo}
+          </span>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="flex flex-wrap gap-1.5 pt-2">{chips}</div>
+      </details>
+
+      {/* Desktop: como sempre foi. */}
+      <div className="hidden flex-wrap items-center gap-1.5 md:flex">
+        <span className="mr-1 text-sm font-medium text-muted-foreground">{rotulo}</span>
+        {chips}
+      </div>
+    </>
   );
 }
 

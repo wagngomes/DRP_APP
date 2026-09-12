@@ -543,11 +543,8 @@ function GrupoFiltro({
   totalGeral: number;
   aoTrocar: (valor: string | null) => void;
 }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-1 w-12 shrink-0 text-sm font-medium text-muted-foreground">
-        {titulo}
-      </span>
+  const chips = (
+    <>
       <Chip ativo={ativo === null} total={totalGeral} onClick={() => aoTrocar(null)}>
         Todas
       </Chip>
@@ -561,7 +558,40 @@ function GrupoFiltro({
           {o.rotulo}
         </Chip>
       ))}
-    </div>
+    </>
+  );
+
+  const selecionada = ativo ? opcoes.find((o) => o.valor === ativo)?.rotulo : undefined;
+
+  return (
+    <>
+      {/* Celular: acordeão. Doze analistas com nome e sobrenome quebram em
+          cinco linhas numa tela de 375px, e a pessoa abre a tela num paredão de
+          nomes antes de chegar à tabela. Fechado, ocupa uma linha e já diz o
+          que está selecionado.
+
+          `<details>` abre e fecha sem JavaScript; aqui o componente já é de
+          cliente por causa do estado do filtro, mas o acordeão continua
+          funcionando mesmo antes de o script carregar. */}
+      <details className="group md:hidden">
+        <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm">
+          <span className="shrink-0 font-medium text-muted-foreground">{titulo}</span>
+          <span className="min-w-0 flex-1 truncate font-medium text-(--brand-petrol) dark:text-(--brand-turquoise)">
+            {selecionada ?? "Todas"}
+          </span>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="flex flex-wrap gap-1.5 pt-2">{chips}</div>
+      </details>
+
+      {/* Desktop: como sempre foi. */}
+      <div className="hidden flex-wrap items-center gap-1.5 md:flex">
+        <span className="mr-1 w-12 shrink-0 text-sm font-medium text-muted-foreground">
+          {titulo}
+        </span>
+        {chips}
+      </div>
+    </>
   );
 }
 
