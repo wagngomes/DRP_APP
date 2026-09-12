@@ -5,7 +5,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError } from "better-auth/api";
 
 import { prisma } from "@/lib/prisma";
-import { EMAIL_FROM, resend } from "@/lib/resend";
+import { EMAIL_FROM, clienteResend } from "@/lib/resend";
 import { avisoDominios, emailPermitido } from "@/utils/email-permitido";
 import { registrar } from "@/lib/seguranca/auditoria";
 
@@ -56,7 +56,7 @@ export const auth = betterAuth({
     minPasswordLength: 12,
     requireEmailVerification: process.env.EXIGIR_EMAIL_VERIFICADO === "true",
     sendResetPassword: async ({ user, url }) => {
-      await resend.emails.send({
+      await clienteResend().emails.send({
         from: EMAIL_FROM,
         to: user.email,
         subject: "Redefinição de senha - DRP_AI",
@@ -100,7 +100,7 @@ export const auth = betterAuth({
     // transforma um e-mail vazado em porta aberta por dias.
     expiresIn: 60 * 60,
     sendVerificationEmail: async ({ user, url }) => {
-      await resend.emails.send({
+      await clienteResend().emails.send({
         from: EMAIL_FROM,
         to: user.email,
         subject: "Confirme seu e-mail - DRP_AI",

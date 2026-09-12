@@ -2,9 +2,10 @@ node_modules
 .next
 out
 .git
+# Segredo nunca entra na imagem. O modelo versionado é `env.example`, sem
+# ponto — fora deste padrão de propósito, para não depender de exceção.
 .env
 .env.*
-!.env.example
 npm-debug.log*
 *.md
 .vscode
