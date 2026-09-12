@@ -9,8 +9,13 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    // Direct (non-pooled) connection — required for DDL during migrations.
-    // Runtime queries use DATABASE_URL (pgbouncer) via the adapter in src/lib/prisma.ts.
-    url: process.env["DIRECT_URL"],
+    // Conexão que as migrations usam para aplicar DDL.
+    //
+    // `DIRECT_URL` existe por causa do Supabase, onde `DATABASE_URL` aponta
+    // para o pgbouncer e não serve para DDL. Em produção o Postgres roda ao
+    // lado da aplicação, sem pooler, e só existe `DATABASE_URL` — daí a
+    // alternativa. Sem ela, o `migrate deploy` sobe sem saber onde está o banco
+    // e falha com exit 1, antes de qualquer mensagem útil.
+    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"],
   },
 });

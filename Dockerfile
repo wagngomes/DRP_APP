@@ -5,13 +5,13 @@
 #   deps      instala as dependências uma vez, em camada própria — só refaz
 #             quando package-lock.json muda, não a cada alteração de código
 #   builder   gera o cliente Prisma e compila o Next em modo standalone
-#   migrator  alvo enxuto que só roda `prisma migrate deploy` e sai
+#   migrator  alvo que só roda `prisma migrate deploy` e sai
 #   runner    alvo final: apenas o que o servidor precisa em execução
 #
 # As migrations ficam num alvo separado de propósito. O `prisma` CLI e os
 # engines somam dezenas de megabytes que a aplicação não usa depois do boot —
-# colocá-los no runner engordaria toda instância para um comando que roda uma
-# vez. O compose sobe o migrator antes e espera ele terminar.
+# colocá-los no runner engordaria a imagem que fica rodando, para um comando que
+# roda uma vez. O compose sobe o migrator antes e espera ele terminar.
 
 FROM node:22-alpine AS base
 # `libc6-compat` é exigido pelos engines do Prisma no Alpine; sem ele o cliente
@@ -37,11 +37,24 @@ RUN npm run build
 # ------------------------------------------------------------------ migrations
 FROM base AS migrator
 ENV NODE_ENV=production
-# Só o necessário para aplicar migrations: schema, histórico e o CLI.
-COPY --from=deps /app/node_modules/prisma ./node_modules/prisma
-COPY --from=deps /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=deps /app/node_modules/.bin ./node_modules/.bin
+
+# `node_modules` inteiro, e não uma seleção a dedo.
+#
+# A primeira versão copiava só `prisma`, `@prisma` e `.bin`, para deixar a
+# imagem enxuta. Não funciona: o CLI carrega dependências transitivas espalhadas
+# pela árvore — `@prisma/config` exige `effect`, que exige outras — e o erro que
+# aparece é `Cannot find module`, apontando para uma peça interna que não diz
+# nada sobre a causa. Manter essa lista correta exigiria persegui-la a cada
+# atualização do Prisma.
+#
+# A economia também não existia de verdade: este alvo sobe, aplica as migrations
+# e morre. Nunca fica em execução, e a camada de dependências é a mesma já
+# construída no estágio `deps`, então não há download nem build a mais.
+COPY --from=deps /app/node_modules ./node_modules
 COPY prisma ./prisma
+# O schema não declara `url` na datasource: quem diz onde está o banco é este
+# arquivo.
+COPY prisma.config.ts ./
 COPY package.json ./
 CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 
