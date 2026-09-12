@@ -205,17 +205,17 @@
    * número aqui encolhe ou aumenta tudo em proporção, sem tocar em nenhum
    * componente. É o equivalente ao zoom do navegador, mas aplicado ao sistema.
    *
-   * 90% de 16px = 14,4px. Foi escolhido por ser um passo perceptível sem
-   * comprometer a leitura: abaixo de 85% os rótulos de tabela e os textos
-   * auxiliares começam a ficar cansativos numa jornada inteira de trabalho.
+   * 85% de 16px = 13,6px, escolhido em uso depois de comparar com 90%. É o
+   * piso que eu recomendaria: mais compacto que isto e os rótulos de tabela e
+   * textos auxiliares começam a cansar numa jornada inteira de trabalho.
    *
    * Deliberadamente em porcentagem, e não em pixel fixo: quem aumenta a fonte
    * padrão do navegador por necessidade de acessibilidade continua sendo
-   * atendido, porque 90% se aplica sobre a preferência da pessoa em vez de
+   * atendido, porque a redução se aplica sobre a preferência da pessoa em vez de
    * substituí-la.
    */
   html {
     @apply font-sans;
-    font-size: var(--escala-interface, 90%);
+    font-size: var(--escala-interface, 85%);
   }
 }

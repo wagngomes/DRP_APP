@@ -31,7 +31,34 @@ export const LOGIN: Regra[] = [
  * arquivos estáticos ficam fora do matcher. Noventa por minuto é muito acima do
  * que uma pessoa faz e ainda assim corta varredura automatizada.
  */
-export const NAVEGACAO: Regra[] = [{ max: 90, janelaSegundos: 60 }];
+/**
+ * Navegação de quem já entrou, **por sessão**.
+ *
+ * Por sessão e não por IP, e a diferença não é detalhe: numa rede corporativa
+ * as quinze pessoas saem pelo mesmo endereço público, então um teto por IP é
+ * dividido entre todas — basta duas navegando junto para a terceira tomar 429.
+ * Foi o que aconteceu no primeiro dia em produção.
+ *
+ * O número também subiu. O App Router faz *prefetch* dos links visíveis, e a
+ * barra lateral tem doze itens: abrir uma tela dispara várias requisições além
+ * da que a pessoa pediu. Contar isso com régua de navegação humana produz
+ * bloqueio em uso normal, que é a pior espécie de proteção — a que é desligada
+ * na primeira semana porque atrapalha.
+ *
+ * Trezentas por minuto continuam barrando o que importa: um laço automatizado
+ * varrendo o sistema faz milhares.
+ */
+export const NAVEGACAO: Regra[] = [{ max: 300, janelaSegundos: 60 }];
+
+/**
+ * Navegação de quem ainda não entrou, por IP.
+ *
+ * Aqui não há sessão para identificar, então o IP é o que sobra — e o teto é
+ * mais baixo de propósito: sem login, as únicas telas alcançáveis são a de
+ * entrada e a documentação, que ninguém legítimo recarrega sessenta vezes por
+ * minuto.
+ */
+export const NAVEGACAO_ANONIMA: Regra[] = [{ max: 60, janelaSegundos: 60 }];
 
 /**
  * Importação de CSV, por usuário.
