@@ -1,8 +1,6 @@
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 
-import { auth } from "@/lib/auth";
+import { exigirSessao } from "@/lib/autorizacao";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,8 +53,7 @@ export default async function ComprasUrgentes({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) redirect("/login");
+  const sessao = await exigirSessao();
 
   const params = await searchParams;
   const diasBruto = Number(primeiro(params.dias));
@@ -109,7 +106,10 @@ export default async function ComprasUrgentes({
   };
 
   return (
-    <DashboardShell user={{ name: session.user.name, email: session.user.email }}>
+    <DashboardShell
+      user={{ name: sessao.usuario.name, email: sessao.usuario.email }}
+      papel={sessao.usuario.papel}
+    >
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

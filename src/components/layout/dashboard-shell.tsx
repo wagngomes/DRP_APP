@@ -65,16 +65,22 @@ const NAV_ITEMS = [
 
 export function DashboardShell({
   user,
-  papel = "user",
+  papel,
   children,
 }: {
   user: DashboardUser;
   /**
-   * Papel de quem está na tela. O padrão é o menor privilégio: uma página que
-   * esqueça de passar a propriedade esconde itens de administrador em vez de
-   * revelá-los a quem não deve ver.
+   * Papel de quem está na tela.
+   *
+   * Obrigatório, sem valor padrão. Com padrão `"user"` a propriedade era fácil
+   * de esquecer, e o sintoma não parecia um bug de código: o item "Usuários"
+   * aparecia numa tela e sumia na seguinte, o que qualquer pessoa leria como
+   * problema de sessão. Nove telas estavam assim.
+   *
+   * Exigindo, o TypeScript acusa a tela nova que esquecer — o erro vira falha
+   * de compilação em vez de comportamento errático em produção.
    */
-  papel?: "admin" | "user";
+  papel: "admin" | "user";
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
