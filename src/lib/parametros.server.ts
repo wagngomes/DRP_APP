@@ -1,12 +1,5 @@
-import { cookies } from "next/headers";
-
 import {
   ALVO_PADRAO,
-  COOKIE_DIAS_ALVO,
-  COOKIE_DIAS_CRITICO,
-  COOKIE_DIAS_GATILHO,
-  COOKIE_DIAS_PEDIDOS,
-  COOKIE_DIAS_TRANSFERENCIAS,
   CRITICO_PADRAO,
   GATILHO_PADRAO,
   normalizarCoberturas,
@@ -14,22 +7,37 @@ import {
   type Coberturas,
   type Parametros,
 } from "@/lib/parametros";
+import {
+  CHAVE_DIAS_ALVO,
+  CHAVE_DIAS_CRITICO,
+  CHAVE_DIAS_GATILHO,
+  CHAVE_DIAS_PEDIDOS,
+  CHAVE_DIAS_TRANSFERENCIAS,
+  lerConfiguracoes,
+} from "@/lib/configuracao.server";
 
-/** Lê os parâmetros de projeção do cookie, caindo no padrão quando ausentes. */
+/**
+ * Prazos de projeção, os mesmos para todos.
+ *
+ * Junto com as faixas de cobertura, definem quantos dias uma carga atrasada
+ * leva para entrar e a partir de quando uma posição é crítica — ou seja,
+ * mudam os números de todas as telas. Guardados por navegador, faziam duas
+ * pessoas verem contagens diferentes na mesma Disponibilidade.
+ */
 export async function lerParametros(): Promise<Parametros> {
-  const jar = await cookies();
+  const cfg = await lerConfiguracoes();
   return {
-    diasTransferencias: normalizarDias(jar.get(COOKIE_DIAS_TRANSFERENCIAS)?.value),
-    diasPedidos: normalizarDias(jar.get(COOKIE_DIAS_PEDIDOS)?.value),
+    diasTransferencias: normalizarDias(cfg.get(CHAVE_DIAS_TRANSFERENCIAS)),
+    diasPedidos: normalizarDias(cfg.get(CHAVE_DIAS_PEDIDOS)),
   };
 }
 
-/** Lê as faixas de cobertura do cookie, caindo nos padrões quando ausentes. */
+/** Faixas de cobertura do sistema, caindo nos padrões quando ausentes. */
 export async function lerCoberturas(): Promise<Coberturas> {
-  const jar = await cookies();
+  const cfg = await lerConfiguracoes();
   return normalizarCoberturas({
-    critico: normalizarDias(jar.get(COOKIE_DIAS_CRITICO)?.value, CRITICO_PADRAO),
-    gatilho: normalizarDias(jar.get(COOKIE_DIAS_GATILHO)?.value, GATILHO_PADRAO),
-    alvo: normalizarDias(jar.get(COOKIE_DIAS_ALVO)?.value, ALVO_PADRAO),
+    critico: normalizarDias(cfg.get(CHAVE_DIAS_CRITICO), CRITICO_PADRAO),
+    gatilho: normalizarDias(cfg.get(CHAVE_DIAS_GATILHO), GATILHO_PADRAO),
+    alvo: normalizarDias(cfg.get(CHAVE_DIAS_ALVO), ALVO_PADRAO),
   });
 }

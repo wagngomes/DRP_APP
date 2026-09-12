@@ -46,7 +46,9 @@ export function DataReferenciaPicker({
         toast.error(resultado.erro);
         return;
       }
-      toast.success(`Data de referência: ${formatarBr(valor)}`);
+      toast.success(`Data de referência do sistema: ${formatarBr(valor)}`, {
+        description: "Vale para todos os usuários.",
+      });
       // Recarrega os server components para que as consultas já usem a data nova.
       router.refresh();
     });
@@ -58,7 +60,10 @@ export function DataReferenciaPicker({
     <div className="flex flex-wrap items-end gap-3">
       <div className="space-y-1.5">
         <Label htmlFor="data-referencia" className="text-xs text-muted-foreground">
-          Dia de referência
+          {/* Diz que é do sistema, não da sessão: quem é consulta precisa saber
+              que o valor vem do administrador, e quem é administrador precisa
+              saber que a mudança alcança todo mundo. */}
+          {podeEditar ? "Dia de referência (vale para todos)" : "Dia de referência do sistema"}
         </Label>
         <div className="relative">
           <CalendarDays className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />

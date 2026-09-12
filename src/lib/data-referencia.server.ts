@@ -1,17 +1,20 @@
-import { cookies } from "next/headers";
-
-import { COOKIE_DATA_REFERENCIA, ehIsoValido, paraIso } from "@/lib/data-referencia";
+import { ehIsoValido, paraIso } from "@/lib/data-referencia";
+import { CHAVE_DATA_REFERENCIA, lerConfiguracoes } from "@/lib/configuracao.server";
 
 /**
- * Data de referência atual, lida do cookie. Fica separada de
- * `@/lib/data-referencia` porque depende de `next/headers`: assim a resolução
- * do filtro continua sendo lógica pura, testável fora do Next.
+ * Data de referência do sistema — a mesma para todos.
  *
- * Sem cookie (primeiro acesso), assume hoje — o comportamento que o usuário
- * espera ao abrir o sistema.
+ * Fica separada de `@/lib/data-referencia` para aquele módulo continuar sendo
+ * lógica pura, testável fora do Next e sem banco.
+ *
+ * Vinha de cookie até a equipe começar a usar o sistema: cada navegador tinha a
+ * sua, então duas pessoas discutindo a mesma tela podiam estar olhando dias
+ * diferentes sem perceber. Agora o administrador define e todos veem o mesmo.
+ *
+ * Sem valor gravado (instalação nova), assume hoje.
  */
 export async function lerDataReferencia(): Promise<string> {
-  const valor = (await cookies()).get(COOKIE_DATA_REFERENCIA)?.value;
+  const valor = (await lerConfiguracoes()).get(CHAVE_DATA_REFERENCIA);
   if (valor && ehIsoValido(valor)) return valor;
   return paraIso(new Date());
 }

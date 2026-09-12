@@ -1,27 +1,16 @@
 /**
- * Parâmetros de projeção definidos pelo usuário no Painel.
+ * Parâmetros de projeção, definidos pelo administrador no Painel.
  *
- * Ficam em cookie pelo mesmo motivo da data de referência: quem monta as
- * projeções é o servidor, então toda tela enxerga o mesmo valor sem precisar
- * carregá-lo adiante. São dois números separados porque um caminhão parado e um
- * pedido de compra atrasado têm causas diferentes.
+ * São dois números separados porque um caminhão parado e um pedido de compra
+ * atrasado têm causas diferentes.
+ *
+ * Este módulo é só a régua — limites, padrões e validação, sem I/O. Onde os
+ * valores ficam guardados é assunto de `lib/configuracao.server.ts`, e a
+ * resposta mudou: eram cookie, por navegador, e passaram ao banco quando ficou
+ * claro que duas pessoas na mesma tela precisavam ver o mesmo número.
  */
-export const COOKIE_DIAS_TRANSFERENCIAS = "drp_dias_transferencias";
-export const COOKIE_DIAS_PEDIDOS = "drp_dias_pedidos";
-
 export const DIAS_PADRAO = 5;
 export const DIAS_MAXIMO = 365;
-
-/**
- * Parâmetros de cobertura, usados pelos motores de risco.
- *
- * Separados dos prazos de projeção acima porque respondem a outra pergunta: os de
- * cima corrigem uma data que venceu, estes definem a partir de quanta cobertura
- * o negócio quer ser avisado e até onde quer repor.
- */
-export const COOKIE_DIAS_CRITICO = "drp_dias_critico";
-export const COOKIE_DIAS_GATILHO = "drp_dias_gatilho";
-export const COOKIE_DIAS_ALVO = "drp_dias_alvo";
 
 export const CRITICO_PADRAO = 20;
 export const GATILHO_PADRAO = 10;

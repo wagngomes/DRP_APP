@@ -639,3 +639,27 @@ model TarefaCockpit {
   @@index([data_snapshot])
   @@map("tarefa_cockpit")
 }
+
+model ConfiguracaoSistema {
+  // Parâmetros que valem para todo mundo: data de referência, prazos de
+  // projeção e faixas de cobertura.
+  //
+  // Nasceram em cookie, que parecia suficiente enquanto o sistema tinha um
+  // usuário. Com equipe, não é: cookie é por navegador, então cada pessoa
+  // olhava um dia diferente sem saber, e duas abrindo a mesma tela viam
+  // contagens diferentes — sem nada na interface explicando por quê.
+  //
+  // Chave e valor em texto, em vez de uma coluna por parâmetro: são poucos,
+  // mudam junto com a régua de negócio, e acrescentar um não deveria custar
+  // uma migração. A validação de cada valor vive em `lib/parametros.ts` e
+  // `lib/data-referencia.ts`, que é onde já vivia.
+  chave          String   @id
+  valor          String
+  atualizado_em  DateTime @updatedAt
+  /**
+   * Quem mudou por último — parâmetro alterado muda o número de todas as telas.
+   */
+  atualizado_por String?
+
+  @@map("configuracao_sistema")
+}

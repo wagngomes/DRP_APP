@@ -1,27 +1,18 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { revalidatePath } from "next/cache";
 
 import { exigirAdminOuErro } from "@/lib/autorizacao";
+import { ehDiasValido, type Coberturas } from "@/lib/parametros";
 import {
-  COOKIE_DIAS_ALVO,
-  COOKIE_DIAS_CRITICO,
-  COOKIE_DIAS_GATILHO,
-  COOKIE_DIAS_PEDIDOS,
-  COOKIE_DIAS_TRANSFERENCIAS,
-  ehDiasValido,
-  type Coberturas,
-} from "@/lib/parametros";
-
-const UM_ANO = 60 * 60 * 24 * 365;
-
-const OPCOES_COOKIE = {
-  httpOnly: true,
-  sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
-  path: "/",
-  maxAge: UM_ANO,
-};
+  CHAVE_DIAS_ALVO,
+  CHAVE_DIAS_CRITICO,
+  CHAVE_DIAS_GATILHO,
+  CHAVE_DIAS_PEDIDOS,
+  CHAVE_DIAS_TRANSFERENCIAS,
+  gravarConfiguracoes,
+} from "@/lib/configuracao.server";
+import { registrar } from "@/lib/seguranca/auditoria";
 
 /** Grava os dois prazos de projeção. */
 export async function definirParametros(
@@ -35,10 +26,20 @@ export async function definirParametros(
     return { ok: false, erro: "Informe números inteiros entre 0 e 365." };
   }
 
-  const jar = await cookies();
-  jar.set(COOKIE_DIAS_TRANSFERENCIAS, String(diasTransferencias), OPCOES_COOKIE);
-  jar.set(COOKIE_DIAS_PEDIDOS, String(diasPedidos), OPCOES_COOKIE);
+  await gravarConfiguracoes(
+    {
+      [CHAVE_DIAS_TRANSFERENCIAS]: String(diasTransferencias),
+      [CHAVE_DIAS_PEDIDOS]: String(diasPedidos),
+    },
+    autorizado.sessao.usuario.email
+  );
 
+  registrar("parametro_alterado", {
+    ator: autorizado.sessao.usuario.email,
+    detalhe: `projeção: transferências ${diasTransferencias}d, pedidos ${diasPedidos}d`,
+  });
+
+  revalidatePath("/", "layout");
   return { ok: true };
 }
 
@@ -56,10 +57,20 @@ export async function definirCoberturas(
     return { ok: false, erro: "O gatilho não pode ser maior que o alvo." };
   }
 
-  const jar = await cookies();
-  jar.set(COOKIE_DIAS_CRITICO, String(c.critico), OPCOES_COOKIE);
-  jar.set(COOKIE_DIAS_GATILHO, String(c.gatilho), OPCOES_COOKIE);
-  jar.set(COOKIE_DIAS_ALVO, String(c.alvo), OPCOES_COOKIE);
+  await gravarConfiguracoes(
+    {
+      [CHAVE_DIAS_CRITICO]: String(c.critico),
+      [CHAVE_DIAS_GATILHO]: String(c.gatilho),
+      [CHAVE_DIAS_ALVO]: String(c.alvo),
+    },
+    autorizado.sessao.usuario.email
+  );
 
+  registrar("parametro_alterado", {
+    ator: autorizado.sessao.usuario.email,
+    detalhe: `cobertura: crítico ${c.critico}d, gatilho ${c.gatilho}d, alvo ${c.alvo}d`,
+  });
+
+  revalidatePath("/", "layout");
   return { ok: true };
 }

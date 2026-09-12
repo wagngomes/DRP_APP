@@ -1,12 +1,5 @@
 import type { ImportModelConfig } from "@/lib/imports/config";
 
-/**
- * A data de referência é o "dia do sistema": define de qual snapshot cada
- * consulta lê. Fica em cookie (e não em estado de cliente) porque quem monta
- * as consultas é o servidor — assim toda página e rota enxerga a mesma data
- * sem precisar passá-la adiante em cada chamada.
- */
-export const COOKIE_DATA_REFERENCIA = "drp_data_referencia";
 
 /** Formato de troca: yyyy-mm-dd, sem hora e sem fuso. */
 const FORMATO = /^\d{4}-\d{2}-\d{2}$/;

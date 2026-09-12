@@ -25,6 +25,8 @@ export type EventoSeguranca =
   | "cadastro_bloqueado"
   /** Papel de uma conta alterado. */
   | "papel_alterado"
+  /** Parâmetro do sistema alterado — muda os números de todas as telas. */
+  | "parametro_alterado"
   /** Ação recusada por falta de permissão. */
   | "acesso_negado"
   /** Teto de requisições atingido. */
