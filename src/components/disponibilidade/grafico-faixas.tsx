@@ -105,9 +105,19 @@ export function GraficoFaixas({
   }) {
     if (total === 0) return null;
     return (
-      <div key={chaveCd} className="flex w-16 flex-col items-center gap-1.5">
+      <div
+        key={chaveCd}
+        className="flex min-w-0 flex-1 flex-col items-center gap-1 md:w-16 md:flex-none md:gap-1.5"
+      >
+        {/* O total some no celular: com as colunas dividindo a largura da tela,
+            sobra menos de 15px por barra e "1.234" não cabe de jeito nenhum.
+            
+            A dica que aparece no desktop depende de `onMouseMove`, que não
+            existe no toque — então no celular o número vem pelo caminho
+            natural dali: tocar na faixa filtra a tabela abaixo, que lista os
+            itens daquele CD naquela faixa. */}
         <span
-          className={`font-mono text-xs font-medium tabular-nums ${
+          className={`hidden font-mono text-xs font-medium tabular-nums md:block ${
             destaque
               ? "text-(--brand-turquoise)"
               : "text-(--brand-petrol) dark:text-foreground"
@@ -118,7 +128,7 @@ export function GraficoFaixas({
 
         {/* flex-col-reverse: a severidade cresce de baixo para cima, então
             a primeira faixa (sem estoque) fica na base da coluna. */}
-        <div className="flex h-96 w-full flex-col-reverse gap-[2px] overflow-hidden rounded-[4px]">
+        <div className="flex h-72 w-full flex-col-reverse gap-[1px] overflow-hidden rounded-[3px] md:h-96 md:gap-[2px] md:rounded-[4px]">
           {FAIXAS.map((faixa) => {
             const itens = mapa.get(faixa.id) ?? 0;
             if (itens === 0) return null;
@@ -159,7 +169,7 @@ export function GraficoFaixas({
               >
                 {fracao >= ALTURA_MINIMA_ROTULO ? (
                   <span
-                    className="pointer-events-none text-[10px] font-semibold tabular-nums"
+                    className="pointer-events-none hidden text-[10px] font-semibold tabular-nums md:inline"
                     /* Tinta por faixa: o amarelo puro exige texto escuro. */
                     style={{
                       color: `var(--faixa-${faixa.id}-ink)`,
@@ -174,8 +184,11 @@ export function GraficoFaixas({
           })}
         </div>
 
+        {/* Na vertical no celular: "1006" na horizontal precisa de ~28px e a
+            coluna tem metade disso. Girado, continua legível e mantém a ligação
+            entre barra e CD — sem ele o gráfico viraria um desenho anônimo. */}
         <span
-          className={`font-mono text-xs ${
+          className={`font-mono text-[10px] [writing-mode:vertical-rl] md:text-xs md:[writing-mode:horizontal-tb] ${
             destaque ? "font-semibold text-(--brand-turquoise)" : "text-muted-foreground"
           }`}
         >
@@ -187,13 +200,17 @@ export function GraficoFaixas({
 
   return (
     <div>
+      {/* `min-w-max` só a partir de `md`: no desktop garante a largura fixa das
+          colunas e a rolagem horizontal quando há CDs demais; no celular ele é
+          justamente o que forçava a rolagem, então sai e as colunas dividem a
+          largura disponível. */}
       <div className="overflow-x-auto pb-2">
-        <div className="flex min-w-max items-end gap-3">
+        <div className="flex items-end gap-px md:min-w-max md:gap-3">
           {/* Visão da empresa: empilha as posições item × CD de todos os CDs,
               cada uma na faixa do seu próprio CD — o total desta coluna é a
               soma dos totais das demais. Fica à esquerda, separada, como
               referência para a leitura das outras. */}
-          <div className="mr-6 flex items-end gap-3 border-r pr-6">
+          <div className="mr-1 flex items-end border-r pr-1 md:mr-6 md:gap-3 md:pr-6">
             {coluna({
               chaveCd: FILIAL_CIA,
               rotulo: "Cia",
