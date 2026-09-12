@@ -169,16 +169,34 @@ Três pontos que costumam passar batido:
 
 ## 6. nginx e TLS
 
+A ordem importa: **o certificado primeiro, a configuração depois**. O bloco 443
+declara `listen ssl`, e sem o certificado no lugar o `nginx -t` falha com
+"no ssl_certificate is defined".
+
 ```bash
-sudo apt install nginx certbot python3-certbot-nginx
+# 1. nginx sobe com o site padrão, que é o bastante para o certbot validar
+apt install -y nginx certbot python3-certbot-nginx
 
-sudo cp deploy/nginx-drp.conf /etc/nginx/sites-available/drp
-sudo sed -i 's/SEUDOMINIO.COM.BR/seudominio.com.br/g' /etc/nginx/sites-available/drp
-sudo ln -s /etc/nginx/sites-available/drp /etc/nginx/sites-enabled/drp
-sudo rm -f /etc/nginx/sites-enabled/default
+# 2. obter o certificado, sem deixar o certbot reescrever configuração
+certbot certonly --nginx -d seudominio.com.br -d www.seudominio.com.br
 
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d seudominio.com.br
+# 3. agora sim, instalar a configuração da aplicação
+cp deploy/nginx-drp.conf /etc/nginx/sites-available/drp
+sed -i 's/SEUDOMINIO.COM.BR/seudominio.com.br/g' /etc/nginx/sites-available/drp
+ln -s /etc/nginx/sites-available/drp /etc/nginx/sites-enabled/drp
+rm -f /etc/nginx/sites-enabled/default
+
+nginx -t && systemctl reload nginx
+```
+
+`certonly` em vez de `--nginx`: obtém o certificado sem o certbot reescrever o
+arquivo, o que preservaria os ajustes de tamanho de corpo e tempo limite — que
+são o que faz a importação de CSV grande funcionar.
+
+A renovação é automática, por um timer do systemd que o pacote instala:
+
+```bash
+systemctl list-timers | grep certbot
 ```
 
 O arquivo já traz os dois ajustes que quebram a aplicação se faltarem:
