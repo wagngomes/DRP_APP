@@ -15,7 +15,21 @@ function formatarBr(iso: string): string {
   return `${dia}/${mes}/${ano}`;
 }
 
-export function DataReferenciaPicker({ valorAtual }: { valorAtual: string }) {
+export function DataReferenciaPicker({
+  valorAtual,
+  podeEditar,
+}: {
+  valorAtual: string;
+  /**
+   * Quem é apenas consulta vê a tela e os valores, mas não altera.
+   *
+   * Desabilitar em vez de esconder: o parâmetro faz parte da leitura — saber
+   * que a análise usa 20 dias de horizonte crítico muda como se interpreta o
+   * número na tela. Esconder deixaria a pessoa sem entender de onde sai o
+   * resultado.
+   */
+  podeEditar: boolean;
+}) {
   const [valor, setValor] = useState(valorAtual);
   const [salvando, iniciarTransicao] = useTransition();
   const [pendente, setPendente] = useState(false);
@@ -54,13 +68,13 @@ export function DataReferenciaPicker({ valorAtual }: { valorAtual: string }) {
             value={valor}
             onChange={(event) => setValor(event.target.value)}
             className="w-48 pl-8"
-            disabled={ocupado}
+            disabled={!podeEditar || ocupado}
           />
         </div>
       </div>
       <Button
         onClick={aplicar}
-        disabled={!alterado || ocupado}
+        disabled={!podeEditar || !alterado || ocupado}
         className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
       >
         {ocupado ? <Loader2 className="size-4 animate-spin" /> : null}

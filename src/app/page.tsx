@@ -25,6 +25,9 @@ export default async function Home({
   // tenta abrir uma tela restrita. Sem o aviso, a pessoa só veria o Painel
   // aparecer do nada e concluiria que o sistema falhou.
   const params = await searchParams;
+  // Quem é consulta lê os parâmetros, mas não muda: os campos aparecem
+  // preenchidos e desabilitados.
+  const ehAdmin = sessao.usuario.papel === "admin";
   const negado = (Array.isArray(params.negado) ? params.negado[0] : params.negado) === "1";
 
   const [dataReferencia, parametros, coberturas] = await Promise.all([
@@ -78,20 +81,20 @@ export default async function Home({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <DataReferenciaPicker valorAtual={dataReferencia} />
+            <DataReferenciaPicker valorAtual={dataReferencia} podeEditar={ehAdmin} />
             <Separator />
             <div>
               <p className="mb-2 text-sm font-medium text-(--brand-petrol) dark:text-foreground">
                 Prazo para chegadas vencidas
               </p>
-              <ParametrosProjecao atuais={parametros} />
+              <ParametrosProjecao atuais={parametros} podeEditar={ehAdmin} />
             </div>
             <Separator />
             <div>
               <p className="mb-2 text-sm font-medium text-(--brand-petrol) dark:text-foreground">
                 Faixas de cobertura
               </p>
-              <ParametrosCobertura atuais={coberturas} />
+              <ParametrosCobertura atuais={coberturas} podeEditar={ehAdmin} />
             </div>
             <Separator />
             <div>

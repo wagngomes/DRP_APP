@@ -15,7 +15,21 @@ import { ehDiasValido, type Parametros } from "@/lib/parametros";
  * Prazos aplicados quando a chegada prevista já venceu — um para transferências
  * e outro para pedidos de compra, porque as causas do atraso são diferentes.
  */
-export function ParametrosProjecao({ atuais }: { atuais: Parametros }) {
+export function ParametrosProjecao({
+  atuais,
+  podeEditar,
+}: {
+  atuais: Parametros;
+  /**
+   * Quem é apenas consulta vê a tela e os valores, mas não altera.
+   *
+   * Desabilitar em vez de esconder: o parâmetro faz parte da leitura — saber
+   * que a análise usa 20 dias de horizonte crítico muda como se interpreta o
+   * número na tela. Esconder deixaria a pessoa sem entender de onde sai o
+   * resultado.
+   */
+  podeEditar: boolean;
+}) {
   const [transf, setTransf] = useState(String(atuais.diasTransferencias));
   const [pedidos, setPedidos] = useState(String(atuais.diasPedidos));
   const [salvando, iniciar] = useTransition();
@@ -53,7 +67,7 @@ export function ParametrosProjecao({ atuais }: { atuais: Parametros }) {
             value={transf}
             onChange={(e) => setTransf(e.target.value)}
             className="w-32"
-            disabled={salvando}
+            disabled={!podeEditar || salvando}
             aria-invalid={!ehDiasValido(transf)}
           />
         </div>
@@ -69,13 +83,13 @@ export function ParametrosProjecao({ atuais }: { atuais: Parametros }) {
             value={pedidos}
             onChange={(e) => setPedidos(e.target.value)}
             className="w-32"
-            disabled={salvando}
+            disabled={!podeEditar || salvando}
             aria-invalid={!ehDiasValido(pedidos)}
           />
         </div>
         <Button
           onClick={aplicar}
-          disabled={salvando || !valido || !alterado}
+          disabled={!podeEditar || salvando || !valido || !alterado}
           className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
         >
           {salvando ? <Loader2 className="size-4 animate-spin" /> : null}

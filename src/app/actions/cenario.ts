@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 
 import { revalidatePath } from "next/cache";
 
-import { exigirAdminOuErro } from "@/lib/autorizacao";
+import { exigirAdminOuErro, lerSessao } from "@/lib/autorizacao";
 import { prisma } from "@/lib/prisma";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { lerParametros } from "@/lib/parametros.server";
@@ -265,11 +265,9 @@ export type CenarioResumo = {
 };
 
 export async function listarCenarios(limite = 24): Promise<CenarioResumo[]> {
-  // Sem verificação nenhuma até aqui: a lista só era alcançada pela página, que
-  // exige sessão, e isso bastava enquanto todo mundo tinha o mesmo acesso.
-  // Deixou de bastar — Server Action é um endpoint, e endpoint sem porteiro
-  // depende de ninguém achar o caminho.
-  if (!(await exigirAdminOuErro()).ok) return [];
+  // Leitura é de quem tem sessão: a tela de cenários passou a ser visível para
+  // todos, e é a geração que custa dinheiro e continua restrita.
+  if (!(await lerSessao())) return [];
 
   const linhas = await prisma.cenarioSalvo.findMany({
     orderBy: { createdAt: "desc" },
@@ -313,7 +311,7 @@ export async function listarCenarios(limite = 24): Promise<CenarioResumo[]> {
  * foi guardado — e vazio é honesto: quer dizer "não sei", não "não havia".
  */
 export async function carregarCenario(id: string): Promise<ResultadoTela | null> {
-  if (!(await exigirAdminOuErro()).ok) return null;
+  if (!(await lerSessao())) return null;
 
   const linha = await prisma.cenarioSalvo.findUnique({
     where: { id },

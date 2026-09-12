@@ -38,13 +38,18 @@ type DashboardUser = {
 /**
  * `admin: true` esconde o item de quem é apenas consulta.
  *
+ * Só a gestão de usuários carrega a marca. Cockpit e Cenários são telas de
+ * análise: quem é consulta lê tudo, e o que fica bloqueado são as ações —
+ * gerar análise, rodar cenário, importar. Esconder a tela inteira esconderia
+ * também o resultado, que é o que as pessoas precisam ver.
+ *
  * Esconder não é proteger: a proteção de verdade está em `exigirAdmin()`, no
  * servidor, e continua valendo para quem digitar a URL na mão. Isto é cortesia
  * de interface — não oferecer a porta que vai bater na cara de quem abrir.
  */
 const NAV_ITEMS = [
   { label: "Painel", icon: LayoutDashboard, href: "/" },
-  { label: "Cockpit", icon: Sparkles, href: "/cockpit", admin: true },
+  { label: "Cockpit", icon: Sparkles, href: "/cockpit" },
   { label: "Visão geral", icon: BarChart3, href: "/visao-geral" },
   { label: "Disponibilidade", icon: Gauge, href: "/disponibilidade" },
   { label: "Produto", icon: Package, href: "/produto" },
@@ -52,7 +57,7 @@ const NAV_ITEMS = [
   { label: "Triangulações", icon: Shuffle, href: "/triangulacoes" },
   { label: "Compras urgentes", icon: ShoppingCart, href: "/compras-urgentes" },
   { label: "Aceleração", icon: Flame, href: "/aceleracao" },
-  { label: "Cenários", icon: FlaskConical, href: "/cenarios", admin: true },
+  { label: "Cenários", icon: FlaskConical, href: "/cenarios" },
   { label: "Importar CSV", icon: UploadCloud, href: "/uploads" },
   { label: "Usuários", icon: Users, href: "/usuarios", admin: true },
   { label: "Configurações", icon: Settings, href: null },

@@ -113,8 +113,15 @@ export function PainelCenario({
   cenarios,
   inicial,
   selecionadoId,
+  podeEditar,
 }: {
   fornecedores: string[];
+  /**
+   * Rodar cenário chama o modelo e custa por chamada; excluir apaga análise
+   * que outra pessoa pode estar usando. Consulta lê os cenários já salvos, com
+   * os formulários desabilitados.
+   */
+  podeEditar: boolean;
   /** Código do CD -> sigla, para a tela não mostrar número cru. */
   rotulos: Record<string, string>;
   /** Análises guardadas, mais recente primeiro. */
@@ -145,6 +152,7 @@ export function PainelCenario({
                   Fornecedor
                 </label>
                 <select
+                  disabled={!podeEditar}
                   id="fornecedor"
                   name="fornecedor"
                   required
@@ -165,6 +173,7 @@ export function PainelCenario({
                   Cenário
                 </label>
                 <textarea
+                  disabled={!podeEditar}
                   id="pergunta"
                   name="pergunta"
                   rows={3}
@@ -177,7 +186,11 @@ export function PainelCenario({
             </div>
 
             <div className="flex items-center gap-3">
-              <Button type="submit" disabled={pendente}>
+              <Button
+                type="submit"
+                disabled={!podeEditar || pendente}
+                title={podeEditar ? undefined : "Rodar cenário exige perfil de administrador"}
+              >
                 {pendente ? <Loader2 className="size-4 animate-spin" /> : null}
                 {pendente ? "Simulando…" : "Analisar cenário"}
               </Button>
@@ -226,7 +239,13 @@ export function PainelCenario({
                     não bateria com a tela. */}
                 <form method="POST" action="/api/cenarios/excel">
                   <input type="hidden" name="dados" value={JSON.stringify(estado)} />
-                  <Button type="submit" variant="outline" size="sm">
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    size="sm"
+                    disabled={!podeEditar}
+                    title={podeEditar ? undefined : "Exige perfil de administrador"}
+                  >
                     <Download className="size-4" />
                     Exportar para Excel
                   </Button>

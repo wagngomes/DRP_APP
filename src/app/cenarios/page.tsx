@@ -1,5 +1,5 @@
 
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirSessao } from "@/lib/autorizacao";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { PainelCenario } from "@/components/cenarios/painel-cenario";
@@ -17,7 +17,7 @@ export default async function Cenarios({
 }: {
   searchParams: Promise<{ analise?: string | string[] }>;
 }) {
-  const sessao = await exigirAdmin();
+  const sessao = await exigirSessao();
 
   const params = await searchParams;
   const analiseId = (Array.isArray(params.analise) ? params.analise[0] : params.analise)?.trim();
@@ -60,6 +60,7 @@ export default async function Cenarios({
         {/* A chave remonta o painel ao trocar de análise: sem ela, o resultado
             da última execução continuaria na tela por cima do card aberto. */}
         <PainelCenario
+          podeEditar={sessao.usuario.papel === "admin"}
           key={analiseId ?? "novo"}
           fornecedores={fornecedores}
           rotulos={Object.fromEntries(rotulos)}

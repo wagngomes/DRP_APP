@@ -15,7 +15,21 @@ import { gerarAnaliseCockpit } from "@/app/actions/analise";
  * espera o modelo escrever. Um spinner mudo por esse tempo parece travamento,
  * então o botão conta o tempo decorrido e diz em que etapa está.
  */
-export function BotaoGerar({ temAnalise }: { temAnalise: boolean }) {
+export function BotaoGerar({
+  temAnalise,
+  podeEditar,
+}: {
+  temAnalise: boolean;
+  /**
+   * Quem é apenas consulta vê a tela e os valores, mas não altera.
+   *
+   * Desabilitar em vez de esconder: o parâmetro faz parte da leitura — saber
+   * que a análise usa 20 dias de horizonte crítico muda como se interpreta o
+   * número na tela. Esconder deixaria a pessoa sem entender de onde sai o
+   * resultado.
+   */
+  podeEditar: boolean;
+}) {
   const [rodando, iniciar] = useTransition();
   const [segundos, setSegundos] = useState(0);
   const router = useRouter();
@@ -50,7 +64,8 @@ export function BotaoGerar({ temAnalise }: { temAnalise: boolean }) {
       ) : null}
       <Button
         onClick={gerar}
-        disabled={rodando}
+        disabled={!podeEditar || rodando}
+        title={podeEditar ? undefined : "Gerar análise exige perfil de administrador"}
         className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
       >
         {rodando ? (

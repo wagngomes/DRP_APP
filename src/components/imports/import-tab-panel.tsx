@@ -148,7 +148,19 @@ function formatCellValue(value: unknown, type: ImportColumn["type"]) {
   return String(value);
 }
 
-export function ImportTabPanel({ model }: { model: ImportModelConfig }) {
+export function ImportTabPanel({
+  model,
+  podeEditar,
+}: {
+  model: ImportModelConfig;
+  /**
+   * Consulta vê a tabela e os filtros; importar e limpar substituem a base
+   * inteira e ficam de fora. Os botões continuam visíveis, desabilitados e com
+   * o motivo no `title` — sumir com eles faria a pessoa procurar o que não
+   * existe.
+   */
+  podeEditar: boolean;
+}) {
   const { key: modelKey, label } = model;
   const idField = getIdField(model);
   const isCumulative = Boolean(model.cumulative && model.snapshotField);
@@ -346,14 +358,16 @@ export function ImportTabPanel({ model }: { model: ImportModelConfig }) {
           <Button
             variant="outline"
             onClick={() => setConfirmOpen(true)}
-            disabled={clearing || loading}
+            disabled={!podeEditar || clearing || loading}
+            title={podeEditar ? undefined : "Exige perfil de administrador"}
           >
             <Trash2 className="size-4" />
             Limpar tabela
           </Button>
           <Button
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
+            disabled={!podeEditar || uploading}
+            title={podeEditar ? undefined : "Exige perfil de administrador"}
             className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
           >
             {uploading ? <Loader2 className="size-4 animate-spin" /> : <UploadCloud className="size-4" />}

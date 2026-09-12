@@ -1,9 +1,9 @@
 "use server";
 
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { z } from "zod";
 
-import { auth } from "@/lib/auth";
+import { exigirAdminOuErro } from "@/lib/autorizacao";
 import { COOKIE_DATA_REFERENCIA, ehIsoValido } from "@/lib/data-referencia";
 
 const schema = z.object({
@@ -16,8 +16,8 @@ const UM_ANO = 60 * 60 * 24 * 365;
 export async function definirDataReferencia(
   data: string
 ): Promise<{ ok: true } | { ok: false; erro: string }> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return { ok: false, erro: "Não autenticado" };
+  const autorizado = await exigirAdminOuErro();
+  if (!autorizado.ok) return { ok: false, erro: autorizado.erro };
 
   const parsed = schema.safeParse({ data });
   if (!parsed.success) {

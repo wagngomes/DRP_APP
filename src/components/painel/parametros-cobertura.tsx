@@ -24,7 +24,21 @@ const CAMPOS: { chave: keyof Coberturas; rotulo: string; ajuda: string }[] = [
  * corrigem uma data que já venceu, estas dizem a partir de quanta cobertura o
  * negócio quer ser avisado e até onde quer repor.
  */
-export function ParametrosCobertura({ atuais }: { atuais: Coberturas }) {
+export function ParametrosCobertura({
+  atuais,
+  podeEditar,
+}: {
+  atuais: Coberturas;
+  /**
+   * Quem é apenas consulta vê a tela e os valores, mas não altera.
+   *
+   * Desabilitar em vez de esconder: o parâmetro faz parte da leitura — saber
+   * que a análise usa 20 dias de horizonte crítico muda como se interpreta o
+   * número na tela. Esconder deixaria a pessoa sem entender de onde sai o
+   * resultado.
+   */
+  podeEditar: boolean;
+}) {
   const [valores, setValores] = useState<Record<keyof Coberturas, string>>({
     critico: String(atuais.critico),
     gatilho: String(atuais.gatilho),
@@ -73,14 +87,14 @@ export function ParametrosCobertura({ atuais }: { atuais: Coberturas }) {
                 setValores((v) => ({ ...v, [campo.chave]: e.target.value }))
               }
               className="w-28"
-              disabled={salvando}
+              disabled={!podeEditar || salvando}
               aria-invalid={!ehDiasValido(valores[campo.chave])}
             />
           </div>
         ))}
         <Button
           onClick={aplicar}
-          disabled={salvando || !validos || !ordemOk || !alterado}
+          disabled={!podeEditar || salvando || !validos || !ordemOk || !alterado}
           className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
         >
           {salvando ? <Loader2 className="size-4 animate-spin" /> : null}

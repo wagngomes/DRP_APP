@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth";
+import { exigirAdminOuErro } from "@/lib/autorizacao";
 import { prisma } from "@/lib/prisma";
 import { getIdField, getImportModel, getTableName, IMPORT_MODEL_KEYS } from "@/lib/imports/config";
 import { bulkLoadRecords } from "@/lib/imports/bulk-copy";
@@ -54,6 +55,20 @@ function getDelegate(delegateName: string): ImportDelegate {
 async function requireSession() {
   const session = await auth.api.getSession({ headers: await headers() });
   return session;
+}
+
+/**
+ * Escrita nas bases exige administrador.
+ *
+ * Ler a tabela importada é consulta e fica aberta a quem tem sessão. Já
+ * importar e limpar **substituem a base inteira** — o import apaga antes de
+ * inserir. Uma carga errada não estraga uma linha: apaga o histórico de
+ * snapshots com que todas as telas trabalham.
+ */
+async function exigirAdminApi(): Promise<NextResponse | null> {
+  const autorizado = await exigirAdminOuErro();
+  if (autorizado.ok) return null;
+  return NextResponse.json({ error: autorizado.erro }, { status: autorizado.status });
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -133,6 +148,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
+  const negado = await exigirAdminApi();
+  if (negado) return negado;
+
   const session = await requireSession();
   if (!session) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
@@ -311,6 +329,9 @@ async function executarImportacao(
 }
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const negado = await exigirAdminApi();
+  if (negado) return negado;
+
   const session = await requireSession();
   if (!session) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

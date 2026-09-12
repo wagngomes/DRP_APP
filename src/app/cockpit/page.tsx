@@ -12,7 +12,7 @@ import {
   Wallet,
 } from "lucide-react";
 
-import { exigirAdmin } from "@/lib/autorizacao";
+import { exigirSessao } from "@/lib/autorizacao";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -126,7 +126,7 @@ export default async function Cockpit({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const sessao = await exigirAdmin();
+  const sessao = await exigirSessao();
   const params = await searchParams;
 
   const [data, parametros, coberturas] = await Promise.all([
@@ -214,7 +214,7 @@ export default async function Cockpit({
             <Badge variant="secondary" className="text-sm">
               {`Referência: ${dataBr(data)}`}
             </Badge>
-            <BotaoGerar temAnalise={gravada !== null} />
+            <BotaoGerar temAnalise={gravada !== null} podeEditar={sessao.usuario.papel === "admin"} />
           </div>
         </div>
 

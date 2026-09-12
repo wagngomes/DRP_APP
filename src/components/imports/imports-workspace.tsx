@@ -48,7 +48,7 @@ const LEGENDA: { cadencia: Cadencia; rotulo: string; amostra: string }[] = [
   { cadencia: "cadastro", rotulo: "Cadastro", amostra: "border bg-muted" },
 ];
 
-export function ImportsWorkspace() {
+export function ImportsWorkspace({ podeEditar }: { podeEditar: boolean }) {
   return (
     <Tabs defaultValue={IMPORT_MODELS[0].key} className="w-full gap-4">
       <div className="space-y-2">
@@ -83,7 +83,7 @@ export function ImportsWorkspace() {
 
       {IMPORT_MODELS.map((model) => (
         <TabsContent key={model.key} value={model.key}>
-          <ImportTabPanel model={model} />
+          <ImportTabPanel podeEditar={podeEditar} model={model} />
         </TabsContent>
       ))}
     </Tabs>

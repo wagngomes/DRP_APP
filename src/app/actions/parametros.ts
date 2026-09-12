@@ -1,8 +1,8 @@
 "use server";
 
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 
-import { auth } from "@/lib/auth";
+import { exigirAdminOuErro } from "@/lib/autorizacao";
 import {
   COOKIE_DIAS_ALVO,
   COOKIE_DIAS_CRITICO,
@@ -28,8 +28,8 @@ export async function definirParametros(
   diasTransferencias: number,
   diasPedidos: number
 ): Promise<{ ok: true } | { ok: false; erro: string }> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return { ok: false, erro: "Não autenticado" };
+  const autorizado = await exigirAdminOuErro();
+  if (!autorizado.ok) return { ok: false, erro: autorizado.erro };
 
   if (!ehDiasValido(diasTransferencias) || !ehDiasValido(diasPedidos)) {
     return { ok: false, erro: "Informe números inteiros entre 0 e 365." };
@@ -46,8 +46,8 @@ export async function definirParametros(
 export async function definirCoberturas(
   c: Coberturas
 ): Promise<{ ok: true } | { ok: false; erro: string }> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return { ok: false, erro: "Não autenticado" };
+  const autorizado = await exigirAdminOuErro();
+  if (!autorizado.ok) return { ok: false, erro: autorizado.erro };
 
   if (!ehDiasValido(c.critico) || !ehDiasValido(c.gatilho) || !ehDiasValido(c.alvo)) {
     return { ok: false, erro: "Informe números inteiros entre 0 e 365." };
