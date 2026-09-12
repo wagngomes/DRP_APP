@@ -16,15 +16,18 @@ import {
   Settings,
   ShoppingCart,
   Shuffle,
+  Menu,
   Sparkles,
   UploadCloud,
   Users,
+  X,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { LogoDrp } from "@/components/layout/logo-drp";
+import { IconeLinkedin } from "@/components/layout/icone-linkedin";
 import { authClient } from "@/lib/auth-client";
 
 type DashboardUser = {
@@ -70,6 +73,15 @@ export function DashboardShell({
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  /**
+   * Gaveta do celular, separada de `collapsed` de propósito.
+   *
+   * São duas perguntas diferentes: `collapsed` é "o menu está estreito?", que
+   * só existe no desktop; `aberto` é "a gaveta está por cima do conteúdo?", que
+   * só existe no celular. Um estado só para as duas faria recolher no desktop
+   * abrir a gaveta ao girar o telefone.
+   */
+  const [aberto, setAberto] = useState(false);
   const [rolou, setRolou] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -82,6 +94,12 @@ export function DashboardShell({
     window.addEventListener("scroll", aoRolar, { passive: true });
     return () => window.removeEventListener("scroll", aoRolar);
   }, []);
+
+  // Fecha a gaveta ao trocar de tela. Sem isto, tocar num item do menu leva à
+  // página nova com a gaveta ainda por cima dela.
+  useEffect(() => {
+    setAberto(false);
+  }, [pathname]);
 
   async function handleSignOut() {
     await authClient.signOut();
@@ -98,20 +116,46 @@ export function DashboardShell({
 
   return (
     <div className="flex min-h-screen w-full bg-secondary/40">
+      {/* Fundo escuro atrás da gaveta, só no celular. Também serve de área de
+          toque para fechar, que é o gesto que as pessoas tentam primeiro. */}
+      {aberto ? (
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          onClick={() => setAberto(false)}
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+        />
+      ) : null}
+
       {/* A barra ocupa a altura toda da janela: header e footer vivem dentro da
-          área de conteúdo, à direita dela, e não passam por cima. */}
+          área de conteúdo, à direita dela, e não passam por cima.
+          
+          No celular ela sai do fluxo e vira gaveta sobre o conteúdo: 256px
+          fixos numa tela de 375px deixariam 119px para o sistema. A partir de
+          `md` tudo volta ao que era — as classes com prefixo desfazem as de
+          celular, e o desktop não muda em nada. */}
       <aside
-        className={`sticky top-0 flex h-screen shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[width] duration-200 ${
-          collapsed ? "w-18" : "w-64"
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[transform,width] duration-200 md:sticky md:top-0 md:z-auto md:translate-x-0 ${
+          aberto ? "translate-x-0" : "-translate-x-full"
+        } ${collapsed ? "md:w-18" : "md:w-64"}`}
       >
         <div className="flex h-16 items-center justify-end px-4">
+          {/* No celular o botão fecha a gaveta; no desktop, estreita o menu. */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setAberto(false)}
+            title="Fechar menu"
+            className="text-sidebar-foreground hover:bg-white/10 hover:text-sidebar-foreground md:hidden"
+          >
+            <X className="size-4" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setCollapsed((prev) => !prev)}
             title={collapsed ? "Expandir menu" : "Recolher menu"}
-            className="text-sidebar-foreground hover:bg-white/10 hover:text-sidebar-foreground"
+            className="hidden text-sidebar-foreground hover:bg-white/10 hover:text-sidebar-foreground md:inline-flex"
           >
             {collapsed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
           </Button>
@@ -134,7 +178,9 @@ export function DashboardShell({
               }`}
             >
               <item.icon className="size-4 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
+              {/* `collapsed` é estado de desktop: na gaveta do celular o rótulo
+                  aparece sempre, senão sobrariam doze ícones sem legenda. */}
+              <span className={collapsed ? "md:hidden" : ""}>{item.label}</span>
             </button>
           ))}
         </nav>
@@ -153,7 +199,20 @@ export function DashboardShell({
             rolou ? "border-b shadow-sm" : ""
           }`}
         >
-          <LogoDrp />
+          <div className="flex min-w-0 items-center gap-2">
+            {/* Só no celular: no desktop a barra está sempre visível. */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setAberto(true)}
+              title="Abrir menu"
+              aria-label="Abrir menu"
+              className="-ml-2 md:hidden"
+            >
+              <Menu className="size-5" />
+            </Button>
+            <LogoDrp />
+          </div>
 
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2.5">
@@ -177,10 +236,24 @@ export function DashboardShell({
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden p-6 md:p-8">{children}</main>
+        {/* Margem menor no celular: 24px de cada lado consomem 13% da largura
+            de uma tela de 375px. No desktop nada muda. */}
+        <main className="min-w-0 flex-1 overflow-x-hidden p-4 md:p-8">{children}</main>
 
         <footer className="shrink-0 border-t bg-background px-6 py-3 text-center text-xs text-muted-foreground">
-          Desenvolvido por Wagner Gomes
+          <p>Desenvolvido por Wagner Gomes</p>
+          <a
+            href="https://www.linkedin.com/in/wagner-gomes-8b30a086/"
+            target="_blank"
+            // `noreferrer` junto com `noopener`: o primeiro impede que a página
+            // aberta alcance esta pela referência `window.opener`; o segundo
+            // evita mandar o endereço interno do sistema no cabeçalho de origem.
+            rel="noopener noreferrer"
+            aria-label="Perfil de Wagner Gomes no LinkedIn"
+            className="mt-1.5 inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground transition-colors hover:text-(--brand-petrol) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--brand-turquoise) dark:hover:text-(--brand-turquoise)"
+          >
+            <IconeLinkedin className="size-4" />
+          </a>
         </footer>
       </div>
     </div>
