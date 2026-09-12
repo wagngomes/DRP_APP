@@ -43,12 +43,16 @@
 #
 #   host + Docker        ~800 MB
 #   banco                   2 GB   (uso típico ~1,4 GB)
-#   aplicação               3 GB   (uso típico ~300 MB; 3 GB é o pico de carga)
-#   backup                512 MB   (dorme quase o tempo todo)
+#   aplicação               5 GB   (uso típico ~300 MB; o teto é para a carga)
+#   backup                256 MB   (dorme quase o tempo todo)
 #   vigia                  64 MB
 #   observabilidade       768 MB   (só no perfil, fora do `up` padrão)
-#   ------------------------------
-#   sobra                 ~800 MB  mesmo com tudo em pé
+#
+# A soma dos tetos passa dos 7,8 GB da máquina, e isso é deliberado: são tetos,
+# não reservas. Em regime a aplicação usa ~300 MB, e os 5 GB só são tocados
+# durante uma importação grande — quando backup e vigia somam menos de 50 MB e o
+# banco está nos seus 1,4 GB. O pior caso real fica em torno de 6,7 GB, com os
+# 2 GB de swap como rede se a conta escapar.
 #
 # São tetos, não reservas: os contêineres usam o que precisam. O teto existe
 # para que uma importação grande não mate o banco por OOM — e vice-versa.
@@ -158,10 +162,20 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Heap declarado, e não deixado ao critério do Node: o padrão é calculado
       # sobre a memória total da máquina e ignora que o Postgres também mora
-      # aqui. 2,5 GB cobrem com folga o pico medido da maior importação (~1,5
-      # GB) e deixam espaço para a base crescer.
-      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=2560}
-    mem_limit: 3g
+      # aqui.
+      #
+      # Eram 2,5 GB, dimensionados por uma estimativa de 1,5 GB de pico. A
+      # estimativa estava errada: a importação de 166 MB de histórico morreu
+      # com `JavaScript heap out of memory`. Um CSV de meio milhão de linhas com
+      # 33 colunas vira muito mais objeto do que a soma dos bytes do arquivo
+      # sugere — cada campo é uma string com cabeçalho próprio, e são 16 milhões
+      # deles.
+      #
+      # 4 GB é remendo, não conserto. O conserto é a importação deixar de
+      # carregar o arquivo inteiro na memória; enquanto isso não acontece, o
+      # teto precisa caber o maior arquivo de hoje com folga para o de amanhã.
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=4096}
+    mem_limit: 5g
     # Sem limite de CPU de propósito. São dois serviços e dois vCPUs: em regime,
     # o Node ocupa um núcleo para o JavaScript e o Postgres o outro. Os dois só
     # disputam de verdade durante uma importação — o parse do CSV de um lado, o
@@ -201,7 +215,7 @@ services:
     # o primeiro ciclo roda na subida.
     image: postgres:17-alpine
     restart: unless-stopped
-    mem_limit: 512m
+    mem_limit: 256m
     environment:
       PGHOST: banco
       PGUSER: ${POSTGRES_USER:-drp}

@@ -300,6 +300,34 @@ importação morre.
 O firewall não entra nessa lista: o ufw decide por porta, no início da conexão,
 e não olha o que trafega depois. Upload grande não é problema dele.
 
+### Importação que "termina" sem gravar nada
+
+Sintoma enganoso: a tela não acusa erro e a tabela continua vazia. A causa é o
+processo morrer no meio — a transação é desfeita pelo Postgres e não sobra
+rastro no banco.
+
+O diagnóstico é direto:
+
+```bash
+docker inspect drp-app-1 --format 'OOMKilled={{.State.OOMKilled}} Restarts={{.RestartCount}}'
+docker compose logs app 2>&1 | grep -iE "heap|FATAL|out of memory" | tail -5
+```
+
+Duas mortes diferentes, com correções diferentes:
+
+| Sinal | Causa | Correção |
+|---|---|---|
+| `JavaScript heap out of memory` | O heap do Node acabou | `--max-old-space-size` maior |
+| `OOMKilled=true` | O contêiner passou do `mem_limit` | `mem_limit` maior |
+
+`OOMKilled=false` com `Restarts` maior que zero é o primeiro caso: o Node
+encerrou sozinho, então para o Docker foi saída normal.
+
+Aconteceu com o histórico de vendas (166 MB): o teto estava em 2,5 GB, baseado
+numa estimativa de pico que se mostrou otimista. Meio milhão de linhas com 33
+colunas são 16 milhões de strings, cada uma com cabeçalho próprio — o consumo
+não acompanha o tamanho do arquivo, acompanha a contagem de campos.
+
 Dois outros culpados possíveis, se o sintoma persistir:
 
 - **Cloudflare na frente** limita o corpo da requisição a 100 MB nos planos
