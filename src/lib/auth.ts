@@ -121,8 +121,18 @@ export const auth = betterAuth({
    * defesa contra CSRF, e custa uma linha.
    */
   trustedOrigins: [
+    // Só variáveis de servidor aqui. `NEXT_PUBLIC_*` é substituída pelo valor
+    // literal durante o build — inclusive no código de servidor — e o build
+    // roda dentro da imagem, que não recebe o `.env`. Usá-la aqui deixaria
+    // `http://localhost:3000` congelado na origem confiável, e a proteção
+    // contra CSRF passaria a comparar contra o endereço errado.
     process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
+    // Origens extras, separadas por vírgula, quando o sistema atende por mais
+    // de um endereço (um domínio antigo durante a migração, por exemplo).
+    ...(process.env.ORIGENS_CONFIAVEIS ?? "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean),
   ],
 
   /**
