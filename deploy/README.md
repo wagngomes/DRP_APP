@@ -257,6 +257,28 @@ lado de fora sem erro visível. Passo a passo no `README-operacao.md`.
 
 ---
 
+## Atualizar depois
+
+A imagem carrega o Next já compilado, então mudança de código só chega ao ar
+por reconstrução:
+
+```bash
+cd /opt/drp && bash deploy/atualizar.sh
+```
+
+O script traz o código, reconstrói, aplica migrations pendentes e confere se o
+sistema respondeu — "o comando terminou" não é a mesma coisa que "está no ar".
+
+Nem toda mudança exige reconstruir:
+
+| Mudou | Comando |
+|---|---|
+| Código (`src/`, `prisma/`) | `bash deploy/atualizar.sh` |
+| Só o `.env` | `docker compose up -d` — recria o contêiner, sem recompilar |
+| Configuração do nginx | `nginx -t && systemctl reload nginx` |
+
+---
+
 ## O que fica pendente
 
 Nenhum destes impede subir, mas todos estavam no levantamento de segurança:
