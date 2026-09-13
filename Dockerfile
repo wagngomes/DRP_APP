@@ -71,7 +71,19 @@ RUN addgroup --system --gid 1001 nodejs \
 # `dumb-init` como PID 1 para encaminhar SIGTERM ao Node. Sem ele o Node vira
 # PID 1, ignora o sinal por padrão, e o orquestrador acaba matando o contêiner
 # no timeout — cortando requisições em andamento a cada deploy.
-RUN apk add --no-cache dumb-init curl
+# `tzdata` para o `TZ` do compose valer.
+#
+# Alpine não traz o banco de fusos, e sem ele `TZ=America/Sao_Paulo` é ignorado
+# em silêncio — o contêiner continua em UTC e `date` mente sobre a hora.
+#
+# Não afeta o cálculo da data do sistema, que usa `Intl.DateTimeFormat` com o
+# fuso declarado: o Node embute os próprios dados no ICU e acerta mesmo sem o
+# sistema operacional saber o que é São Paulo. É mais uma razão para a correção
+# ter ido para o código em vez da configuração.
+#
+# O que `tzdata` resolve é a leitura: sem ela o log registra 00:33 quando aqui
+# são 21:33, e quem investiga um incidente converte cada carimbo na cabeça.
+RUN apk add --no-cache dumb-init curl tzdata
 
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
