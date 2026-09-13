@@ -118,6 +118,16 @@ export async function calcularAnomaliasVenda(limite = 50): Promise<DadosVendas> 
   }));
 
   const mesAnalisado = linhas[0]?.mes_analisado ?? "";
+
+  // Sem histórico importado não há mês analisado, e a conta do baseline
+  // produzia `Invalid Date` — `Date.UTC(NaN, NaN, 1)` seguido de
+  // `toISOString()` lança, e o erro subia até derrubar a geração de análise
+  // inteira. O caso não é excepcional: acontece em toda instalação nova, antes
+  // da primeira carga do histórico.
+  if (!mesAnalisado) {
+    return { mesAnalisado: "", baseline: [], anomalias: [], semGrupo: 0 };
+  }
+
   const [ano, mes] = mesAnalisado.split("-").map(Number);
   const baseline = Array.from({ length: MESES_BASELINE }, (_, i) => {
     const d = new Date(Date.UTC(ano, mes - 1 - (i + 1), 1));

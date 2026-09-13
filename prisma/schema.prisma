@@ -558,41 +558,29 @@ model ClientesGrupos {
 }
 
 model HistoricoVendas {
+  // Só as colunas que o sistema lê, mais as que o negócio quis guardar.
+  //
+  // A tabela nasceu com as 33 colunas do CSV de origem e virou a maior do
+  // banco: 160 MB de dados, dos quais 105 MB em colunas que nenhuma consulta
+  // tocava. O custo não era só disco — a importação carrega o arquivo inteiro
+  // na memória, e cada campo a mais multiplica por meio milhão de linhas.
+  //
+  // O CSV continua vindo completo: o importador percorre as colunas
+  // configuradas e ignora o que sobra no cabeçalho, então a exportação de
+  // origem não precisa mudar.
   id                  Int       @id @default(autoincrement())
   createdAt           DateTime  @default(now())
   unidade_negocio_mov String?
   data                DateTime?
   documento           String?
-  total               Decimal?  @db.Decimal(24, 10)
-  ano                 Decimal?  @db.Decimal(24, 10)
-  mes                 String?
   cod_prod            String?
   armazem             String?
-  produto             String?
   nome                String?
-  cidade              String?
-  cfop                String?
   cnpj                String?
-  nome_marca_cadastro String?
-  nicho               String?
-  mercado             String?
   cliente_money       String?
-  definicao           String?
-  grupo_marca_oficial String?
   estado              String?
   filial              String?
   quantidade          Decimal?  @db.Decimal(24, 10)
-  custo               Decimal?  @db.Decimal(24, 10)
-  cliente_contr_icms  String?
-  empresa             String?
-  check_empresa       String?
-  bu                  String?
-  bu_ajustada         String?
-  regra               String?
-  filial_ideal_final  String?
-  tributacao          String?
-  cpf_ou_cnpj         String?
-  nome_grupo_marca    String?
 
   @@index([cod_prod])
   // Data isolada serve o MAX(data) que define a janela de comparação, e o
