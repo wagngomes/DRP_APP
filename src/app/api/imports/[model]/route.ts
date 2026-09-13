@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { auth } from "@/lib/auth";
 import { exigirAdminOuErro } from "@/lib/autorizacao";
+import { hojeNaOperacao } from "@/lib/data-referencia";
 import { prisma } from "@/lib/prisma";
 import { getIdField, getImportModel, getTableName, IMPORT_MODEL_KEYS } from "@/lib/imports/config";
 import { bulkLoadRecords } from "@/lib/imports/bulk-copy";
@@ -297,8 +298,10 @@ async function executarImportacao(
   // Tabelas cumulativas (ex: Pedidos de Compra) não apagam o histórico —
   // cada upload vira um novo snapshot do dia, marcado pelo servidor.
   if (model.cumulative && model.snapshotField) {
-    const snapshotDate = new Date();
-    snapshotDate.setUTCHours(0, 0, 0, 0);
+    // O dia da operação, não o de UTC: uma carga feita às 21h no Brasil já
+    // seria carimbada com a data de amanhã, e o relatório do dia sumiria da
+    // data de referência que a equipe está usando.
+    const snapshotDate = new Date(`${hojeNaOperacao()}T00:00:00.000Z`);
     for (const record of validRecords) {
       record[model.snapshotField] = snapshotDate;
     }

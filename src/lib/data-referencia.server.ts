@@ -1,4 +1,4 @@
-import { ehIsoValido, paraIso } from "@/lib/data-referencia";
+import { ehIsoValido, hojeNaOperacao } from "@/lib/data-referencia";
 import { CHAVE_DATA_REFERENCIA, lerConfiguracoes } from "@/lib/configuracao.server";
 
 /**
@@ -11,10 +11,12 @@ import { CHAVE_DATA_REFERENCIA, lerConfiguracoes } from "@/lib/configuracao.serv
  * sua, então duas pessoas discutindo a mesma tela podiam estar olhando dias
  * diferentes sem perceber. Agora o administrador define e todos veem o mesmo.
  *
- * Sem valor gravado (instalação nova), assume hoje.
+ * Sem valor gravado (instalação nova), assume hoje **no fuso da operação** — e
+ * não em UTC, que às 21h já virou o dia seguinte e fazia o sistema apontar para
+ * um dia sem importação nenhuma.
  */
 export async function lerDataReferencia(): Promise<string> {
   const valor = (await lerConfiguracoes()).get(CHAVE_DATA_REFERENCIA);
   if (valor && ehIsoValido(valor)) return valor;
-  return paraIso(new Date());
+  return hojeNaOperacao();
 }

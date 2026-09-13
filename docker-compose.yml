@@ -116,6 +116,7 @@ services:
       # Locale e collation fixados: ordenação de texto que muda entre ambientes
       # produz resultado diferente no mesmo dado.
       LANG: C.UTF-8
+      TZ: ${TZ:-America/Sao_Paulo}
     volumes:
       - dados_postgres:/var/lib/postgresql/data
     # `retries` alto de propósito, agora que o vigia age sobre a saúde: são
@@ -175,6 +176,14 @@ services:
       # carregar o arquivo inteiro na memória; enquanto isso não acontece, o
       # teto precisa caber o maior arquivo de hoje com folga para o de amanhã.
       NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=4096}
+      # Alinha o relógio do contêiner com o da operação.
+      #
+      # Não conserta a data do sistema — `toISOString()` converte para UTC
+      # independente desta variável, e é por isso que o cálculo de "hoje" foi
+      # para `hojeNaOperacao()`, no código. O que `TZ` resolve é a leitura: sem
+      # ela o log de auditoria registra 00:33 quando aqui são 21:33, e quem
+      # investiga um incidente perde tempo convertendo cada carimbo.
+      TZ: ${TZ:-America/Sao_Paulo}
     mem_limit: 5g
     # Sem limite de CPU de propósito. São dois serviços e dois vCPUs: em regime,
     # o Node ocupa um núcleo para o JavaScript e o Postgres o outro. Os dois só
