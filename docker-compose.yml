@@ -299,12 +299,23 @@ services:
     mem_limit: 384m
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      # `admin` como padrão só sobrevive porque a porta não é pública. Ainda
+      # assim, defina `GRAFANA_PASSWORD` no .env antes de subir o perfil.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
       # Sem telemetria e sem atualização automática: ambiente interno.
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    # Escuta só no próprio host, como a aplicação.
+    #
+    # Publicado em 0.0.0.0 ele fica aberto para a internet inteira, e o firewall
+    # não salva: o Docker escreve as próprias regras no iptables, antes das do
+    # ufw. Com a senha padrão `admin`, qualquer um veria os dados de operação do
+    # sistema — rotas, volume, tempo de resposta.
+    #
+    # O acesso passa a ser por túnel SSH, que não abre porta nenhuma:
+    #   ssh -L 3001:127.0.0.1:3001 root@IP-DA-VPS
     ports:
-      - "${GRAFANA_PORT:-3001}:3000"
+      - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3001}:3000"
     volumes:
       # Provisionamento automático: a fonte de dados e o painel já sobem
       # configurados, sem ninguém clicar na interface.
