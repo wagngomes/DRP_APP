@@ -45,9 +45,20 @@ export type ProdutoUrgente = {
   codigo: string;
   descricao: string | null;
   fornecedor: string;
+  /** BU do primeiro CD — o que a tela exibe como rótulo. */
   bu: string;
-  /** Analista responsável, vindo do forecast. */
+  /** Analista do primeiro CD — o que a tela exibe como rótulo. */
   analista: string;
+  /**
+   * Todos os analistas e BUs do produto, um por CD onde ele aparece.
+   *
+   * A tela é por produto, mas a responsabilidade é por posição item × CD, e os
+   * dois nem sempre coincidem: 10 produtos têm analistas diferentes entre CDs e
+   * 19 têm BUs diferentes. Os filtros usam estas listas; os rótulos acima
+   * mostram o primeiro, que é o caso da esmagadora maioria.
+   */
+  analistas: string[];
+  bus: string[];
   estoqueChao: number;
   transferencias: number;
   compras: number;
@@ -187,6 +198,15 @@ export async function carregarComprasUrgentes(
       fornecedor: cds[0].fornecedor,
       bu: cds[0].bu,
       analista: cds[0].analista,
+      // Todos os analistas e BUs do produto, e não só os do primeiro CD.
+      //
+      // A tela é por produto, mas a responsabilidade é por posição item × CD:
+      // 10 produtos têm analistas diferentes entre CDs e 19 têm BUs
+      // diferentes. Filtrar pelo primeiro CD fazia o produto sumir para quem
+      // responde por ele noutro centro — e sumir é o pior modo de errar aqui,
+      // porque não há sinal nenhum de que algo ficou de fora.
+      analistas: [...new Set(cds.map((l) => l.analista))],
+      bus: [...new Set(cds.map((l) => l.bu))],
       estoqueChao: chao,
       transferencias: transf,
       compras,
@@ -202,10 +222,10 @@ export async function carregarComprasUrgentes(
 
   // Listas dos filtros montadas antes do recorte: senão filtrar por uma BU
   // esvaziaria o próprio seletor.
-  const bus = [...new Set(todos.map((p) => p.bu))].sort((a, b) =>
+  const bus = [...new Set(todos.flatMap((p) => p.bus))].sort((a, b) =>
     a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR")
   );
-  const analistas = [...new Set(todos.map((p) => p.analista))].sort((a, b) =>
+  const analistas = [...new Set(todos.flatMap((p) => p.analistas))].sort((a, b) =>
     a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR")
   );
   const fornecedores = [...new Set(todos.map((p) => p.fornecedor))].sort((a, b) =>
@@ -217,8 +237,8 @@ export async function carregarComprasUrgentes(
       (p) =>
         p.diasTotal !== null &&
         p.diasTotal <= limiteDias &&
-        (!filtroBu || p.bu === filtroBu) &&
-        (!filtroAnalista || p.analista === filtroAnalista) &&
+        (!filtroBu || p.bus.includes(filtroBu)) &&
+        (!filtroAnalista || p.analistas.includes(filtroAnalista)) &&
         (!filtroFornecedor || p.fornecedor === filtroFornecedor)
     )
     // Mais crítico primeiro: menos dias de cobertura e, no empate, mais CDs

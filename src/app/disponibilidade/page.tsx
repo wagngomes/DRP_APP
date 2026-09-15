@@ -18,6 +18,7 @@ import { GraficoFaixas } from "@/components/disponibilidade/grafico-faixas";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import {
   FILIAL_CIA,
+  consolidarCia,
   contarCia,
   contarPorFaixa,
   listarFornecedores,
@@ -257,12 +258,10 @@ export default async function Disponibilidade({
 
                 {curvas.map((c) => {
                   const doCurva = contagens.filter((x) => x.curva === c);
-                  // Visão consolidada da mesma curva/BU, para a coluna "Cia".
-                  const mapaCia = new Map(
-                    contagensCia
-                      .filter((x) => x.curva === c && (!bu || x.bu === bu))
-                      .map((x) => [x.faixa, x.itens] as const)
-                  );
+                  // Visão consolidada do MESMO recorte, para a coluna "Cia".
+                  // A regra vive em `consolidarCia` para poder ser testada —
+                  // foi embutida aqui que ela passou despercebida.
+                  const mapaCia = consolidarCia(contagensCia, { curva: c, bu, analista });
                   const total = doCurva.reduce((soma, x) => soma + x.itens, 0);
                   // A tabela abre ao lado do gráfico da curva clicada, para o
                   // resultado ficar junto do que o gerou.

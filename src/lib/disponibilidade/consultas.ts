@@ -233,3 +233,32 @@ export async function listarItensCia(
     ...args
   );
 }
+
+/**
+ * Consolida a visão Cia de um recorte: total por faixa, somando as linhas.
+ *
+ * Existe como função separada porque a página fazia isto embutido, e errado de
+ * dois jeitos. `contarCia` agrupa por faixa, curva, BU e analista, então a mesma
+ * faixa volta em dezenas de linhas — 91 só na curva A. Montar o resultado com
+ * `new Map(linhas.map(...))` fazia a última sobrescrever as outras, e a coluna
+ * mostrava 43 onde o correto era 1.790. E o filtro de analista não era aplicado,
+ * então a referência ignorava o recorte escolhido.
+ *
+ * Fora da página, a regra fica testável — que é o que faltou. O invariante
+ * "Cia é a soma dos CDs" já tinha sido verificado antes neste projeto, mas
+ * contra a consulta, não contra o que a tela monta a partir dela. O defeito
+ * morava justamente no meio.
+ */
+export function consolidarCia(
+  contagens: ContagemCia[],
+  recorte: { curva: string; bu?: string; analista?: string }
+): Map<FaixaId, number> {
+  const mapa = new Map<FaixaId, number>();
+  for (const x of contagens) {
+    if (x.curva !== recorte.curva) continue;
+    if (recorte.bu && x.bu !== recorte.bu) continue;
+    if (recorte.analista && x.analista !== recorte.analista) continue;
+    mapa.set(x.faixa, (mapa.get(x.faixa) ?? 0) + x.itens);
+  }
+  return mapa;
+}
