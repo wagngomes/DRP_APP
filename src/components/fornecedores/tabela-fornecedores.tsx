@@ -116,8 +116,8 @@ export function TabelaFornecedores({
     fornecedor: string;
     categoria: Categoria | null;
   } | null>(null);
-  /** Segundo nível: CD aberto dentro do fornecedor. */
-  const [filialAberta, setFilialAberta] = useState<string | null>(null);
+  /** Segundo nível: produto aberto dentro do fornecedor. */
+  const [produtoAberto, setProdutoAberto] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [bu, setBu] = useState<string | null>(null);
   const [analista, setAnalista] = useState<string | null>(null);
@@ -183,29 +183,39 @@ export function TabelaFornecedores({
   }, [aberto, doRecorte]);
 
   /**
-   * Segundo nível: o detalhe do fornecedor agrupado por CD, do que tem mais
-   * posições para o que tem menos. Só o CD aberto abre a lista de produtos.
+   * Segundo nível: o detalhe do fornecedor agrupado por **produto**, do que tem
+   * mais CDs rompidos para o que tem menos. Só o produto aberto lista os CDs.
+   *
+   * A hierarquia é produto → CD, e não CD → produto, porque a conversa com o
+   * fornecedor é sobre item: "o 136326 está rompido em quatro centros" é a
+   * frase útil. Agrupado por CD, o mesmo produto aparecia repetido em cada um e
+   * era preciso abrir vários para montar esse quadro na cabeça.
    */
-  const porFilial = useMemo(() => {
+  const porProduto = useMemo(() => {
     const mapa = new Map<string, PosicaoRompida[]>();
     for (const p of detalhe) {
-      const lista = mapa.get(p.filial) ?? [];
+      const lista = mapa.get(p.codigo) ?? [];
       lista.push(p);
-      mapa.set(p.filial, lista);
+      mapa.set(p.codigo, lista);
     }
     return [...mapa.entries()]
-      .map(([filial, itens]) => ({ filial, itens }))
-      .sort((a, b) => b.itens.length - a.itens.length || a.filial.localeCompare(b.filial));
+      .map(([codigo, itens]) => ({
+        codigo,
+        descricao: itens[0].descricao,
+        itens: [...itens].sort((a, b) => a.filial.localeCompare(b.filial)),
+      }))
+      .sort((a, b) => b.itens.length - a.itens.length || a.codigo.localeCompare(b.codigo));
   }, [detalhe]);
 
-  const produtos = useMemo(
-    () => (filialAberta ? detalhe.filter((p) => p.filial === filialAberta) : []),
-    [detalhe, filialAberta]
-  );
-
-  const paginasDetalhe = Math.max(1, Math.ceil(produtos.length / POR_PAGINA_DETALHE));
+  /**
+   * A paginação passou do terceiro nível para o segundo junto com a inversão.
+   * Antes o nível paginado eram os produtos de um CD; agora são os produtos do
+   * fornecedor, que é a lista longa. Os CDs de um produto não passam de
+   * algumas linhas e cabem sem paginar.
+   */
+  const paginasDetalhe = Math.max(1, Math.ceil(porProduto.length / POR_PAGINA_DETALHE));
   const atualDetalhe = Math.min(paginaDetalhe, paginasDetalhe);
-  const produtosVisiveis = produtos.slice(
+  const produtosVisiveis = porProduto.slice(
     (atualDetalhe - 1) * POR_PAGINA_DETALHE,
     atualDetalhe * POR_PAGINA_DETALHE
   );
@@ -217,14 +227,13 @@ export function TabelaFornecedores({
         ? null
         : { fornecedor, categoria }
     );
-    // O CD aberto pertence ao recorte anterior — recomeça no nível de filial.
-    setFilialAberta(null);
+    // O produto aberto pertence ao recorte anterior — recomeça no nível dele.
+    setProdutoAberto(null);
     setPaginaDetalhe(1);
   }
 
-  function selecionarFilial(filial: string) {
-    setFilialAberta((anterior) => (anterior === filial ? null : filial));
-    setPaginaDetalhe(1);
+  function selecionarProduto(codigo: string) {
+    setProdutoAberto((anterior) => (anterior === codigo ? null : codigo));
   }
 
   const rotulo = (codigo: string | null) =>
@@ -240,7 +249,7 @@ export function TabelaFornecedores({
     setBu(null);
     setCurva(null);
     setAberto(null);
-    setFilialAberta(null);
+    setProdutoAberto(null);
     setPagina(1);
     setPaginaDetalhe(1);
   }
@@ -250,7 +259,7 @@ export function TabelaFornecedores({
     setBu(novo);
     setCurva(null);
     setAberto(null);
-    setFilialAberta(null);
+    setProdutoAberto(null);
     setPagina(1);
     setPaginaDetalhe(1);
   }
@@ -258,7 +267,7 @@ export function TabelaFornecedores({
   function trocarCurva(novo: string | null) {
     setCurva(novo);
     setAberto(null);
-    setFilialAberta(null);
+    setProdutoAberto(null);
     setPagina(1);
     setPaginaDetalhe(1);
   }
@@ -411,7 +420,7 @@ export function TabelaFornecedores({
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-semibold text-(--brand-petrol) dark:text-foreground">
-                              {`${numero(detalhe.length)} posição(ões) em ${numero(porFilial.length)} CD(s)`}
+                              {`${numero(porProduto.length)} produto(s) · ${numero(detalhe.length)} posição(ões)`}
                             </span>
                             {aberto?.categoria ? (
                               <button
@@ -429,37 +438,43 @@ export function TabelaFornecedores({
                             ) : null}
                           </div>
                           <span className="text-xs text-muted-foreground">
-                            clique num CD para ver os produtos
+                            clique num produto para ver os CDs
                           </span>
                         </div>
                       </TableCell>
                     </TableRow>
                   ) : null,
 
-                  /* Segundo nível: cada CD é uma linha real da tabela, com as
-                     mesmas colunas — é o que mantém os números alinhados com o
-                     cabeçalho em vez de empilhados à direita. */
+                  /* Segundo nível: cada produto é uma linha real da tabela,
+                     com as mesmas colunas — é o que mantém os números alinhados
+                     com o cabeçalho em vez de empilhados à direita. */
                   ...(ativo
-                    ? porFilial.flatMap(({ filial, itens }) => {
-                        const abertaEsta = filialAberta === filial;
+                    ? produtosVisiveis.flatMap(({ codigo, descricao, itens }) => {
+                        const abertoEste = produtoAberto === codigo;
                         return [
                           <TableRow
-                            key={`${r.fornecedor}-${filial}`}
-                            onClick={() => selecionarFilial(filial)}
-                            className={`cursor-pointer bg-muted/40 ${abertaEsta ? "bg-muted" : ""}`}
+                            key={`${r.fornecedor}-${codigo}`}
+                            onClick={() => selecionarProduto(codigo)}
+                            className={`cursor-pointer bg-muted/40 ${abertoEste ? "bg-muted" : ""}`}
                           >
                             <TableCell className="pl-6">
-                              <span className="flex items-center gap-2">
-                                {abertaEsta ? (
+                              <span className="flex min-w-0 items-center gap-2">
+                                {abertoEste ? (
                                   <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
                                 ) : (
                                   <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
                                 )}
-                                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-(--brand-petrol) px-2 py-0.5 text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
-                                  <Warehouse className="size-3.5 shrink-0" />
-                                  <span className="font-mono text-base leading-none font-bold">
-                                    {rotulo(filial)}
-                                  </span>
+                                {/* O código leva à tela do produto; `stopPropagation`
+                                    para o clique no link não abrir e fechar a linha. */}
+                                <Link
+                                  href={`/produto/${encodeURIComponent(codigo)}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="shrink-0 font-mono text-sm font-semibold text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
+                                >
+                                  {codigo}
+                                </Link>
+                                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                                  {descricao ?? "—"}
                                 </span>
                               </span>
                             </TableCell>
@@ -489,33 +504,42 @@ export function TabelaFornecedores({
                             })}
                           </TableRow>,
 
-                          /* Terceiro nível: produtos do CD aberto. */
-                          abertaEsta ? (
+                          /* Terceiro nível: os CDs onde este produto está rompido. */
+                          abertoEste ? (
                             <TableRow
-                              key={`${r.fornecedor}-${filial}-produtos`}
+                              key={`${r.fornecedor}-${codigo}-cds`}
                               className="hover:bg-transparent"
                             >
                               <TableCell colSpan={6} className="bg-muted/25 p-0">
-                                <div className="space-y-2 p-3 pl-8">
-                                  <p className="text-xs text-muted-foreground">
-                                    clique no código para abrir o produto
-                                  </p>
-                                  <div className="grid gap-2">
-                                    {produtosVisiveis.map((p) => (
-                                      <CardPosicao key={p.codigo} posicao={p} rotulo={rotulo} />
-                                    ))}
-                                  </div>
-                                  <Paginacao
-                                    pagina={atualDetalhe}
-                                    paginas={paginasDetalhe}
-                                    aoMudar={setPaginaDetalhe}
-                                  />
+                                <div className="grid gap-2 p-3 pl-8">
+                                  {itens.map((p) => (
+                                    <CardPosicao
+                                      key={`${p.codigo}-${p.filial}`}
+                                      posicao={p}
+                                      rotulo={rotulo}
+                                    />
+                                  ))}
                                 </div>
                               </TableCell>
                             </TableRow>
                           ) : null,
                         ];
                       })
+                    : []),
+
+                  /* Paginação dos produtos, quando há mais de uma página. */
+                  ...(ativo && paginasDetalhe > 1
+                    ? [
+                        <TableRow key={`${r.fornecedor}-paginacao`} className="hover:bg-transparent">
+                          <TableCell colSpan={6} className="bg-muted/40 py-2">
+                            <Paginacao
+                              pagina={atualDetalhe}
+                              paginas={paginasDetalhe}
+                              aoMudar={setPaginaDetalhe}
+                            />
+                          </TableCell>
+                        </TableRow>,
+                      ]
                     : []),
                 ];
               })
@@ -669,19 +693,23 @@ function CardPosicao({
 
   return (
     <div className={`rounded-lg border-l-4 bg-card p-3 ring-1 ring-foreground/5 ${info.borda}`}>
-      {/* Sem o chip de CD: o cabeçalho do grupo acima já diz em qual filial
-          estamos, e repetir em cada card só polui. */}
+      {/* O CD é o que identifica o card agora.
+          
+          Antes ele era omitido de propósito: o cabeçalho do grupo acima dizia a
+          filial, e repetir em cada card só poluía. Com a hierarquia invertida a
+          conta virou — o cabeçalho é o produto, e os cards são os CDs. Sem o
+          chip, o terceiro nível viraria uma pilha de cards indistinguíveis.
+          
+          O código e a descrição saíram pelo mesmo motivo, ao contrário: agora
+          estão na linha de cima, repetidos em cada card. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <Link
-          href={`/produto/${encodeURIComponent(posicao.codigo)}`}
-          onClick={(e) => e.stopPropagation()}
-          className="font-mono text-sm font-semibold text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
-        >
-          {posicao.codigo}
-        </Link>
-        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {posicao.descricao ?? "—"}
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-(--brand-petrol) px-2 py-0.5 text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
+          <Warehouse className="size-3.5 shrink-0" />
+          <span className="font-mono text-sm leading-none font-bold">
+            {rotulo(posicao.filial)}
+          </span>
         </span>
+        <span className="min-w-0 flex-1" />
         <Badge className={`gap-1 whitespace-nowrap ${info.fundo}`} title={info.rotulo}>
           <info.icone className="size-3.5 shrink-0" />
           {info.curto}
