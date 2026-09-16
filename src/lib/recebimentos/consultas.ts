@@ -24,6 +24,16 @@ export type CelulaDia = {
   quantidade: number;
 };
 
+/**
+ * O CD é filtro de página, não dimensão da grade.
+ *
+ * Chegou a ser agrupado por dia e CD, para a dica abrir a composição de cada
+ * célula. Custava 60% mais linhas (1.503 contra 933) e acrescentava um nível de
+ * leitura numa tela que já tem três — fornecedor, produto e dia. Filtrar a
+ * página inteira por CD responde a mesma pergunta sem esse peso: escolhido o
+ * CD, todo número na tela já é dele.
+ */
+
 export type LinhaFornecedor = {
   fornecedor: string;
   dias: CelulaDia[];
@@ -67,17 +77,32 @@ export function diasDoMes(mes: string): number {
   return new Date(Date.UTC(ano, m, 0)).getUTCDate();
 }
 
-function agrupar<T extends { dia: number; valor: number; quantidade: number }>(
-  linhas: T[]
+/** Ordena as células por dia e fecha os totais da linha. */
+function agrupar(
+  linhas: { dia: number; valor: number; quantidade: number }[]
 ): { dias: CelulaDia[]; total: number; quantidadeTotal: number } {
   const dias = linhas
     .map((l) => ({ dia: l.dia, valor: l.valor, quantidade: l.quantidade }))
     .sort((a, b) => a.dia - b.dia);
+
   return {
     dias,
     total: dias.reduce((a, d) => a + d.valor, 0),
     quantidadeTotal: dias.reduce((a, d) => a + d.quantidade, 0),
   };
+}
+
+/** Lista de CDs com recebimento no mês, para o filtro da tela. */
+export async function listarCds(mes: string): Promise<string[]> {
+  const [inicio, fim] = limites(mes);
+  const linhas = await prisma.$queryRawUnsafe<{ filial: string }[]>(
+    `SELECT DISTINCT filial FROM recebimento
+      WHERE data >= $1::date AND data < $2::date AND filial IS NOT NULL
+      ORDER BY 1`,
+    inicio,
+    fim
+  );
+  return linhas.map((l) => l.filial);
 }
 
 /**
@@ -86,8 +111,13 @@ function agrupar<T extends { dia: number; valor: number; quantidade: number }>(
  * Ordenada pelo total do mês — quem mais entregou aparece primeiro, que é a
  * ordem em que se procura alguma coisa aqui.
  */
-export async function carregarRecebimentos(mes: string): Promise<LinhaFornecedor[]> {
+export async function carregarRecebimentos(
+  mes: string,
+  filial?: string
+): Promise<LinhaFornecedor[]> {
   const [inicio, fim] = limites(mes);
+  const args: unknown[] = [inicio, fim];
+  if (filial) args.push(filial);
 
   const linhas = await prisma.$queryRawUnsafe<
     { fornecedor: string; dia: number; valor: number; quantidade: number; produtos: number }[]
@@ -100,9 +130,9 @@ export async function carregarRecebimentos(mes: string): Promise<LinhaFornecedor
        FROM recebimento r
        ${joinFornecedor("r", COLUNA_MARCA)}
       WHERE r.data >= $1::date AND r.data < $2::date
+        ${filial ? "AND r.filial = $3" : ""}
       GROUP BY 1, 2`,
-    inicio,
-    fim
+    ...args
   );
 
   const porFornecedor = new Map<string, typeof linhas>();
@@ -131,9 +161,12 @@ export async function carregarRecebimentos(mes: string): Promise<LinhaFornecedor
  */
 export async function carregarProdutos(
   mes: string,
-  fornecedor: string
+  fornecedor: string,
+  filial?: string
 ): Promise<LinhaProduto[]> {
   const [inicio, fim] = limites(mes);
+  const args: unknown[] = [inicio, fim, fornecedor];
+  if (filial) args.push(filial);
 
   const linhas = await prisma.$queryRawUnsafe<
     { codigo: string; descricao: string | null; dia: number; valor: number; quantidade: number }[]
@@ -148,10 +181,9 @@ export async function carregarProdutos(
        LEFT JOIN produtos p ON p.codigo = r.codigo
       WHERE r.data >= $1::date AND r.data < $2::date
         AND ${nomeFornecedor("r", COLUNA_MARCA)} = $3
+        ${filial ? "AND r.filial = $4" : ""}
       GROUP BY 1, 3`,
-    inicio,
-    fim,
-    fornecedor
+    ...args
   );
 
   const porProduto = new Map<string, typeof linhas>();

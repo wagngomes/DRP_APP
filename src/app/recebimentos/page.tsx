@@ -1,17 +1,17 @@
-import Link from "next/link";
-import { ChevronDown, ChevronRight, PackageCheck } from "lucide-react";
+import { PackageCheck } from "lucide-react";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { FiltroLista } from "@/components/ui/filtro-lista";
 import { exigirSessao } from "@/lib/autorizacao";
+import { GradeRecebimentos } from "@/components/recebimentos/grade";
+import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import {
   carregarProdutos,
+  listarCds,
   carregarRecebimentos,
   diasDoMes,
   listarMeses,
-  type CelulaDia,
 } from "@/lib/recebimentos/consultas";
 
 export const dynamic = "force-dynamic";
@@ -19,30 +19,18 @@ export const dynamic = "force-dynamic";
 type SearchParams = {
   mes?: string | string[];
   forn?: string | string[];
+  cd?: string | string[];
 };
 
 const primeiro = (v: string | string[] | undefined) =>
   (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
 
-/**
- * Valor abreviado.
- *
- * Um mês passa de um bilhão de reais, e com 31 colunas não há largura para o
- * número cheio. O valor exato fica no `title` de cada célula — a abreviação é
- * para ler o padrão, não para conferir contabilidade.
- */
-function curto(v: number): string {
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)} mi`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(0)} mil`;
-  return v.toFixed(0);
+function inteiro(v: number): string {
+  return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 }
 
 function moeda(v: number): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
-}
-
-function inteiro(v: number): string {
-  return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 }
 
 function rotuloMes(mes: string): string {
@@ -52,23 +40,6 @@ function rotuloMes(mes: string): string {
     "jul", "ago", "set", "out", "nov", "dez",
   ];
   return `${nomes[Number(m) - 1]}/${ano}`;
-}
-
-/**
- * Intensidade de fundo da célula, proporcional ao maior valor da tela.
- *
- * É o que faz o padrão saltar sem precisar ler número por número: concentração
- * num dia, semana parada, entrega fracionada. A escala é relativa ao maior
- * valor porque o absoluto varia demais entre laboratórios — comparar um
- * fornecedor de bilhões com um de milhares numa escala fixa deixaria o segundo
- * invisível.
- *
- * Raiz quadrada, e não linear: sem ela o maior valor domina e todo o resto
- * vira o mesmo tom quase branco.
- */
-function intensidade(valor: number, maximo: number): number {
-  if (valor <= 0 || maximo <= 0) return 0;
-  return Math.min(1, Math.sqrt(valor / maximo));
 }
 
 export default async function Recebimentos({
@@ -85,12 +56,15 @@ export default async function Recebimentos({
     : meses[0];
 
   const fornecedorAberto = primeiro(params.forn);
+  const cd = primeiro(params.cd);
 
-  const [linhas, produtos] = await Promise.all([
-    mes ? carregarRecebimentos(mes) : Promise.resolve([]),
+  const [linhas, produtos, cds, rotulosFiliais] = await Promise.all([
+    mes ? carregarRecebimentos(mes, cd) : Promise.resolve([]),
     mes && fornecedorAberto
-      ? carregarProdutos(mes, fornecedorAberto)
+      ? carregarProdutos(mes, fornecedorAberto, cd)
       : Promise.resolve([]),
+    mes ? listarCds(mes) : Promise.resolve([]),
+    carregarRotulosFiliais(),
   ]);
 
   const dias = mes ? diasDoMes(mes) : 0;
@@ -100,16 +74,29 @@ export default async function Recebimentos({
   // sentido se o tom significar a mesma coisa em qualquer linha.
   const maximo = Math.max(0, ...linhas.flatMap((l) => l.dias.map((d) => d.valor)));
   const totalMes = linhas.reduce((a, l) => a + l.total, 0);
+  const qtdMes = linhas.reduce((a, l) => a + l.quantidadeTotal, 0);
 
   const href = (extra: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
-    const base: Record<string, string | undefined> = { mes, forn: fornecedorAberto, ...extra };
+    const base: Record<string, string | undefined> = {
+      mes,
+      forn: fornecedorAberto,
+      cd,
+      ...extra,
+    };
     for (const [k, v] of Object.entries(base)) if (v) p.set(k, v);
     const qs = p.toString();
     return qs ? `/recebimentos?${qs}` : "/recebimentos";
   };
 
-  const celulas = (lista: CelulaDia[]) => new Map(lista.map((d) => [d.dia, d]));
+  // URLs montadas aqui: função não atravessa a fronteira servidor→cliente, e
+  // já foi por esquecer disso que uma tela quebrou em produção.
+  const hrefPorFornecedor = Object.fromEntries(
+    linhas.map((l) => [
+      l.fornecedor,
+      href({ forn: fornecedorAberto === l.fornecedor ? undefined : l.fornecedor }),
+    ])
+  );
 
   return (
     <DashboardShell
@@ -117,20 +104,56 @@ export default async function Recebimentos({
       papel={sessao.usuario.papel}
     >
       <div className="space-y-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-(--brand-petrol) dark:text-foreground">
-              Recebimentos
-            </h1>
-            <p className="text-muted-foreground">
-              Quanto entrou de cada fornecedor, dia a dia.
-            </p>
+        {/* Cabeçalho sobre uma malha sutil: dá profundidade sem competir com a
+            grade de números, que é onde a atenção precisa ficar. A malha vive
+            numa camada própria, com máscara que a dissolve nas bordas — sem
+            isso ela corta em linha reta e parece defeito de renderização. */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-6">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-[0.07] dark:opacity-[0.12]"
+            style={{
+              backgroundImage:
+                "linear-gradient(to right, var(--brand-petrol) 1px, transparent 1px)," +
+                "linear-gradient(to bottom, var(--brand-petrol) 1px, transparent 1px)",
+              backgroundSize: "28px 28px",
+              maskImage: "radial-gradient(ellipse 80% 120% at 30% 0%, black, transparent)",
+            }}
+          />
+          <div className="relative flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
+                <PackageCheck className="size-3.5" />
+                Recebimentos
+              </p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-tight text-(--brand-petrol) dark:text-foreground">
+                {mes ? rotuloMes(mes) : "—"}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Quanto entrou de cada fornecedor, dia a dia.
+              </p>
+            </div>
+            {mes ? (
+              <div className="flex gap-6">
+                <div>
+                  <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                    Valor no mês
+                  </p>
+                  <p className="font-mono text-2xl font-bold tabular-nums text-(--brand-petrol) dark:text-(--brand-turquoise)">
+                    {moeda(totalMes)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs tracking-wide text-muted-foreground uppercase">
+                    Quantidade
+                  </p>
+                  <p className="font-mono text-2xl font-bold tabular-nums text-sky-600 dark:text-sky-400">
+                    {inteiro(qtdMes)}
+                  </p>
+                </div>
+              </div>
+            ) : null}
           </div>
-          {mes ? (
-            <Badge variant="secondary" className="text-sm">
-              {`${moeda(totalMes)} em ${rotuloMes(mes)}`}
-            </Badge>
-          ) : null}
         </div>
 
         {meses.length === 0 ? (
@@ -148,7 +171,7 @@ export default async function Recebimentos({
         ) : (
           <>
             <Card>
-              <CardContent className="pt-6">
+              <CardContent className="grid gap-3 pt-6">
                 <FiltroLista
                   rotulo="Mês"
                   atual={mes}
@@ -159,6 +182,18 @@ export default async function Recebimentos({
                     href: href({ mes: m, forn: undefined }),
                   }))}
                 />
+                {cds.length > 1 ? (
+                  <FiltroLista
+                    rotulo="CD"
+                    atual={cd}
+                    hrefTodos={href({ cd: undefined, forn: undefined })}
+                    opcoes={cds.map((c) => ({
+                      valor: c,
+                      rotulo: rotulosFiliais.get(c) ?? c,
+                      href: href({ cd: c, forn: undefined }),
+                    }))}
+                  />
+                ) : null}
               </CardContent>
             </Card>
 
@@ -168,146 +203,25 @@ export default async function Recebimentos({
                   {`${linhas.length} fornecedor(es) em ${rotuloMes(mes)}`}
                 </CardTitle>
                 <CardDescription>
-                  Clique num fornecedor para abrir os produtos. O tom de fundo é
-                  proporcional ao maior recebimento do mês.
+                  {cd
+                    ? `Somente o CD ${rotulosFiliais.get(cd) ?? cd}. `
+                    : ""}
+                  Clique num fornecedor para abrir os produtos; passe o mouse
+                  num número para ver a abertura por CD. O tom de fundo é
+                  proporcional ao maior recebimento da tela.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {/* A grade não cabe em tela nenhuma: 31 dias mais fornecedor e
-                    total. A rolagem horizontal é inevitável, mas a coluna do
-                    fornecedor fica fixa — sem isso, rolar até o dia 25 faz
-                    perder a referência de qual linha se está lendo. */}
-                <div className="overflow-x-auto">
-                  <table className="w-full border-separate border-spacing-0 text-sm">
-                    <thead>
-                      <tr>
-                        <th className="sticky left-0 z-20 min-w-52 border-b bg-background p-2 text-left font-medium">
-                          Fornecedor
-                        </th>
-                        {colunas.map((d) => (
-                          <th
-                            key={d}
-                            className="min-w-14 border-b bg-background p-1 text-center font-mono text-xs font-medium text-muted-foreground tabular-nums"
-                          >
-                            {d}
-                          </th>
-                        ))}
-                        <th className="min-w-24 border-b border-l bg-background p-2 text-right font-medium">
-                          Total
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {linhas.map((l) => {
-                        const aberto = fornecedorAberto === l.fornecedor;
-                        const mapa = celulas(l.dias);
-                        return [
-                          <tr key={l.fornecedor} className={aberto ? "bg-muted/50" : ""}>
-                            <td className="sticky left-0 z-10 border-b bg-background p-0">
-                              <Link
-                                href={href({ forn: aberto ? undefined : l.fornecedor })}
-                                scroll={false}
-                                className={`flex items-center gap-1.5 p-2 font-medium hover:bg-muted ${
-                                  aberto ? "bg-muted" : ""
-                                }`}
-                              >
-                                {aberto ? (
-                                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-                                ) : (
-                                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-                                )}
-                                <span className="truncate">{l.fornecedor}</span>
-                              </Link>
-                            </td>
-                            {colunas.map((d) => {
-                              const c = mapa.get(d);
-                              return (
-                                <td
-                                  key={d}
-                                  title={
-                                    c
-                                      ? `${l.fornecedor} · dia ${d}\n${moeda(c.valor)}\n${inteiro(c.quantidade)} un`
-                                      : undefined
-                                  }
-                                  className="border-b p-1 text-center font-mono text-[11px] tabular-nums"
-                                  style={
-                                    c
-                                      ? {
-                                          background: `color-mix(in srgb, var(--brand-turquoise) ${
-                                            intensidade(c.valor, maximo) * 70
-                                          }%, transparent)`,
-                                        }
-                                      : undefined
-                                  }
-                                >
-                                  {c ? curto(c.valor) : ""}
-                                </td>
-                              );
-                            })}
-                            <td className="border-b border-l p-2 text-right font-mono text-xs font-semibold tabular-nums">
-                              {curto(l.total)}
-                            </td>
-                          </tr>,
-
-                          /* Segundo nível: os produtos, na mesma grade de dias —
-                             manter a leitura na mesma direção é o que permite
-                             seguir a coluna de um dia do total até o item. */
-                          ...(aberto
-                            ? produtos.map((p) => {
-                                const mp = celulas(p.dias);
-                                return (
-                                  <tr key={`${l.fornecedor}-${p.codigo}`} className="bg-muted/25">
-                                    <td className="sticky left-0 z-10 border-b bg-muted/60 p-2 pl-7">
-                                      <Link
-                                        href={`/produto/${encodeURIComponent(p.codigo)}`}
-                                        className="font-mono text-xs font-semibold text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
-                                      >
-                                        {p.codigo}
-                                      </Link>
-                                      <span className="ml-2 text-xs text-muted-foreground">
-                                        {p.descricao ?? "—"}
-                                      </span>
-                                    </td>
-                                    {colunas.map((d) => {
-                                      const c = mp.get(d);
-                                      return (
-                                        <td
-                                          key={d}
-                                          title={
-                                            c
-                                              ? `${p.codigo} · dia ${d}\n${moeda(c.valor)}\n${inteiro(c.quantidade)} un`
-                                              : undefined
-                                          }
-                                          className="border-b p-1 text-center font-mono text-[10px] tabular-nums"
-                                        >
-                                          {c ? (
-                                            <>
-                                              <span className="block">{curto(c.valor)}</span>
-                                              <span className="block text-muted-foreground">
-                                                {inteiro(c.quantidade)}
-                                              </span>
-                                            </>
-                                          ) : (
-                                            ""
-                                          )}
-                                        </td>
-                                      );
-                                    })}
-                                    <td className="border-b border-l p-2 text-right font-mono text-[10px] tabular-nums">
-                                      <span className="block font-semibold">{curto(p.total)}</span>
-                                      <span className="block text-muted-foreground">
-                                        {inteiro(p.quantidadeTotal)}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                            : []),
-                        ];
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <GradeRecebimentos
+                  linhas={linhas}
+                  produtos={produtos}
+                  colunas={colunas}
+                  mes={mes}
+                  maximo={maximo}
+                  fornecedorAberto={fornecedorAberto}
+                  href={hrefPorFornecedor}
+                  cdAtivo={cd ? (rotulosFiliais.get(cd) ?? cd) : undefined}
+                />
               </CardContent>
             </Card>
           </>
