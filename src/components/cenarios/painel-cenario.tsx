@@ -356,13 +356,24 @@ export function PainelCenario({
                           {ESTILO_GRUPO[p.grupo]?.rotulo ?? "—"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="font-mono">
+                      {/* Código e descrição juntos: a tabela lista dezenas de
+                          posições, e o código sozinho não diz do que se trata
+                          sem abrir cada uma. `max-w` com `truncate` porque
+                          descrição de medicamento passa de sessenta caracteres
+                          e empurraria as colunas de número para fora da tela. */}
+                      <TableCell>
                         <Link
                           href={`/produto/${encodeURIComponent(p.codigo)}`}
-                          className="text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
+                          className="font-mono text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
                         >
                           {p.codigo}
                         </Link>
+                        <span
+                          title={p.descricao ?? undefined}
+                          className="block max-w-56 truncate text-xs text-muted-foreground"
+                        >
+                          {p.descricao ?? "—"}
+                        </span>
                       </TableCell>
                       <TableCell className="font-mono text-xs">{cd(p.filial)}</TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
