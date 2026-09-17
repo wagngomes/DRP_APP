@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { joinFornecedor, nomeFornecedor } from "@/lib/fornecedor";
 import {
   COLUNAS_ESTOQUE_CHAO,
+  COLUNAS_VENDIDO_M0,
   DIAS_NO_MES,
   faixaSql,
   somaSql,
@@ -15,6 +16,8 @@ import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
 import { VAZIO, type Categoria, type PosicaoRompida } from "./agregacao";
 
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
+// Mesmas linhas do simulador que já trazem o estoque — nenhum join a mais.
+const VENDIDO = somaSql(COLUNAS_VENDIDO_M0, "s");
 const DIAS_CHAO = `(COALESCE(${EST_CHAO},0) / (f.forecast_m0 / ${DIAS_NO_MES}.0))`;
 
 export type {
@@ -66,8 +69,8 @@ export async function carregarFornecedores(
       prisma.$queryRawUnsafe<
         {
           codigo: string; descricao: string | null; filial: string;
-          fornecedor: string; forecast: number; bu: string; curva: string;
-          analista: string;
+          fornecedor: string; forecast: number; vendido: number;
+          bu: string; curva: string; analista: string;
         }[]
       >(
         `SELECT f.codigo,
@@ -83,7 +86,8 @@ export async function carregarFornecedores(
                      AND s2.fornecedor IS NOT NULL
                    LIMIT 1
                 ), 'Sem fornecedor') AS fornecedor,
-                f.forecast_m0::float8 AS forecast
+                f.forecast_m0::float8 AS forecast,
+                COALESCE(${VENDIDO}, 0)::float8 AS vendido
            FROM forecast f
            LEFT JOIN ${simuladorPorCd("s.data_snapshot = $1::date")} s
              ON s.codigo = f.codigo AND s.filial = f.filial AND s.data_snapshot = $1::date
@@ -141,6 +145,7 @@ export async function carregarFornecedores(
       curva: r.curva,
       analista: r.analista,
       forecast: r.forecast,
+      vendido: r.vendido,
       categoria,
       quantidade: primeira?.quantidade ?? null,
       chegada: primeira?.chegada ?? null,

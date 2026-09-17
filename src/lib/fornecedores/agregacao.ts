@@ -58,6 +58,14 @@ export type PosicaoRompida = {
   /** Analista responsável pelo item no planejamento (coluna do forecast). */
   analista: string;
   forecast: number;
+  /**
+   * Vendido no mês corrente neste CD, até a data de referência.
+   *
+   * Sai das mesmas linhas do simulador que já trazem o estoque, então não custa
+   * consulta nem join — e é o número que dá sentido ao forecast ao lado: 400
+   * previstos com 380 vendidos é uma ruptura bem mais urgente que 400 com 40.
+   */
+  vendido: number;
   categoria: Categoria;
   /** Quantidade e chegada da reposição que define a categoria. */
   quantidade: number | null;

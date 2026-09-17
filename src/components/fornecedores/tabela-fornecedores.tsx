@@ -718,6 +718,16 @@ function CardPosicao({
 
       <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
         <span>{`Forecast do mês: ${numero(posicao.forecast)} un`}</span>
+        {/* O vendido ao lado do previsto: é a comparação que diz se a ruptura
+            é urgente. 400 previstos com 380 já vendidos é outra conversa que
+            400 com 40 — no primeiro caso o mês acabou, no segundo sobra
+            demanda. O percentual poupa a conta de cabeça. */}
+        <span>
+          {`Vendido no mês: ${numero(posicao.vendido)} un`}
+          {posicao.forecast > 0
+            ? ` (${Math.round((posicao.vendido / posicao.forecast) * 100)}% do forecast)`
+            : ""}
+        </span>
         <span>
           {posicao.saldoComprar > 0
             ? `Saldo a comprar: ${numero(posicao.saldoComprar)} un`
