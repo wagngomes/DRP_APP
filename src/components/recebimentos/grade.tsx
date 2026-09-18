@@ -162,8 +162,18 @@ export function GradeRecebimentos({
         <table className="w-full border-separate border-spacing-0 text-sm">
           <thead>
             <tr>
-              <th className="sticky top-0 left-0 z-30 min-w-56 border-b bg-background p-2.5 text-left text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              {/* `w-56` e não `min-w-56`: a coluna do total fica presa em
+                  `left-56`, e um deslocamento fixo só funciona se a largura da
+                  coluna anterior também for fixa. */}
+              <th className="sticky top-0 left-0 z-30 w-56 min-w-56 border-b bg-background p-2.5 text-left text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                 Fornecedor
+              </th>
+              {/* O total vem antes dos dias: é o número que se procura primeiro,
+                  e no fim da linha exigia rolar 31 colunas para lê-lo. Fixo
+                  junto com o fornecedor, senão sumiria na rolagem e o ganho de
+                  tê-lo movido se perderia. */}
+              <th className="sticky top-0 left-56 z-30 w-28 min-w-28 border-r-2 border-b border-r-(--brand-turquoise) bg-background p-2.5 text-right text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                Total
               </th>
               {colunas.map((d) => {
                 // Fim de semana em tom apagado: explica a coluna vazia sem
@@ -184,9 +194,6 @@ export function GradeRecebimentos({
                   </th>
                 );
               })}
-              <th className="sticky top-0 z-20 min-w-28 border-b border-l-2 border-l-(--brand-turquoise) bg-background p-2.5 text-right text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                Total
-              </th>
             </tr>
           </thead>
           <tbody>
@@ -214,6 +221,12 @@ export function GradeRecebimentos({
                       <span className="truncate">{l.fornecedor}</span>
                     </Link>
                   </td>
+                  <td className="sticky left-56 z-10 border-r-2 border-b border-border/40 border-r-(--brand-turquoise)/40 bg-background p-2.5 text-right font-mono tabular-nums group-hover:bg-muted/30">
+                    <span className="block text-xs font-bold">{curto(l.total)}</span>
+                    <span className={`block text-[10px] font-bold ${AZUL}`}>
+                      {inteiro(l.quantidadeTotal)}
+                    </span>
+                  </td>
                   {colunas.map((d) => (
                     <Celula
                       key={d}
@@ -223,12 +236,6 @@ export function GradeRecebimentos({
                       pintar
                     />
                   ))}
-                  <td className="border-b border-border/40 border-l-2 border-l-(--brand-turquoise)/40 p-2.5 text-right font-mono tabular-nums">
-                    <span className="block text-xs font-bold">{curto(l.total)}</span>
-                    <span className={`block text-[10px] font-bold ${AZUL}`}>
-                      {inteiro(l.quantidadeTotal)}
-                    </span>
-                  </td>
                 </tr>,
 
                 /* Segundo nível: os produtos, na mesma grade de dias — manter a
@@ -250,6 +257,14 @@ export function GradeRecebimentos({
                               {p.descricao ?? "—"}
                             </span>
                           </td>
+                          <td className="sticky left-56 z-10 border-r-2 border-b border-border/40 border-r-(--brand-turquoise)/40 bg-muted/40 p-2 text-right font-mono tabular-nums">
+                            <span className="block text-[11px] font-semibold">
+                              {curto(p.total)}
+                            </span>
+                            <span className={`block text-[10px] font-bold ${AZUL}`}>
+                              {inteiro(p.quantidadeTotal)}
+                            </span>
+                          </td>
                           {colunas.map((d) => (
                             <Celula
                               key={d}
@@ -260,14 +275,6 @@ export function GradeRecebimentos({
                               pequena
                             />
                           ))}
-                          <td className="border-b border-border/40 border-l-2 border-l-(--brand-turquoise)/40 p-2 text-right font-mono tabular-nums">
-                            <span className="block text-[11px] font-semibold">
-                              {curto(p.total)}
-                            </span>
-                            <span className={`block text-[10px] font-bold ${AZUL}`}>
-                              {inteiro(p.quantidadeTotal)}
-                            </span>
-                          </td>
                         </tr>
                       );
                     })
