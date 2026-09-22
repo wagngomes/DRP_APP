@@ -451,5 +451,18 @@ export function agruparPorFornecedor(
         ...somarPorOrigem(linhas),
       };
     })
-    .sort((a, b) => b.quantidade - a.quantidade || a.fornecedor.localeCompare(b.fornecedor));
+    // Maior valor em transferência primeiro: é o dinheiro parado em trânsito
+    // entre CDs, e é por ele que se decide com quem falar antes.
+    //
+    // O valor de compra desempata em vez de somar — as duas colunas medem
+    // coisas diferentes. Assim o fornecedor que só tem triangulação de compra
+    // ainda fica ordenado entre os seus pares, em vez de cair no fim por
+    // empate em zero.
+    .sort(
+      (a, b) =>
+        b.valorTransferencia - a.valorTransferencia ||
+        b.valorCompra - a.valorCompra ||
+        b.quantidade - a.quantidade ||
+        a.fornecedor.localeCompare(b.fornecedor)
+    );
 }

@@ -144,6 +144,33 @@ describe("agruparPorFornecedor", () => {
     }
   });
 
+  it("ordena pelo maior valor em transferência", () => {
+    const r = agruparPorFornecedor([
+      produto({ fornecedor: "POUCO", linhas: [linha({ id: 1, valor: 10, quantidade: 900 })] }),
+      produto({ fornecedor: "MUITO", linhas: [linha({ id: 2, valor: 5000, quantidade: 1 })] }),
+    ]);
+    // Pelo valor, não pela quantidade: POUCO move mais caixa, MUITO move mais
+    // dinheiro, e é o dinheiro em trânsito que decide a ordem.
+    expect(r.map((f) => f.fornecedor)).toEqual(["MUITO", "POUCO"]);
+  });
+
+  it("desempata pelo valor de compra, sem somar as duas origens", () => {
+    // Sem transferência nenhuma, os dois empatam em zero. O valor de compra
+    // decide — assim quem só triangula compra fica ordenado entre os pares, em
+    // vez de cair no fim da lista.
+    const r = agruparPorFornecedor([
+      produto({
+        fornecedor: "MENOR",
+        linhas: [linha({ id: 1, origem: "compra", valor: 100 })],
+      }),
+      produto({
+        fornecedor: "MAIOR",
+        linhas: [linha({ id: 2, origem: "compra", valor: 900 })],
+      }),
+    ]);
+    expect(r.map((f) => f.fornecedor)).toEqual(["MAIOR", "MENOR"]);
+  });
+
   it("trata valor nulo como zero, sem quebrar a soma", () => {
     const r = agruparPorFornecedor([
       produto({ fornecedor: "X", linhas: [linha({ valor: null, quantidade: 3 })] }),
