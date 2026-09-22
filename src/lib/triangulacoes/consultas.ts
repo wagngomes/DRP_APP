@@ -362,3 +362,94 @@ export async function carregarTriangulacoes(
     semPercurso,
   };
 }
+
+/** Um CD de destino dentro de um produto, com o que chega nele. */
+export type DestinoTriangulando = {
+  filial: string;
+  linhas: LinhaTriangulacao[];
+  quantidade: number;
+  valorTransferencia: number;
+  valorCompra: number;
+};
+
+/** Primeiro nível da tela: o fornecedor e tudo que triangula sob ele. */
+export type FornecedorTriangulando = {
+  fornecedor: string;
+  produtos: ProdutoTriangulando[];
+  quantidade: number;
+  valorTransferencia: number;
+  valorCompra: number;
+  documentos: number;
+};
+
+/**
+ * Soma os valores de uma lista de linhas, mantendo as origens separadas.
+ *
+ * Nunca num número só: o valor da transferência é o da nota fiscal já emitida
+ * (`transferencias_abertas.valor`) e o da compra é o saldo do pedido ainda não
+ * faturado (`pedidos_de_compra.saldo_ajustado`). São medidas diferentes, e
+ * somá-las produz um número que não significa nada — e que parece significar.
+ */
+function somarPorOrigem(linhas: LinhaTriangulacao[]): {
+  quantidade: number;
+  valorTransferencia: number;
+  valorCompra: number;
+} {
+  let quantidade = 0;
+  let valorTransferencia = 0;
+  let valorCompra = 0;
+  for (const l of linhas) {
+    quantidade += l.quantidade;
+    if (l.origem === "transferencia") valorTransferencia += l.valor ?? 0;
+    else valorCompra += l.valor ?? 0;
+  }
+  return { quantidade, valorTransferencia, valorCompra };
+}
+
+/**
+ * Terceiro nível: as linhas de um produto agrupadas pelo CD onde a rota termina.
+ *
+ * Ordenado por quantidade porque a pergunta no nível do produto é "para onde
+ * está indo a maior parte" — e não a ordem alfabética dos centros.
+ */
+export function agruparPorDestino(
+  linhas: LinhaTriangulacao[]
+): DestinoTriangulando[] {
+  const mapa = new Map<string, LinhaTriangulacao[]>();
+  for (const l of linhas) {
+    // Sem CD final resolvido a linha não some: vai para um grupo próprio, senão
+    // o total do produto deixaria de bater com a soma dos destinos.
+    const chave = l.cdFinal ?? "—";
+    mapa.set(chave, [...(mapa.get(chave) ?? []), l]);
+  }
+  return [...mapa.entries()]
+    .map(([filial, lista]) => ({ filial, linhas: lista, ...somarPorOrigem(lista) }))
+    .sort((a, b) => b.quantidade - a.quantidade || a.filial.localeCompare(b.filial));
+}
+
+/**
+ * Primeiro nível: os produtos agrupados por fornecedor.
+ *
+ * A hierarquia da tela é fornecedor → produto → CD → documento, e é a ordem em
+ * que a conversa acontece: primeiro com quem entrega, depois sobre o que, então
+ * para onde, e só no fim qual nota.
+ */
+export function agruparPorFornecedor(
+  produtos: ProdutoTriangulando[]
+): FornecedorTriangulando[] {
+  const mapa = new Map<string, ProdutoTriangulando[]>();
+  for (const p of produtos) {
+    mapa.set(p.fornecedor, [...(mapa.get(p.fornecedor) ?? []), p]);
+  }
+  return [...mapa.entries()]
+    .map(([fornecedor, lista]) => {
+      const linhas = lista.flatMap((p) => p.linhas);
+      return {
+        fornecedor,
+        produtos: [...lista].sort((a, b) => b.quantidade - a.quantidade),
+        documentos: linhas.length,
+        ...somarPorOrigem(linhas),
+      };
+    })
+    .sort((a, b) => b.quantidade - a.quantidade || a.fornecedor.localeCompare(b.fornecedor));
+}

@@ -1,15 +1,29 @@
 import Link from "next/link";
-import { Boxes, Layers, ShoppingCart, TrendingUp, Truck } from "lucide-react";
+import {
+  Boxes,
+  ChevronDown,
+  ChevronRight,
+  ShoppingCart,
+  TrendingUp,
+  Truck,
+  Warehouse,
+} from "lucide-react";
 
 import { exigirSessao } from "@/lib/autorizacao";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { WorkflowRota } from "@/components/produto/workflow-rota";
 import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { carregarTriangulacoes, type LinhaTriangulacao } from "@/lib/triangulacoes/consultas";
+import {
+  agruparPorDestino,
+  agruparPorFornecedor,
+  carregarTriangulacoes,
+  type LinhaTriangulacao,
+  type PosicaoDestino,
+} from "@/lib/triangulacoes/consultas";
 import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { lerParametros } from "@/lib/parametros.server";
@@ -22,14 +36,23 @@ type SearchParams = {
   produto?: string | string[];
   fornecedor?: string | string[];
   pag?: string | string[];
+  /** Ramo aberto: fornecedor, produto dentro dele, CD dentro do produto. */
+  forn?: string | string[];
+  prod?: string | string[];
+  cd?: string | string[];
 };
 
 /**
- * Produtos por página. O corte é no servidor: cada card carrega o percurso de
- * todas as notas e pedidos do item, e a lista inteira passava de 7 MB de HTML.
+ * Fornecedores por página.
+ *
+ * O corte é no servidor e a expansão vai pela URL: só o ramo aberto é
+ * renderizado. Mandar a hierarquia inteira ao navegador custaria 820 KB de
+ * dado — e a versão plana desta tela já passou de 7 MB de HTML antes de ganhar
+ * paginação.
+ *
  * Os totais do topo continuam sendo os do recorte completo, não os da página.
  */
-const POR_PAGINA = 12;
+const POR_PAGINA = 15;
 
 const primeiro = (v: string | string[] | undefined) =>
   (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
@@ -93,32 +116,52 @@ export default async function Triangulacoes({
     carregarRotulosFiliais(),
   ]);
 
-  const paginas = Math.max(1, Math.ceil(dados.produtos.length / POR_PAGINA));
-  const pagina = Math.min(Math.max(1, pagPedida), paginas);
-  const visiveis = dados.produtos.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA);
+  // A hierarquia é montada aqui, sobre o mesmo dado: fornecedor -> produto ->
+  // CD -> documento. Nenhuma consulta a mais.
+  const porFornecedor = agruparPorFornecedor(dados.produtos);
 
-  /** Link de outra página preservando os filtros. */
-  const hrefPagina = (n: number) => {
+  const fornAberto = primeiro(params.forn);
+  const prodAberto = primeiro(params.prod);
+  const cdAberto = primeiro(params.cd);
+
+  const paginas = Math.max(1, Math.ceil(porFornecedor.length / POR_PAGINA));
+  const pagina = Math.min(Math.max(1, pagPedida), paginas);
+  const visiveis = porFornecedor.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA);
+
+  /** Link preservando filtros, página e o ramo aberto. */
+  const href = (extra: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
-    if (produto) p.set("produto", produto);
-    if (fornecedor) p.set("fornecedor", fornecedor);
-    if (n > 1) p.set("pag", String(n));
+    const base: Record<string, string | undefined> = {
+      produto,
+      fornecedor,
+      pag: pagina > 1 ? String(pagina) : undefined,
+      forn: fornAberto,
+      prod: prodAberto,
+      cd: cdAberto,
+      ...extra,
+    };
+    for (const [k, v] of Object.entries(base)) if (v) p.set(k, v);
     const qs = p.toString();
     return qs ? `/triangulacoes?${qs}` : "/triangulacoes";
   };
 
-  const rotulo = (codigo: string | null) => (codigo ? rotulos.get(codigo) ?? codigo : "—");
+  // Abrir um nível fecha os de baixo: eles pertencem ao ramo anterior, e
+  // mantê-los abertos mostraria o detalhe de um produto sob outro fornecedor.
+  const hrefFornecedor = (f: string) =>
+    href({ forn: fornAberto === f ? undefined : f, prod: undefined, cd: undefined });
+  const hrefProduto = (c: string) =>
+    href({ prod: prodAberto === c ? undefined : c, cd: undefined });
+  const hrefCd = (f: string) => href({ cd: cdAberto === f ? undefined : f });
 
-  /** Descrição do card: quantas linhas de cada origem e para onde vão. */
-  const resumo = (linhas: LinhaTriangulacao[], destinos: string[]) => {
-    const t = linhas.filter((l) => l.origem === "transferencia").length;
-    const c = linhas.length - t;
-    const partes = [
-      t > 0 ? `${t} nota(s) de transferência` : null,
-      c > 0 ? `${c} pedido(s) de compra` : null,
-    ].filter(Boolean);
-    return `${partes.join(" · ")} · destino final em ${destinos.join(", ")}`;
-  };
+  const hrefPagina = (n: number) =>
+    href({
+      pag: n > 1 ? String(n) : undefined,
+      forn: undefined,
+      prod: undefined,
+      cd: undefined,
+    });
+
+  const rotulo = (codigo: string | null) => (codigo ? rotulos.get(codigo) ?? codigo : "—");
 
   return (
     <DashboardShell
@@ -246,163 +289,162 @@ export default async function Triangulacoes({
             </CardContent>
           </Card>
         ) : (
-          visiveis.map((p) => (
-            <Card key={p.codigo}>
-              <CardHeader>
-                <CardTitle className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <Link
-                    href={`/produto/${encodeURIComponent(p.codigo)}`}
-                    className="font-mono text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
-                  >
-                    {p.codigo}
-                  </Link>
-                  <span className="min-w-0 flex-1 truncate text-base font-normal">
-                    {p.descricao ?? "—"}
-                  </span>
-                  <span className="font-mono text-sm font-normal text-muted-foreground">
-                    {`${num(p.quantidade)} un`}
-                  </span>
-                  {p.valorTransferencia > 0 ? (
-                    <Badge
-                      className={`font-mono ${TOM.transferencia.fundo} ${TOM.transferencia.texto}`}
-                    >
-                      {`Transf. ${moeda(p.valorTransferencia)}`}
-                    </Badge>
-                  ) : null}
-                  {p.valorCompra > 0 ? (
-                    <Badge className={`font-mono ${TOM.compra.fundo} ${TOM.compra.texto}`}>
-                      {`Compra ${moeda(p.valorCompra)}`}
-                    </Badge>
-                  ) : null}
-                </CardTitle>
-                <CardDescription>
-                  {resumo(p.linhas, p.destinos.map((d) => rotulo(d.filial)))}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 lg:grid-cols-[1fr_auto]">
-                {/* Percursos: cada documento com onde está e quando chega em
-                    cada parada. A borda colorida separa compra de transferência. */}
-                <div className="grid min-w-0 gap-2">
-                  {p.linhas.map((l) => {
-                    const tom = TOM[l.origem];
-                    return (
-                      <div
-                        key={`${l.origem}-${l.id}`}
-                        className={`rounded-md border bg-muted/25 p-2.5 ${tom.borda}`}
-                      >
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                          <span
-                            className={`font-mono text-lg font-semibold tabular-nums ${tom.texto}`}
-                          >
-                            {num(l.quantidade)}
-                            <span className="ml-1 text-xs font-normal text-muted-foreground">
-                              un
-                            </span>
-                          </span>
-                          <Badge variant="outline" className={`text-[10px] ${tom.texto}`}>
-                            {tom.rotulo}
-                          </Badge>
-                          <span className="font-mono text-xs font-medium">
-                            {tom.documento(l.documento)}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {`${tom.data} ${dataIso(l.dataEmissao)}`}
-                          </span>
-                          <span className="font-mono text-xs text-muted-foreground">{l.rota}</span>
-                          {/* Onde a mercadoria está agora: saiu do CD da perna atual. */}
-                          <Badge variant="secondary" className="text-[10px]">
-                            {l.origem === "transferencia"
-                              ? `saiu de ${rotulo(l.origemAtual)}`
-                              : `entrega em ${rotulo(l.origemAtual)}`}
-                          </Badge>
-                          {l.reprojetada ? (
-                            <Badge variant="secondary" className="text-[10px]">
-                              reprojetada
-                            </Badge>
-                          ) : null}
-                          {l.valor ? (
-                            <span className="ml-auto font-mono text-xs text-muted-foreground">
-                              {moeda(l.valor)}
-                            </span>
-                          ) : null}
-                        </div>
+          visiveis.map((f) => {
+            const fAberto = fornAberto === f.fornecedor;
+            return (
+              <Card
+                key={f.fornecedor}
+                className={fAberto ? "ring-1 ring-(--brand-turquoise)/40" : ""}
+              >
+                {/* Primeiro nível: o fornecedor. O cabeçalho inteiro é o alvo
+                    do clique — mira maior que um ícone de seta. */}
+                <Link href={hrefFornecedor(f.fornecedor)} scroll={false} className="block">
+                  <CardHeader className="transition-colors hover:bg-muted/40">
+                    <CardTitle className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      {fAberto ? (
+                        <ChevronDown className="size-4 shrink-0 text-(--brand-turquoise)" />
+                      ) : (
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">{f.fornecedor}</span>
+                      <span className="font-mono text-sm font-normal text-muted-foreground">
+                        {f.produtos.length + " item(ns) · " + num(f.quantidade) + " un"}
+                      </span>
+                      {f.valorTransferencia > 0 ? (
+                        <Badge
+                          className={"font-mono " + TOM.transferencia.fundo + " " + TOM.transferencia.texto}
+                        >
+                          {"Transf. " + moeda(f.valorTransferencia)}
+                        </Badge>
+                      ) : null}
+                      {f.valorCompra > 0 ? (
+                        <Badge className={"font-mono " + TOM.compra.fundo + " " + TOM.compra.texto}>
+                          {"Compra " + moeda(f.valorCompra)}
+                        </Badge>
+                      ) : null}
+                    </CardTitle>
+                  </CardHeader>
+                </Link>
 
-                        <div className="mt-2">
-                          {l.etapas.length > 0 ? (
-                            <WorkflowRota
-                              etapas={l.etapas}
-                              rotulo={rotulo}
-                              tom={l.origem}
-                              inicio={l.inicio}
-                            />
-                          ) : (
-                            <p className="text-xs text-amber-700 dark:text-amber-400">
-                              Percurso sem data prevista: falta SLA ou a rota tem sigla fora do
-                              cadastro de filiais.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Posição no CD final: é o que diz se a triangulação é urgente. */}
-                <div className="grid content-start gap-2 lg:w-64">
-                  {p.destinos.map((d) => (
-                    <div key={d.filial} className="rounded-md border bg-card p-3">
-                      <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold">
-                        <Layers className="size-4 shrink-0 text-muted-foreground" />
-                        {`No destino ${rotulo(d.filial)}`}
-                      </p>
-                      <dl className="grid gap-1 text-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <dt className="flex items-center gap-1.5 text-muted-foreground">
-                            <Boxes className="size-3.5" />
-                            Estoque chão
-                          </dt>
-                          <dd
-                            className={`font-mono font-semibold tabular-nums ${
-                              d.estoqueChao <= 0 ? "text-red-700 dark:text-red-400" : ""
-                            }`}
+                {fAberto ? (
+                  <CardContent className="grid gap-2">
+                    {f.produtos.map((p) => {
+                      const pAberto = prodAberto === p.codigo;
+                      const destinos = pAberto ? agruparPorDestino(p.linhas) : [];
+                      return (
+                        <div key={p.codigo} className="rounded-lg border bg-muted/20">
+                          {/* Segundo nível: o produto. */}
+                          <Link
+                            href={hrefProduto(p.codigo)}
+                            scroll={false}
+                            className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2.5 transition-colors hover:bg-muted/40"
                           >
-                            {num(d.estoqueChao)}
-                          </dd>
+                            {pAberto ? (
+                              <ChevronDown className="size-3.5 shrink-0 text-(--brand-turquoise)" />
+                            ) : (
+                              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                            )}
+                            <span className="font-mono text-sm font-semibold text-(--brand-petrol) dark:text-(--brand-turquoise)">
+                              {p.codigo}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-sm">
+                              {p.descricao ?? "—"}
+                            </span>
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {num(p.quantidade) + " un"}
+                            </span>
+                            {p.valorTransferencia > 0 ? (
+                              <span className={"font-mono text-xs " + TOM.transferencia.texto}>
+                                {moeda(p.valorTransferencia)}
+                              </span>
+                            ) : null}
+                            {p.valorCompra > 0 ? (
+                              <span className={"font-mono text-xs " + TOM.compra.texto}>
+                                {moeda(p.valorCompra)}
+                              </span>
+                            ) : null}
+                          </Link>
+
+                          {pAberto ? (
+                            <div className="grid gap-2 px-2.5 pb-2.5 pl-7">
+                              {destinos.map((d) => {
+                                const cAberto = cdAberto === d.filial;
+                                return (
+                                  <div key={d.filial} className="rounded-md border bg-card">
+                                    {/* Terceiro nível: o CD onde a rota termina. */}
+                                    <Link
+                                      href={hrefCd(d.filial)}
+                                      scroll={false}
+                                      className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2 transition-colors hover:bg-muted/40"
+                                    >
+                                      {cAberto ? (
+                                        <ChevronDown className="size-3.5 shrink-0 text-(--brand-turquoise)" />
+                                      ) : (
+                                        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                                      )}
+                                      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-(--brand-petrol) px-2 py-0.5 text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
+                                        <Warehouse className="size-3.5 shrink-0" />
+                                        <span className="font-mono text-xs leading-none font-bold">
+                                          {rotulo(d.filial)}
+                                        </span>
+                                      </span>
+                                      <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+                                        {d.linhas.length + " documento(s)"}
+                                      </span>
+                                      <span className="font-mono text-xs font-semibold">
+                                        {num(d.quantidade) + " un"}
+                                      </span>
+                                      {d.valorTransferencia > 0 ? (
+                                        <span className={"font-mono text-xs " + TOM.transferencia.texto}>
+                                          {moeda(d.valorTransferencia)}
+                                        </span>
+                                      ) : null}
+                                      {d.valorCompra > 0 ? (
+                                        <span className={"font-mono text-xs " + TOM.compra.texto}>
+                                          {moeda(d.valorCompra)}
+                                        </span>
+                                      ) : null}
+                                    </Link>
+
+                                    {/* Quarto nível: os documentos, com o
+                                        percurso — o detalhe que a tela já
+                                        mostrava, agora no lugar certo. */}
+                                    {cAberto ? (
+                                      <div className="grid gap-2 border-t p-2.5">
+                                        {/* A situação do item neste CD é o que
+                                            diz se a triangulação é urgente:
+                                            chegar 800 unidades num centro com
+                                            estoque zerado é outra conversa que
+                                            chegar num que já tem trinta dias.
+                                            Fica aqui, no CD, e não no produto:
+                                            a posição é por centro, e no nível
+                                            de cima ela obrigava a cruzar qual
+                                            destino pertencia a qual número. */}
+                                        <PosicaoNoDestino
+                                          posicao={p.destinos.find((x) => x.filial === d.filial)}
+                                        />
+                                        {d.linhas.map((l) => (
+                                          <Documento
+                                            key={l.origem + "-" + l.id}
+                                            linha={l}
+                                            rotulo={rotulo}
+                                          />
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
                         </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <dt className="flex items-center gap-1.5 text-muted-foreground">
-                            <Truck className="size-3.5" />
-                            Em transferência
-                          </dt>
-                          <dd className={`font-mono tabular-nums ${TOM.transferencia.texto}`}>
-                            {num(d.emTransferencia)}
-                          </dd>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <dt className="flex items-center gap-1.5 text-muted-foreground">
-                            <ShoppingCart className="size-3.5" />
-                            Em pedidos de compra
-                          </dt>
-                          <dd className={`font-mono tabular-nums ${TOM.compra.texto}`}>
-                            {num(d.emCompra)}
-                          </dd>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between gap-2 border-t pt-1">
-                          <dt className="flex items-center gap-1.5 text-muted-foreground">
-                            <TrendingUp className="size-3.5" />
-                            Forecast do mês
-                          </dt>
-                          <dd className="font-mono font-semibold tabular-nums">
-                            {d.forecastM0 === null ? "sem forecast" : num(d.forecastM0)}
-                          </dd>
-                        </div>
-                      </dl>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ))
+                      );
+                    })}
+                  </CardContent>
+                ) : null}
+              </Card>
+            );
+          })
         )}
 
         {paginas > 1 ? (
@@ -430,5 +472,95 @@ export default async function Triangulacoes({
         ) : null}
       </div>
     </DashboardShell>
+  );
+}
+
+/**
+ * Um documento triangulando: a nota ou o pedido, com o percurso.
+ *
+ * Extraído para o quarto nível da hierarquia. Era o corpo do card de produto na
+ * versão plana da tela; aqui vive sob o CD de destino, que é onde a pergunta
+ * "qual nota traz isso para cá" finalmente faz sentido.
+ */
+function Documento({
+  linha: l,
+  rotulo,
+}: {
+  linha: LinhaTriangulacao;
+  rotulo: (codigo: string | null) => string;
+}) {
+  const tom = TOM[l.origem];
+  return (
+    <div className={`rounded-md border bg-muted/25 p-2.5 ${tom.borda}`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className={`font-mono text-lg font-semibold tabular-nums ${tom.texto}`}>
+          {num(l.quantidade)}
+          <span className="ml-1 text-xs font-normal text-muted-foreground">un</span>
+        </span>
+        <Badge variant="outline" className={`text-[10px] ${tom.texto}`}>
+          {tom.rotulo}
+        </Badge>
+        <span className="font-mono text-xs font-medium">{tom.documento(l.documento)}</span>
+        <span className="text-xs text-muted-foreground">
+          {`${tom.data} ${dataIso(l.dataEmissao)}`}
+        </span>
+        <span className="font-mono text-xs text-muted-foreground">{l.rota}</span>
+        {/* Onde a mercadoria está agora: saiu do CD da perna atual. */}
+        <Badge variant="secondary" className="text-[10px]">
+          {l.origem === "transferencia"
+            ? `saiu de ${rotulo(l.origemAtual)}`
+            : `entrega em ${rotulo(l.origemAtual)}`}
+        </Badge>
+        {l.reprojetada ? (
+          <Badge variant="secondary" className="text-[10px]">
+            reprojetada
+          </Badge>
+        ) : null}
+        {l.valor ? (
+          <span className="ml-auto font-mono text-xs text-muted-foreground">
+            {moeda(l.valor)}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-2">
+        {l.etapas.length > 0 ? (
+          <WorkflowRota etapas={l.etapas} rotulo={rotulo} tom={l.origem} inicio={l.inicio} />
+        ) : (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            Percurso sem data prevista: falta SLA ou a rota tem sigla fora do cadastro de
+            filiais.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Situação do produto no CD onde a triangulação termina. */
+function PosicaoNoDestino({ posicao }: { posicao: PosicaoDestino | undefined }) {
+  if (!posicao) return null;
+
+  const itens = [
+    { rotulo: "Estoque chão", valor: num(posicao.estoqueChao), icone: Boxes },
+    { rotulo: "Em transferência", valor: num(posicao.emTransferencia), icone: Truck },
+    { rotulo: "Em compra", valor: num(posicao.emCompra), icone: ShoppingCart },
+    {
+      rotulo: "Forecast do mês",
+      valor: posicao.forecastM0 === null ? "sem forecast" : num(posicao.forecastM0),
+      icone: TrendingUp,
+    },
+  ];
+
+  return (
+    <dl className="flex flex-wrap gap-x-5 gap-y-1 rounded-md bg-muted/40 px-3 py-2 text-xs">
+      {itens.map((i) => (
+        <div key={i.rotulo} className="flex items-center gap-1.5">
+          <i.icone className="size-3.5 shrink-0 text-muted-foreground" />
+          <dt className="text-muted-foreground">{i.rotulo}</dt>
+          <dd className="font-mono font-semibold tabular-nums">{i.valor}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
