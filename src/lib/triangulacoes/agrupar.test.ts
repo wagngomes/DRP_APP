@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { agruparPorDestino, agruparPorFornecedor } from "./consultas";
+import { agruparPorDestino, agruparPorFornecedor, SEM_CD_FINAL } from "./consultas";
 import type { LinhaTriangulacao, ProdutoTriangulando } from "./consultas";
 
 /**
@@ -81,7 +81,9 @@ describe("agruparPorDestino", () => {
     ]);
 
     expect(r.reduce((a, d) => a + d.quantidade, 0)).toBe(17);
-    expect(r.some((d) => d.filial === "—")).toBe(true);
+    // O mesmo rótulo do filtro de CD final, senão o chip "Sem rota" recortaria
+    // um grupo que a hierarquia nomeia de outro jeito.
+    expect(r.some((d) => d.filial === SEM_CD_FINAL)).toBe(true);
   });
 
   it("ordena pelo que mais chega", () => {

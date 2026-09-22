@@ -23,6 +23,7 @@ import {
   carregarTriangulacoes,
   type LinhaTriangulacao,
   type PosicaoDestino,
+  SEM_CD_FINAL,
 } from "@/lib/triangulacoes/consultas";
 import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
@@ -35,6 +36,8 @@ export const dynamic = "force-dynamic";
 type SearchParams = {
   produto?: string | string[];
   fornecedor?: string | string[];
+  /** CD onde a rota termina — recorte, diferente de `cd`, que é o nível aberto. */
+  destino?: string | string[];
   pag?: string | string[];
   /** Ramo aberto: fornecedor, produto dentro dele, CD dentro do produto. */
   forn?: string | string[];
@@ -80,14 +83,6 @@ const TOM = {
   },
 } as const;
 
-/** Remove um filtro preservando o outro. Trocar de filtro volta à página 1. */
-function hrefSem(qual: "produto" | "fornecedor", fornecedor?: string): string {
-  const p = new URLSearchParams();
-  if (qual === "produto" && fornecedor) p.set("fornecedor", fornecedor);
-  const qs = p.toString();
-  return qs ? `/triangulacoes?${qs}` : "/triangulacoes";
-}
-
 function num(v: number): string {
   return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 }
@@ -106,13 +101,14 @@ export default async function Triangulacoes({
   const params = await searchParams;
   const produto = primeiro(params.produto);
   const fornecedor = primeiro(params.fornecedor);
+  const destino = primeiro(params.destino);
   const pagPedida = Number(primeiro(params.pag) ?? 1) || 1;
 
   const dataReferencia = await lerDataReferencia();
   const parametros = await lerParametros();
 
   const [dados, rotulos] = await Promise.all([
-    carregarTriangulacoes(dataReferencia, parametros, produto, fornecedor),
+    carregarTriangulacoes(dataReferencia, parametros, produto, fornecedor, destino),
     carregarRotulosFiliais(),
   ]);
 
@@ -134,6 +130,7 @@ export default async function Triangulacoes({
     const base: Record<string, string | undefined> = {
       produto,
       fornecedor,
+      destino,
       pag: pagina > 1 ? String(pagina) : undefined,
       forn: fornAberto,
       prod: prodAberto,
@@ -152,6 +149,13 @@ export default async function Triangulacoes({
   const hrefProduto = (c: string) =>
     href({ prod: prodAberto === c ? undefined : c, cd: undefined });
   const hrefCd = (f: string) => href({ cd: cdAberto === f ? undefined : f });
+
+  /** Trocar de recorte reabre a lista do começo: o ramo aberto pode não existir nele. */
+  const hrefRecorte = (extra: Record<string, string | undefined>) =>
+    href({ ...extra, pag: undefined, forn: undefined, prod: undefined, cd: undefined });
+
+  const hrefDestino = (f: string) =>
+    hrefRecorte({ destino: destino === f ? undefined : f });
 
   const hrefPagina = (n: number) =>
     href({
@@ -188,9 +192,13 @@ export default async function Triangulacoes({
           <CardContent className="grid gap-4 pt-6">
             {/* Formulário GET: o recorte vira URL e cabe num link. */}
             <form action="/triangulacoes" className="flex flex-wrap items-end gap-2">
+              {/* Os outros recortes viajam escondidos: um GET remonta a query
+                  inteira, e sem isto filtrar por produto limparia CD e
+                  laboratório sem o usuário pedir. */}
               {fornecedor ? (
                 <input type="hidden" name="fornecedor" value={fornecedor} />
               ) : null}
+              {destino ? <input type="hidden" name="destino" value={destino} /> : null}
               <div className="space-y-1.5">
                 <label htmlFor="produto" className="text-xs text-muted-foreground">
                   Produto
@@ -207,7 +215,7 @@ export default async function Triangulacoes({
                 Filtrar
               </Button>
               {produto ? (
-                <Button variant="ghost" render={<Link href={hrefSem("produto", fornecedor)} />}>
+                <Button variant="ghost" render={<Link href={hrefRecorte({ produto: undefined })} />}>
                   Limpar produto
                 </Button>
               ) : null}
@@ -217,7 +225,42 @@ export default async function Triangulacoes({
               fornecedores={dados.fornecedores}
               atual={fornecedor}
               basePath="/triangulacoes"
+              extras={{ produto, destino }}
             />
+
+            {/* CD final: onde a rota termina, não a próxima parada. É a
+                pergunta que a tela responde mal sem filtro — uma triangulação
+                passa por três centros, e só o último é o destino de fato.
+
+                São treze na base; chips cabem e mostram o volume de cada um
+                sem abrir nada. A contagem é sempre da base inteira, para o
+                seletor não se esvaziar ao ser usado. */}
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">CD final</p>
+              <div className="flex flex-wrap gap-1.5">
+                <Button
+                  size="sm"
+                  variant={destino ? "outline" : "secondary"}
+                  render={<Link href={hrefRecorte({ destino: undefined })} />}
+                  className="h-7 text-xs"
+                >
+                  Todos
+                </Button>
+                {dados.cdsFinais.map((c) => (
+                  <Button
+                    key={c.filial}
+                    size="sm"
+                    variant={destino === c.filial ? "secondary" : "outline"}
+                    render={<Link href={hrefDestino(c.filial)} />}
+                    className="h-7 text-xs"
+                  >
+                    <Warehouse className="size-3" />
+                    {c.filial === SEM_CD_FINAL ? "Sem rota" : rotulo(c.filial)}
+                    <span className="font-mono text-muted-foreground">{inteiro(c.documentos)}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
           </CardContent>
         </Card>
 
@@ -285,7 +328,9 @@ export default async function Triangulacoes({
         {dados.produtos.length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="py-12 text-center text-muted-foreground">
-              Nenhuma triangulação em aberto nesta data.
+              {destino
+                ? `Nenhuma triangulação com destino final em ${destino === SEM_CD_FINAL ? "rota não resolvida" : rotulo(destino)} nesta data.`
+                : "Nenhuma triangulação em aberto nesta data."}
             </CardContent>
           </Card>
         ) : (

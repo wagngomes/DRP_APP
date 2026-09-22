@@ -20,11 +20,19 @@ export function FiltroFornecedor({
   fornecedores,
   atual,
   basePath = "/visao-geral",
+  extras,
 }: {
   fornecedores: string[];
   atual?: string;
   /** Página que recebe o filtro — o mesmo controle serve a mais de uma tela. */
   basePath?: string;
+  /**
+   * Outros recortes da página, preservados ao aplicar ou limpar este.
+   *
+   * Sem isto, escolher um laboratório jogava fora o filtro de CD da tela de
+   * triangulações — a URL era remontada do zero.
+   */
+  extras?: Record<string, string | undefined>;
 }) {
   const [valor, setValor] = useState(atual ?? "");
   const [aplicando, iniciar] = useTransition();
@@ -32,7 +40,11 @@ export function FiltroFornecedor({
 
   function aplicar(proximo: string) {
     iniciar(() => {
-      const url = proximo ? `${basePath}?fornecedor=${encodeURIComponent(proximo)}` : basePath;
+      const p = new URLSearchParams();
+      if (proximo) p.set("fornecedor", proximo);
+      for (const [k, v] of Object.entries(extras ?? {})) if (v) p.set(k, v);
+      const qs = p.toString();
+      const url = qs ? `${basePath}?${qs}` : basePath;
       router.push(url, { scroll: false });
       router.refresh();
     });

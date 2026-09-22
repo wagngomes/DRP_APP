@@ -35,6 +35,15 @@ import { joinFornecedor, nomeFornecedor } from "@/lib/fornecedor";
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
 
 /**
+ * Chave do grupo de linhas cuja rota não resolveu para um código de filial.
+ *
+ * Elas existem — sigla fora do cadastro — e precisam de um lugar no filtro, ou
+ * ficariam invisíveis para quem escolher qualquer CD. `agruparPorDestino` já
+ * usa o mesmo travessão para o mesmo caso.
+ */
+export const SEM_CD_FINAL = "—";
+
+/**
  * Uma reposição triangulando, com origem e percurso já resolvidos.
  *
  * Formato comum às duas origens para a tela renderizar uma lista só, em vez de
@@ -84,9 +93,14 @@ export type ProdutoTriangulando = {
   destinos: PosicaoDestino[];
 };
 
+/** Um CD final na lista do filtro, com quantos documentos terminam nele. */
+export type CdFinalDisponivel = { filial: string; documentos: number };
+
 export type DadosTriangulacoes = {
   produtos: ProdutoTriangulando[];
   fornecedores: string[];
+  /** Destinos possíveis, sempre a lista inteira — ver `cdsFinais` abaixo. */
+  cdsFinais: CdFinalDisponivel[];
   valorTransferencia: number;
   valorCompra: number;
   linhasTransferencia: number;
@@ -105,7 +119,9 @@ export async function carregarTriangulacoes(
   /** Código exato ou trecho da descrição. */
   filtroProduto?: string,
   /** Nome normalizado, como vem do filtro da tela. */
-  filtroFornecedor?: string
+  filtroFornecedor?: string,
+  /** Código do CD onde a rota termina, ou `SEM_CD_FINAL`. */
+  filtroCdFinal?: string
 ): Promise<DadosTriangulacoes> {
   const [transferencias, pedidos, sla, siglaParaCodigo, chegadas] = await Promise.all([
     prisma.$queryRawUnsafe<
@@ -258,7 +274,27 @@ export async function carregarTriangulacoes(
       };
     });
 
-  const todasLinhas = [...linhasTransf, ...linhasCompra];
+  const linhasCompletas = [...linhasTransf, ...linhasCompra];
+
+  // A lista do seletor sai de todas as linhas, antes do recorte: senão escolher
+  // um CD apagaria os outros do próprio filtro, e não haveria como voltar.
+  const contagemCd = new Map<string, number>();
+  for (const l of linhasCompletas) {
+    const k = l.cdFinal ?? SEM_CD_FINAL;
+    contagemCd.set(k, (contagemCd.get(k) ?? 0) + 1);
+  }
+  const cdsFinais = [...contagemCd.entries()]
+    .map(([filial, documentos]) => ({ filial, documentos }))
+    .sort((a, b) => b.documentos - a.documentos || a.filial.localeCompare(b.filial));
+
+  // O corte é por linha, não por produto.
+  //
+  // Um item costuma triangular para mais de um CD, e o pedido é "tudo que
+  // termina neste CD" — manter o produto inteiro traria junto o que vai para
+  // outros destinos, e os totais do topo deixariam de bater com a tela.
+  const todasLinhas = filtroCdFinal
+    ? linhasCompletas.filter((l) => (l.cdFinal ?? SEM_CD_FINAL) === filtroCdFinal)
+    : linhasCompletas;
 
   // Estoque chão e forecast dos produtos envolvidos, para os cards de destino.
   const codigos = [...new Set(todasLinhas.map((l) => l.codigo))];
@@ -355,6 +391,7 @@ export async function carregarTriangulacoes(
   return {
     produtos: visiveis,
     fornecedores,
+    cdsFinais,
     valorTransferencia: totalDe("transferencia").reduce((a, l) => a + (l.valor ?? 0), 0),
     valorCompra: totalDe("compra").reduce((a, l) => a + (l.valor ?? 0), 0),
     linhasTransferencia: totalDe("transferencia").length,
