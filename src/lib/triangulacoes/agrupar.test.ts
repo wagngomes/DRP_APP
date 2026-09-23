@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { agruparPorDestino, agruparPorFornecedor, SEM_CD_FINAL } from "./consultas";
-import type { LinhaTriangulacao, ProdutoTriangulando } from "./consultas";
+import { agruparPorDestino, SEM_CD_FINAL } from "./consultas";
+import type { LinhaTriangulacao } from "./consultas";
 
 /**
- * As agregações da hierarquia de quatro níveis.
+ * As agregações da hierarquia de três níveis.
  *
  * O que estes testes guardam é conservação: o total de um nível tem que ser a
- * soma do nível abaixo. Numa tela com fornecedor → produto → CD → documento,
- * um erro de agrupamento não aparece como número errado — aparece como número
- * que só não fecha quando alguém soma à mão.
+ * soma do nível abaixo. Numa tela com produto → CD → documento, um erro de
+ * agrupamento não aparece como número errado — aparece como número que só não
+ * fecha quando alguém soma à mão.
  */
 function linha(p: Partial<LinhaTriangulacao> = {}): LinhaTriangulacao {
   return {
@@ -27,21 +27,6 @@ function linha(p: Partial<LinhaTriangulacao> = {}): LinhaTriangulacao {
     cdFinal: "1036",
     chegadaFinal: null,
     reprojetada: false,
-    ...p,
-  };
-}
-
-function produto(p: Partial<ProdutoTriangulando> = {}): ProdutoTriangulando {
-  const linhas = p.linhas ?? [linha()];
-  return {
-    codigo: "1",
-    descricao: "Item",
-    fornecedor: "ACME",
-    linhas,
-    quantidade: linhas.reduce((a, l) => a + l.quantidade, 0),
-    valorTransferencia: 0,
-    valorCompra: 0,
-    destinos: [],
     ...p,
   };
 }
@@ -92,92 +77,5 @@ describe("agruparPorDestino", () => {
       linha({ id: 2, cdFinal: "1036", quantidade: 90 }),
     ]);
     expect(r[0].filial).toBe("1036");
-  });
-});
-
-describe("agruparPorFornecedor", () => {
-  const produtos = [
-    produto({
-      codigo: "A",
-      fornecedor: "ACME",
-      linhas: [linha({ id: 1, quantidade: 10, valor: 100 })],
-    }),
-    produto({
-      codigo: "B",
-      fornecedor: "ACME",
-      linhas: [linha({ id: 2, origem: "compra", quantidade: 20, valor: 500 })],
-    }),
-    produto({
-      codigo: "C",
-      fornecedor: "OUTRO",
-      linhas: [linha({ id: 3, quantidade: 5, valor: 50 })],
-    }),
-  ];
-
-  it("agrupa e soma pelos documentos, não pelos produtos", () => {
-    const r = agruparPorFornecedor(produtos);
-    const acme = r.find((f) => f.fornecedor === "ACME")!;
-
-    expect(acme.produtos).toHaveLength(2);
-    expect(acme.documentos).toBe(2);
-    expect(acme.quantidade).toBe(30);
-    expect(acme.valorTransferencia).toBe(100);
-    expect(acme.valorCompra).toBe(500);
-  });
-
-  it("conserva o total: fornecedor é a soma dos produtos", () => {
-    const r = agruparPorFornecedor(produtos);
-    for (const f of r) {
-      const soma = f.produtos.flatMap((p) => p.linhas).reduce((a, l) => a + l.quantidade, 0);
-      expect(f.quantidade).toBe(soma);
-    }
-  });
-
-  it("conserva o total também no terceiro nível", () => {
-    // O invariante completo da tela: fornecedor = soma dos produtos, e produto
-    // = soma dos destinos.
-    const r = agruparPorFornecedor(produtos);
-    for (const f of r) {
-      for (const p of f.produtos) {
-        const destinos = agruparPorDestino(p.linhas);
-        const soma = destinos.reduce((a, d) => a + d.quantidade, 0);
-        expect(soma).toBe(p.linhas.reduce((a, l) => a + l.quantidade, 0));
-      }
-    }
-  });
-
-  it("ordena pelo maior valor em transferência", () => {
-    const r = agruparPorFornecedor([
-      produto({ fornecedor: "POUCO", linhas: [linha({ id: 1, valor: 10, quantidade: 900 })] }),
-      produto({ fornecedor: "MUITO", linhas: [linha({ id: 2, valor: 5000, quantidade: 1 })] }),
-    ]);
-    // Pelo valor, não pela quantidade: POUCO move mais caixa, MUITO move mais
-    // dinheiro, e é o dinheiro em trânsito que decide a ordem.
-    expect(r.map((f) => f.fornecedor)).toEqual(["MUITO", "POUCO"]);
-  });
-
-  it("desempata pelo valor de compra, sem somar as duas origens", () => {
-    // Sem transferência nenhuma, os dois empatam em zero. O valor de compra
-    // decide — assim quem só triangula compra fica ordenado entre os pares, em
-    // vez de cair no fim da lista.
-    const r = agruparPorFornecedor([
-      produto({
-        fornecedor: "MENOR",
-        linhas: [linha({ id: 1, origem: "compra", valor: 100 })],
-      }),
-      produto({
-        fornecedor: "MAIOR",
-        linhas: [linha({ id: 2, origem: "compra", valor: 900 })],
-      }),
-    ]);
-    expect(r.map((f) => f.fornecedor)).toEqual(["MAIOR", "MENOR"]);
-  });
-
-  it("trata valor nulo como zero, sem quebrar a soma", () => {
-    const r = agruparPorFornecedor([
-      produto({ fornecedor: "X", linhas: [linha({ valor: null, quantidade: 3 })] }),
-    ]);
-    expect(r[0].valorTransferencia).toBe(0);
-    expect(r[0].quantidade).toBe(3);
   });
 });

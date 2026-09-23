@@ -19,7 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   agruparPorDestino,
-  agruparPorFornecedor,
   carregarTriangulacoes,
   type LinhaTriangulacao,
   type PosicaoDestino,
@@ -39,14 +38,13 @@ type SearchParams = {
   /** CD onde a rota termina — recorte, diferente de `cd`, que é o nível aberto. */
   destino?: string | string[];
   pag?: string | string[];
-  /** Ramo aberto: fornecedor, produto dentro dele, CD dentro do produto. */
-  forn?: string | string[];
+  /** Ramo aberto: produto, e CD dentro dele. */
   prod?: string | string[];
   cd?: string | string[];
 };
 
 /**
- * Fornecedores por página.
+ * Produtos por página.
  *
  * O corte é no servidor e a expansão vai pela URL: só o ramo aberto é
  * renderizado. Mandar a hierarquia inteira ao navegador custaria 820 KB de
@@ -54,8 +52,12 @@ type SearchParams = {
  * paginação.
  *
  * Os totais do topo continuam sendo os do recorte completo, não os da página.
+ *
+ * Subiu de 15 quando o produto virou o primeiro nível: são 363 produtos contra
+ * 53 fornecedores, e 15 por página davam 25 páginas para percorrer. Fechado,
+ * cada produto é uma linha só.
  */
-const POR_PAGINA = 15;
+const POR_PAGINA = 25;
 
 const primeiro = (v: string | string[] | undefined) =>
   (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
@@ -112,17 +114,20 @@ export default async function Triangulacoes({
     carregarRotulosFiliais(),
   ]);
 
-  // A hierarquia é montada aqui, sobre o mesmo dado: fornecedor -> produto ->
-  // CD -> documento. Nenhuma consulta a mais.
-  const porFornecedor = agruparPorFornecedor(dados.produtos);
-
-  const fornAberto = primeiro(params.forn);
+  // A hierarquia é montada aqui, sobre o mesmo dado: produto -> CD ->
+  // documento. Nenhuma consulta a mais.
+  //
+  // O fornecedor era o primeiro nível e saiu: com o filtro de laboratório logo
+  // acima, ele obrigava a um clique a mais para chegar ao item — que é a
+  // unidade sobre a qual se decide alguma coisa.
   const prodAberto = primeiro(params.prod);
   const cdAberto = primeiro(params.cd);
 
-  const paginas = Math.max(1, Math.ceil(porFornecedor.length / POR_PAGINA));
+  // `dados.produtos` já vem ordenado pelo valor total em triangulação, do
+  // maior para o menor.
+  const paginas = Math.max(1, Math.ceil(dados.produtos.length / POR_PAGINA));
   const pagina = Math.min(Math.max(1, pagPedida), paginas);
-  const visiveis = porFornecedor.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA);
+  const visiveis = dados.produtos.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA);
 
   /** Link preservando filtros, página e o ramo aberto. */
   const href = (extra: Record<string, string | undefined>) => {
@@ -132,7 +137,6 @@ export default async function Triangulacoes({
       fornecedor,
       destino,
       pag: pagina > 1 ? String(pagina) : undefined,
-      forn: fornAberto,
       prod: prodAberto,
       cd: cdAberto,
       ...extra,
@@ -142,28 +146,21 @@ export default async function Triangulacoes({
     return qs ? `/triangulacoes?${qs}` : "/triangulacoes";
   };
 
-  // Abrir um nível fecha os de baixo: eles pertencem ao ramo anterior, e
-  // mantê-los abertos mostraria o detalhe de um produto sob outro fornecedor.
-  const hrefFornecedor = (f: string) =>
-    href({ forn: fornAberto === f ? undefined : f, prod: undefined, cd: undefined });
+  // Abrir um nível fecha o de baixo: ele pertence ao ramo anterior, e mantê-lo
+  // aberto mostraria o CD de um produto dentro de outro.
   const hrefProduto = (c: string) =>
     href({ prod: prodAberto === c ? undefined : c, cd: undefined });
   const hrefCd = (f: string) => href({ cd: cdAberto === f ? undefined : f });
 
   /** Trocar de recorte reabre a lista do começo: o ramo aberto pode não existir nele. */
   const hrefRecorte = (extra: Record<string, string | undefined>) =>
-    href({ ...extra, pag: undefined, forn: undefined, prod: undefined, cd: undefined });
+    href({ ...extra, pag: undefined, prod: undefined, cd: undefined });
 
   const hrefDestino = (f: string) =>
     hrefRecorte({ destino: destino === f ? undefined : f });
 
   const hrefPagina = (n: number) =>
-    href({
-      pag: n > 1 ? String(n) : undefined,
-      forn: undefined,
-      prod: undefined,
-      cd: undefined,
-    });
+    href({ pag: n > 1 ? String(n) : undefined, prod: undefined, cd: undefined });
 
   const rotulo = (codigo: string | null) => (codigo ? rotulos.get(codigo) ?? codigo : "—");
 
@@ -334,152 +331,105 @@ export default async function Triangulacoes({
             </CardContent>
           </Card>
         ) : (
-          visiveis.map((f) => {
-            const fAberto = fornAberto === f.fornecedor;
+          visiveis.map((p) => {
+            const pAberto = prodAberto === p.codigo;
+            const destinos = pAberto ? agruparPorDestino(p.linhas) : [];
             return (
-              <Card
-                key={f.fornecedor}
-                className={fAberto ? "ring-1 ring-(--brand-turquoise)/40" : ""}
-              >
-                {/* Primeiro nível: o fornecedor. O cabeçalho inteiro é o alvo
-                    do clique — mira maior que um ícone de seta. */}
-                <Link href={hrefFornecedor(f.fornecedor)} scroll={false} className="block">
+              <Card key={p.codigo} className={pAberto ? "ring-1 ring-(--brand-turquoise)/40" : ""}>
+                {/* Primeiro nível: o produto. O cabeçalho inteiro é o alvo do
+                    clique — mira maior que um ícone de seta. */}
+                <Link href={hrefProduto(p.codigo)} scroll={false} className="block">
                   <CardHeader className="transition-colors hover:bg-muted/40">
                     <CardTitle className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                      {fAberto ? (
+                      {pAberto ? (
                         <ChevronDown className="size-4 shrink-0 text-(--brand-turquoise)" />
                       ) : (
                         <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                       )}
-                      <span className="min-w-0 flex-1 truncate">{f.fornecedor}</span>
-                      <span className="font-mono text-sm font-normal text-muted-foreground">
-                        {f.produtos.length + " item(ns) · " + num(f.quantidade) + " un"}
+                      <span className="font-mono text-(--brand-petrol) dark:text-(--brand-turquoise)">
+                        {p.codigo}
                       </span>
-                      {f.valorTransferencia > 0 ? (
+                      <span className="min-w-0 flex-1 truncate text-sm font-normal">
+                        {p.descricao ?? "—"}
+                      </span>
+                      {/* O fornecedor vira etiqueta: deixou de ser nível, mas
+                          continua sendo o dado que diz com quem falar. */}
+                      <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                        {p.fornecedor}
+                      </span>
+                      <span className="font-mono text-sm font-normal text-muted-foreground">
+                        {num(p.quantidade) + " un"}
+                      </span>
+                      {p.valorTransferencia > 0 ? (
                         <Badge
                           className={"font-mono " + TOM.transferencia.fundo + " " + TOM.transferencia.texto}
                         >
-                          {"Transf. " + moeda(f.valorTransferencia)}
+                          {"Transf. " + moeda(p.valorTransferencia)}
                         </Badge>
                       ) : null}
-                      {f.valorCompra > 0 ? (
+                      {p.valorCompra > 0 ? (
                         <Badge className={"font-mono " + TOM.compra.fundo + " " + TOM.compra.texto}>
-                          {"Compra " + moeda(f.valorCompra)}
+                          {"Compra " + moeda(p.valorCompra)}
                         </Badge>
                       ) : null}
                     </CardTitle>
                   </CardHeader>
                 </Link>
 
-                {fAberto ? (
+                {pAberto ? (
                   <CardContent className="grid gap-2">
-                    {f.produtos.map((p) => {
-                      const pAberto = prodAberto === p.codigo;
-                      const destinos = pAberto ? agruparPorDestino(p.linhas) : [];
+                    {destinos.map((d) => {
+                      const cAberto = cdAberto === d.filial;
                       return (
-                        <div key={p.codigo} className="rounded-lg border bg-muted/20">
-                          {/* Segundo nível: o produto. */}
+                        <div key={d.filial} className="rounded-md border bg-muted/20">
+                          {/* Segundo nível: o CD onde a rota termina. */}
                           <Link
-                            href={hrefProduto(p.codigo)}
+                            href={hrefCd(d.filial)}
                             scroll={false}
-                            className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2.5 transition-colors hover:bg-muted/40"
+                            className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2 transition-colors hover:bg-muted/40"
                           >
-                            {pAberto ? (
+                            {cAberto ? (
                               <ChevronDown className="size-3.5 shrink-0 text-(--brand-turquoise)" />
                             ) : (
                               <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
                             )}
-                            <span className="font-mono text-sm font-semibold text-(--brand-petrol) dark:text-(--brand-turquoise)">
-                              {p.codigo}
+                            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-(--brand-petrol) px-2 py-0.5 text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
+                              <Warehouse className="size-3.5 shrink-0" />
+                              <span className="font-mono text-xs leading-none font-bold">
+                                {rotulo(d.filial)}
+                              </span>
                             </span>
-                            <span className="min-w-0 flex-1 truncate text-sm">
-                              {p.descricao ?? "—"}
+                            <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+                              {d.linhas.length + " documento(s)"}
                             </span>
-                            <span className="font-mono text-xs text-muted-foreground">
-                              {num(p.quantidade) + " un"}
+                            <span className="font-mono text-xs font-semibold">
+                              {num(d.quantidade) + " un"}
                             </span>
-                            {p.valorTransferencia > 0 ? (
+                            {d.valorTransferencia > 0 ? (
                               <span className={"font-mono text-xs " + TOM.transferencia.texto}>
-                                {moeda(p.valorTransferencia)}
+                                {moeda(d.valorTransferencia)}
                               </span>
                             ) : null}
-                            {p.valorCompra > 0 ? (
+                            {d.valorCompra > 0 ? (
                               <span className={"font-mono text-xs " + TOM.compra.texto}>
-                                {moeda(p.valorCompra)}
+                                {moeda(d.valorCompra)}
                               </span>
                             ) : null}
                           </Link>
 
-                          {pAberto ? (
-                            <div className="grid gap-2 px-2.5 pb-2.5 pl-7">
-                              {destinos.map((d) => {
-                                const cAberto = cdAberto === d.filial;
-                                return (
-                                  <div key={d.filial} className="rounded-md border bg-card">
-                                    {/* Terceiro nível: o CD onde a rota termina. */}
-                                    <Link
-                                      href={hrefCd(d.filial)}
-                                      scroll={false}
-                                      className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2 transition-colors hover:bg-muted/40"
-                                    >
-                                      {cAberto ? (
-                                        <ChevronDown className="size-3.5 shrink-0 text-(--brand-turquoise)" />
-                                      ) : (
-                                        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-                                      )}
-                                      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-(--brand-petrol) px-2 py-0.5 text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
-                                        <Warehouse className="size-3.5 shrink-0" />
-                                        <span className="font-mono text-xs leading-none font-bold">
-                                          {rotulo(d.filial)}
-                                        </span>
-                                      </span>
-                                      <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-                                        {d.linhas.length + " documento(s)"}
-                                      </span>
-                                      <span className="font-mono text-xs font-semibold">
-                                        {num(d.quantidade) + " un"}
-                                      </span>
-                                      {d.valorTransferencia > 0 ? (
-                                        <span className={"font-mono text-xs " + TOM.transferencia.texto}>
-                                          {moeda(d.valorTransferencia)}
-                                        </span>
-                                      ) : null}
-                                      {d.valorCompra > 0 ? (
-                                        <span className={"font-mono text-xs " + TOM.compra.texto}>
-                                          {moeda(d.valorCompra)}
-                                        </span>
-                                      ) : null}
-                                    </Link>
-
-                                    {/* Quarto nível: os documentos, com o
-                                        percurso — o detalhe que a tela já
-                                        mostrava, agora no lugar certo. */}
-                                    {cAberto ? (
-                                      <div className="grid gap-2 border-t p-2.5">
-                                        {/* A situação do item neste CD é o que
-                                            diz se a triangulação é urgente:
-                                            chegar 800 unidades num centro com
-                                            estoque zerado é outra conversa que
-                                            chegar num que já tem trinta dias.
-                                            Fica aqui, no CD, e não no produto:
-                                            a posição é por centro, e no nível
-                                            de cima ela obrigava a cruzar qual
-                                            destino pertencia a qual número. */}
-                                        <PosicaoNoDestino
-                                          posicao={p.destinos.find((x) => x.filial === d.filial)}
-                                        />
-                                        {d.linhas.map((l) => (
-                                          <Documento
-                                            key={l.origem + "-" + l.id}
-                                            linha={l}
-                                            rotulo={rotulo}
-                                          />
-                                        ))}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
+                          {/* Terceiro nível: os documentos, com o percurso. */}
+                          {cAberto ? (
+                            <div className="grid gap-2 border-t bg-card p-2.5">
+                              {/* A situação do item neste CD é o que diz se a
+                                  triangulação é urgente: chegar 800 unidades
+                                  num centro com estoque zerado é outra conversa
+                                  que chegar num que já tem trinta dias. */}
+                              <PosicaoNoDestino
+                                posicao={p.destinos.find((x) => x.filial === d.filial)}
+                              />
+                              {d.linhas.map((l) => (
+                                <Documento key={l.origem + "-" + l.id} linha={l} rotulo={rotulo} />
+                              ))}
                             </div>
                           ) : null}
                         </div>

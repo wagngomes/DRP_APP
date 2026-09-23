@@ -409,16 +409,6 @@ export type DestinoTriangulando = {
   valorCompra: number;
 };
 
-/** Primeiro nível da tela: o fornecedor e tudo que triangula sob ele. */
-export type FornecedorTriangulando = {
-  fornecedor: string;
-  produtos: ProdutoTriangulando[];
-  quantidade: number;
-  valorTransferencia: number;
-  valorCompra: number;
-  documentos: number;
-};
-
 /**
  * Soma os valores de uma lista de linhas, mantendo as origens separadas.
  *
@@ -444,7 +434,7 @@ function somarPorOrigem(linhas: LinhaTriangulacao[]): {
 }
 
 /**
- * Terceiro nível: as linhas de um produto agrupadas pelo CD onde a rota termina.
+ * Segundo nível: as linhas de um produto agrupadas pelo CD onde a rota termina.
  *
  * Ordenado por quantidade porque a pergunta no nível do produto é "para onde
  * está indo a maior parte" — e não a ordem alfabética dos centros.
@@ -456,50 +446,10 @@ export function agruparPorDestino(
   for (const l of linhas) {
     // Sem CD final resolvido a linha não some: vai para um grupo próprio, senão
     // o total do produto deixaria de bater com a soma dos destinos.
-    const chave = l.cdFinal ?? "—";
+    const chave = l.cdFinal ?? SEM_CD_FINAL;
     mapa.set(chave, [...(mapa.get(chave) ?? []), l]);
   }
   return [...mapa.entries()]
     .map(([filial, lista]) => ({ filial, linhas: lista, ...somarPorOrigem(lista) }))
     .sort((a, b) => b.quantidade - a.quantidade || a.filial.localeCompare(b.filial));
-}
-
-/**
- * Primeiro nível: os produtos agrupados por fornecedor.
- *
- * A hierarquia da tela é fornecedor → produto → CD → documento, e é a ordem em
- * que a conversa acontece: primeiro com quem entrega, depois sobre o que, então
- * para onde, e só no fim qual nota.
- */
-export function agruparPorFornecedor(
-  produtos: ProdutoTriangulando[]
-): FornecedorTriangulando[] {
-  const mapa = new Map<string, ProdutoTriangulando[]>();
-  for (const p of produtos) {
-    mapa.set(p.fornecedor, [...(mapa.get(p.fornecedor) ?? []), p]);
-  }
-  return [...mapa.entries()]
-    .map(([fornecedor, lista]) => {
-      const linhas = lista.flatMap((p) => p.linhas);
-      return {
-        fornecedor,
-        produtos: [...lista].sort((a, b) => b.quantidade - a.quantidade),
-        documentos: linhas.length,
-        ...somarPorOrigem(linhas),
-      };
-    })
-    // Maior valor em transferência primeiro: é o dinheiro parado em trânsito
-    // entre CDs, e é por ele que se decide com quem falar antes.
-    //
-    // O valor de compra desempata em vez de somar — as duas colunas medem
-    // coisas diferentes. Assim o fornecedor que só tem triangulação de compra
-    // ainda fica ordenado entre os seus pares, em vez de cair no fim por
-    // empate em zero.
-    .sort(
-      (a, b) =>
-        b.valorTransferencia - a.valorTransferencia ||
-        b.valorCompra - a.valorCompra ||
-        b.quantidade - a.quantidade ||
-        a.fornecedor.localeCompare(b.fornecedor)
-    );
 }
