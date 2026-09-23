@@ -3,6 +3,8 @@ import {
   Boxes,
   ChevronDown,
   ChevronRight,
+  FlaskConical,
+  Route,
   ShoppingBag,
   ShoppingCart,
   TrendingUp,
@@ -171,19 +173,40 @@ export default async function Triangulacoes({
       papel={sessao.usuario.papel}
     >
       <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-(--brand-petrol) dark:text-foreground">
-              Triangulações
-            </h1>
-            <p className="text-muted-foreground">
-              Transferências e pedidos de compra que passam por CDs intermediários até o
-              destino final.
-            </p>
+        {/* Mesma malha da tela de recebimentos: dá profundidade ao cabeçalho
+            sem competir com a lista, e é CSS puro — dois gradientes numa camada
+            própria, sem imagem e sem custo de carga. A máscara a dissolve nas
+            bordas; sem ela a malha corta em linha reta e parece defeito. */}
+        <div className="relative overflow-hidden rounded-xl border bg-card p-6">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-[0.07] dark:opacity-[0.12]"
+            style={{
+              backgroundImage:
+                "linear-gradient(to right, var(--brand-petrol) 1px, transparent 1px)," +
+                "linear-gradient(to bottom, var(--brand-petrol) 1px, transparent 1px)",
+              backgroundSize: "28px 28px",
+              maskImage: "radial-gradient(ellipse 80% 120% at 30% 0%, black, transparent)",
+            }}
+          />
+          <div className="relative flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
+                <Route className="size-3.5" />
+                Em trânsito por CDs intermediários
+              </p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-tight text-(--brand-petrol) dark:text-foreground">
+                Triangulações
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Transferências e pedidos de compra que passam por CDs intermediários até o
+                destino final.
+              </p>
+            </div>
+            <Badge variant="secondary" className="text-sm">
+              {`Referência: ${dataBr(dataReferencia)}`}
+            </Badge>
           </div>
-          <Badge variant="secondary" className="text-sm">
-            {`Referência: ${dataBr(dataReferencia)}`}
-          </Badge>
         </div>
 
         <Card>
@@ -332,48 +355,86 @@ export default async function Triangulacoes({
             </CardContent>
           </Card>
         ) : (
-          visiveis.map((p) => {
+          visiveis.map((p, i) => {
             const pAberto = prodAberto === p.codigo;
             const destinos = pAberto ? agruparPorDestino(p.linhas) : [];
+            const total = p.valorTransferencia + p.valorCompra;
+            // Posição na lista inteira, não na página: a ordem é por valor, e
+            // "3º maior" só quer dizer alguma coisa se contar desde o primeiro.
+            const posicao = (pagina - 1) * POR_PAGINA + i + 1;
+            // A cor da borda diz onde está a maior parte do dinheiro deste item
+            // antes de qualquer leitura de número.
+            const dominante = p.valorTransferencia >= p.valorCompra ? "transferencia" : "compra";
             return (
-              <Card key={p.codigo} className={pAberto ? "ring-1 ring-(--brand-turquoise)/40" : ""}>
+              <Card
+                key={p.codigo}
+                className={
+                  "overflow-hidden border-l-4 transition-shadow " +
+                  TOM[dominante].borda +
+                  (pAberto ? " ring-1 ring-(--brand-turquoise)/40" : " hover:shadow-md")
+                }
+              >
                 {/* Primeiro nível: o produto. O cabeçalho inteiro é o alvo do
                     clique — mira maior que um ícone de seta. */}
                 <Link href={hrefProduto(p.codigo)} scroll={false} className="block">
-                  <CardHeader className="transition-colors hover:bg-muted/40">
-                    <CardTitle className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <CardHeader className="gap-2 transition-colors hover:bg-muted/40">
+                    <CardTitle className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                       {pAberto ? (
                         <ChevronDown className="size-4 shrink-0 text-(--brand-turquoise)" />
                       ) : (
                         <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                       )}
-                      <span className="font-mono text-(--brand-petrol) dark:text-(--brand-turquoise)">
+                      <span className="w-6 shrink-0 text-right font-mono text-xs font-normal text-muted-foreground tabular-nums">
+                        {posicao}
+                      </span>
+                      <span className="shrink-0 rounded-md bg-(--brand-petrol)/10 px-2 py-0.5 font-mono text-sm text-(--brand-petrol) dark:bg-(--brand-turquoise)/15 dark:text-(--brand-turquoise)">
                         {p.codigo}
                       </span>
                       <span className="min-w-0 flex-1 truncate text-sm font-normal">
                         {p.descricao ?? "—"}
                       </span>
-                      {/* O fornecedor vira etiqueta: deixou de ser nível, mas
-                          continua sendo o dado que diz com quem falar. */}
-                      <span className="shrink-0 text-xs font-normal text-muted-foreground">
-                        {p.fornecedor}
-                      </span>
                       <span className="font-mono text-sm font-normal text-muted-foreground">
                         {num(p.quantidade) + " un"}
                       </span>
+                      <span className="font-mono text-base text-(--brand-petrol) tabular-nums dark:text-foreground">
+                        {moeda(total)}
+                      </span>
+                    </CardTitle>
+
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-[4.25rem]">
+                      {/* O fornecedor vira etiqueta: deixou de ser nível, mas
+                          continua sendo o dado que diz com quem falar. */}
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <FlaskConical className="size-3" />
+                        {p.fornecedor}
+                      </span>
                       {p.valorTransferencia > 0 ? (
-                        <Badge
-                          className={"font-mono " + TOM.transferencia.fundo + " " + TOM.transferencia.texto}
-                        >
+                        <span className={"font-mono text-xs " + TOM.transferencia.texto}>
                           {"Transf. " + moeda(p.valorTransferencia)}
-                        </Badge>
+                        </span>
                       ) : null}
                       {p.valorCompra > 0 ? (
-                        <Badge className={"font-mono " + TOM.compra.fundo + " " + TOM.compra.texto}>
+                        <span className={"font-mono text-xs " + TOM.compra.texto}>
                           {"Compra " + moeda(p.valorCompra)}
-                        </Badge>
+                        </span>
                       ) : null}
-                    </CardTitle>
+
+                      {/* A divisão entre as duas frentes, em largura. Os badges
+                          já dão os valores; a barra dá a proporção sem obrigar
+                          a comparar dois números de sete dígitos. */}
+                      {total > 0 ? (
+                        <span className="ml-auto flex h-1.5 w-32 overflow-hidden rounded-full bg-muted">
+                          <span
+                            className="bg-teal-500"
+                            style={{ width: `${(p.valorTransferencia / total) * 100}%` }}
+                          />
+                          <span
+                            className="bg-amber-500"
+                            style={{ width: `${(p.valorCompra / total) * 100}%` }}
+                          />
+                        </span>
+                      ) : null}
+                    </div>
                   </CardHeader>
                 </Link>
 
