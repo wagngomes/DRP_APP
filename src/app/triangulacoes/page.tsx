@@ -236,7 +236,7 @@ export default async function Triangulacoes({
                 Filtrar
               </Button>
               {produto ? (
-                <Button variant="ghost" render={<Link href={hrefRecorte({ produto: undefined })} />}>
+                <Button variant="ghost" render={<Link href={hrefRecorte({ produto: undefined })} scroll={false} />}>
                   Limpar produto
                 </Button>
               ) : null}
@@ -262,7 +262,7 @@ export default async function Triangulacoes({
                 <Button
                   size="sm"
                   variant={destino ? "outline" : "secondary"}
-                  render={<Link href={hrefRecorte({ destino: undefined })} />}
+                  render={<Link href={hrefRecorte({ destino: undefined })} scroll={false} />}
                   className="h-7 text-xs"
                 >
                   Todos
@@ -272,7 +272,7 @@ export default async function Triangulacoes({
                     key={c.filial}
                     size="sm"
                     variant={destino === c.filial ? "secondary" : "outline"}
-                    render={<Link href={hrefDestino(c.filial)} />}
+                    render={<Link href={hrefDestino(c.filial)} scroll={false} />}
                     className="h-7 text-xs"
                   >
                     <Warehouse className="size-3" />

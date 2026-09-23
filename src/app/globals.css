@@ -217,5 +217,12 @@
   html {
     @apply font-sans;
     font-size: var(--escala-interface, 85%);
+    /* Reserva a calha da barra de rolagem sempre.
+     *
+     * Sem isto, toda mudança que encurta a página abaixo da altura da janela
+     * faz a barra sumir e o conteúdo inteiro escorregar uns 15px para a
+     * direita — e voltar no clique seguinte. Era o "salto" ao filtrar e ao
+     * abrir/fechar um card nas telas com listas longas. */
+    scrollbar-gutter: stable;
   }
 }

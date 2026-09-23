@@ -45,8 +45,12 @@ export function FiltroFornecedor({
       for (const [k, v] of Object.entries(extras ?? {})) if (v) p.set(k, v);
       const qs = p.toString();
       const url = qs ? `${basePath}?${qs}` : basePath;
+      // Só o push. As páginas que usam este filtro são `force-dynamic`, então
+      // navegar para uma URL nova já refaz a consulta no servidor — o
+      // `router.refresh()` que havia aqui disparava uma segunda busca e um
+      // segundo troca-conteúdo, o que numa tela de 1,6s por consulta aparecia
+      // como a página saltando duas vezes.
       router.push(url, { scroll: false });
-      router.refresh();
     });
   }
 
