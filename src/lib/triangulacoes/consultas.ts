@@ -27,12 +27,14 @@ import { carregarChegadas, chaveChegada } from "@/lib/reposicoes/chegadas";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
 import {
   COLUNAS_ESTOQUE_CHAO,
+  COLUNAS_VENDIDO_M0,
   snapshotMensalSql,
   somaSql,
 } from "@/utils/dias-estoque";
 import { joinFornecedor, nomeFornecedor } from "@/lib/fornecedor";
 
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
+const VENDIDO = somaSql(COLUNAS_VENDIDO_M0, "s");
 
 /**
  * Chave do grupo de linhas cuja rota não resolveu para um código de filial.
@@ -78,6 +80,8 @@ export type PosicaoDestino = {
   emCompra: number;
   /** Forecast do mês para este item neste CD; `null` quando não há previsão. */
   forecastM0: number | null;
+  /** Vendido no mês corrente neste CD — o consumo real contra o previsto. */
+  vendido: number;
 };
 
 export type ProdutoTriangulando = {
@@ -300,8 +304,13 @@ export async function carregarTriangulacoes(
   const codigos = [...new Set(todasLinhas.map((l) => l.codigo))];
   const [estoques, forecasts] = codigos.length
     ? await Promise.all([
-        prisma.$queryRawUnsafe<{ codigo: string; filial: string; chao: number }[]>(
-          `SELECT s.codigo, s.filial, COALESCE(${EST_CHAO},0)::float8 AS chao
+        // Vendido sai da mesma linha do simulador que o estoque — uma coluna a
+        // mais no SELECT, nenhuma consulta nova.
+        prisma.$queryRawUnsafe<
+          { codigo: string; filial: string; chao: number; vendido: number }[]
+        >(
+          `SELECT s.codigo, s.filial, COALESCE(${EST_CHAO},0)::float8 AS chao,
+                  COALESCE(${VENDIDO},0)::float8 AS vendido
              FROM ${simuladorPorCd("s.data_snapshot = $1::date")} s
             WHERE s.data_snapshot = $1::date
               AND s.codigo = ANY($2::text[]) AND s.filial IS NOT NULL`,
@@ -319,7 +328,7 @@ export async function carregarTriangulacoes(
       ])
     : [[], []];
 
-  const chaoPor = new Map(estoques.map((e) => [`${e.codigo}|${e.filial}`, e.chao]));
+  const chaoPor = new Map(estoques.map((e) => [`${e.codigo}|${e.filial}`, e]));
   const forecastPor = new Map(forecasts.map((f) => [`${f.codigo}|${f.filial}`, f.fc]));
 
   const porProduto = new Map<string, typeof todasLinhas>();
@@ -335,10 +344,11 @@ export async function carregarTriangulacoes(
         reposicoes.filter((r) => r.origem === origem).reduce((a, r) => a + r.quantidade, 0);
       return {
         filial,
-        estoqueChao: chaoPor.get(`${codigo}|${filial}`) ?? 0,
+        estoqueChao: chaoPor.get(`${codigo}|${filial}`)?.chao ?? 0,
         emTransferencia: somar("transferencia"),
         emCompra: somar("compra"),
         forecastM0: forecastPor.get(`${codigo}|${filial}`) ?? null,
+        vendido: chaoPor.get(`${codigo}|${filial}`)?.vendido ?? 0,
       };
     });
 

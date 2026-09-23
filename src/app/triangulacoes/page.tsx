@@ -3,6 +3,7 @@ import {
   Boxes,
   ChevronDown,
   ChevronRight,
+  ShoppingBag,
   ShoppingCart,
   TrendingUp,
   Truck,
@@ -545,6 +546,9 @@ function PosicaoNoDestino({ posicao }: { posicao: PosicaoDestino | undefined }) 
       valor: posicao.forecastM0 === null ? "sem forecast" : num(posicao.forecastM0),
       icone: TrendingUp,
     },
+    // O previsto ao lado do realizado: é a comparação que diz se a chegada
+    // desta triangulação ainda faz sentido no ritmo em que o item está saindo.
+    { rotulo: "Vendido no mês", valor: num(posicao.vendido), icone: ShoppingBag },
   ];
 
   return (
