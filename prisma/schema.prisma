@@ -651,3 +651,40 @@ model ConfiguracaoSistema {
 
   @@map("configuracao_sistema")
 }
+
+model Contratos {
+  id                     Int       @id @default(autoincrement())
+  createdAt              DateTime  @default(now())
+  // Dia do upload (não vem do CSV) — cada carga vira um snapshot novo em vez de
+  // sobrescrever a anterior, então uma reimportação corrigida não apaga a que
+  // estava valendo até ali.
+  data_snapshot          DateTime  @default(now()) @db.Date
+  /**
+   * Mês a que o contrato se refere — vem do CSV e é ele, não o dia do upload,
+   * que a data de referência do sistema usa para recortar esta tabela.
+   * A distinção importa: a carga de setembro pode ser feita em outubro, e
+   * recortar pelo `data_snapshot` faria o mês de setembro sumir das telas.
+   */
+  competencia            DateTime? @db.Date
+  status_acordo          String?
+  razao_social           String?
+  cnpj                   String?
+  grupo                  String?
+  uf                     String?
+  regional               String?
+  representante          String?
+  reserva_final_contrato Decimal?  @db.Decimal(24, 10)
+  codigo                 String?
+  contribuinte           String?
+  local_ideal            String?
+  quantidade_final       Decimal?  @db.Decimal(24, 10)
+
+  // Sem chave estrangeira para Produtos, pelo mesmo motivo das outras bases de
+  // snapshot: o import de Produtos apaga a tabela antes de inserir, e uma
+  // relação com `onDelete: SetNull` zeraria `codigo` aqui em cascata, sem erro.
+
+  @@index([competencia])
+  @@index([data_snapshot])
+  @@index([competencia, codigo], map: "contratos_competencia_codigo_idx")
+  @@map("contratos")
+}

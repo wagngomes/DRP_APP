@@ -1,4 +1,4 @@
-import type { ImportModelConfig } from "@/lib/imports/config";
+import { getScopeField, type ImportModelConfig } from "@/lib/imports/config";
 
 
 /** Formato de troca: yyyy-mm-dd, sem hora e sem fuso. */
@@ -62,7 +62,7 @@ export function filtroSnapshot(
   model: ImportModelConfig,
   dataReferencia: string
 ): Record<string, unknown> | undefined {
-  const campo = model.snapshotField;
+  const campo = getScopeField(model);
   if (!campo || !model.snapshotScope) return undefined;
 
   const referencia = paraDataUtc(dataReferencia);

@@ -36,7 +36,8 @@ export type ImportModelKey =
   | "recebimento"
   | "sla_transferencias"
   | "clientes_grupos"
-  | "historico_vendas";
+  | "historico_vendas"
+  | "contratos";
 
 export type ImportReference = {
   /** Campo do próprio model que guarda a chave estrangeira (ex: "codigo"). */
@@ -88,7 +89,23 @@ export type ImportModelConfig = {
    * Ausente = a tabela não é recortada por data (cadastros e bases estáveis).
    */
   snapshotScope?: "day" | "month";
+  /**
+   * Campo sobre o qual o recorte de `snapshotScope` incide, quando não é o
+   * próprio `snapshotField`.
+   *
+   * Existe por causa de Contratos: o dia do upload continua sendo carimbado
+   * pelo servidor (para dar histórico e permitir apagar uma carga específica),
+   * mas o mês de referência vem do CSV, na coluna `competencia`. Recortar pelo
+   * dia do upload faria a competência de setembro sumir das telas se o arquivo
+   * fosse carregado em outubro.
+   */
+  scopeField?: string;
 };
+
+/** Campo que a data de referência recorta — o próprio snapshot, salvo exceção. */
+export function getScopeField(model: ImportModelConfig): string | undefined {
+  return model.scopeField ?? model.snapshotField;
+}
 
 export function getIdField(model: ImportModelConfig): string {
   return model.idField ?? "id";
@@ -465,6 +482,38 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
       col("estado"),
       col("filial", "codigo"),
       col("quantidade", "decimal"),
+    ],
+  },
+  {
+    key: "contratos",
+    label: "Contratos",
+    delegate: "contratos",
+    // Cumulativa como as demais: a carga do mês não apaga a do mês anterior, e
+    // uma reimportação corrigida convive com a anterior até alguém apagar a
+    // data errada na própria tela.
+    cumulative: true,
+    snapshotField: "data_snapshot",
+    snapshotScope: "month",
+    // O mês vem do arquivo, não do dia em que ele foi carregado.
+    scopeField: "competencia",
+    columns: [
+      col("competencia", "date"),
+      col("status_acordo"),
+      col("razao_social"),
+      col("cnpj", "documento"),
+      col("grupo"),
+      col("uf"),
+      col("regional"),
+      col("representante"),
+      col("reserva_final_contrato", "decimal"),
+      // Tratado como código de produto: normaliza zero à esquerda, que é o que
+      // faz o cruzamento com as outras bases funcionar. Sem `references` de
+      // propósito — na dúvida sobre a natureza do código, é melhor importar a
+      // linha do que descartá-la em silêncio.
+      col("codigo", "codigo"),
+      col("contribuinte"),
+      col("local_ideal"),
+      col("quantidade_final", "decimal"),
     ],
   },
 ];

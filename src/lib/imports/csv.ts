@@ -116,6 +116,27 @@ function parseDate(raw: string): Date | null {
     if (!Number.isNaN(date.getTime())) return date;
   }
 
+  // Só o mês: "09/2026" e "2026-09" viram o dia 1º daquele mês.
+  //
+  // Existe por causa da competência de Contratos, que é um mês e não um dia.
+  // Estes dois formatos hoje caem no erro abaixo, então aceitá-los não muda
+  // nenhuma importação que já funciona.
+  const mesBr = trimmed.match(/^(\d{1,2})\/(\d{4})$/);
+  if (mesBr) {
+    const [, m, y] = mesBr;
+    if (Number(m) >= 1 && Number(m) <= 12) {
+      return new Date(Date.UTC(Number(y), Number(m) - 1, 1));
+    }
+  }
+
+  const mesIso = trimmed.match(/^(\d{4})-(\d{1,2})$/);
+  if (mesIso) {
+    const [, y, m] = mesIso;
+    if (Number(m) >= 1 && Number(m) <= 12) {
+      return new Date(Date.UTC(Number(y), Number(m) - 1, 1));
+    }
+  }
+
   throw new Error(`data inválida: "${raw}"`);
 }
 
