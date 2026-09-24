@@ -1,3 +1,4 @@
+import type { CurvaMes } from "@/lib/aceleracao/consultas";
 import { prisma } from "@/lib/prisma";
 import {
   acuracidade,
@@ -410,4 +411,69 @@ export async function listarMesesSop(): Promise<string[]> {
     `SELECT DISTINCT competencia FROM sop WHERE competencia IS NOT NULL ORDER BY competencia DESC`
   );
   return r.map((x) => x.competencia.toISOString().slice(0, 10));
+}
+
+/**
+ * Venda acumulada dia a dia, no mês de referência e nos três anteriores.
+ *
+ * Mesma forma da curva da tela de aceleração, e de propósito: quem já leu
+ * aquela lê esta sem reaprender. A comparação que ela permite não depende de
+ * limiar nenhum — no mesmo dia do mês, ou a linha do mês descola das outras,
+ * ou não descola.
+ *
+ * Aqui o "mês corrente" é o mês de referência escolhido na tela, não o de hoje:
+ * a página existe para olhar um mês que já passou.
+ */
+export async function carregarCurvas(
+  codigo: string,
+  mes: string
+): Promise<{ curvas: CurvaMes[]; diaCorte: number }> {
+  const { inicio, fim } = limitesDoMes(mes);
+  const d = new Date(`${inicio}T00:00:00.000Z`);
+  const desde = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 3, 1))
+    .toISOString()
+    .slice(0, 10);
+
+  const diarios = await prisma.$queryRawUnsafe<{ mes: string; dia: number; qtd: number }[]>(
+    `SELECT to_char(h.data, 'YYYY-MM') AS mes,
+            extract(day FROM h.data)::int AS dia,
+            SUM(-h.quantidade)::float8 AS qtd
+       FROM historico_vendas h
+      WHERE h.cod_prod = $1 AND h.data >= $2::date AND h.data < $3::date
+      GROUP BY 1, 2
+      ORDER BY 1, 2`,
+    codigo,
+    desde,
+    fim
+  );
+
+  const porMes = new Map<string, { dia: number; qtd: number }[]>();
+  for (const l of diarios) {
+    porMes.set(l.mes, [...(porMes.get(l.mes) ?? []), { dia: l.dia, qtd: l.qtd }]);
+  }
+
+  const mesReferencia = inicio.slice(0, 7);
+  const curvas: CurvaMes[] = [...porMes.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([m, linhas]) => {
+      let acumulado = 0;
+      const pontos = linhas
+        .sort((a, b) => a.dia - b.dia)
+        .map((l) => {
+          acumulado += l.qtd;
+          return { dia: l.dia, acumulado };
+        });
+      return {
+        mes: m,
+        pontos,
+        // O mês de referência fica sem total fechado: é ele que a curva está
+        // comparando, e dar-lhe um total o trataria como passado encerrado.
+        totalMes: m === mesReferencia ? null : acumulado,
+      };
+    });
+
+  const doMes = porMes.get(mesReferencia) ?? [];
+  const diaCorte = doMes.length > 0 ? Math.max(...doMes.map((l) => l.dia)) : 0;
+
+  return { curvas, diaCorte };
 }
