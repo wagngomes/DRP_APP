@@ -6,6 +6,7 @@ import {
   Boxes,
   FileSignature,
   Handshake,
+  Info,
   PackageCheck,
   Search,
   ScanLine,
@@ -217,14 +218,35 @@ function Vazio({ texto }: { texto: string }) {
 
 function Painel({ dados }: { dados: RaioXProduto }) {
   const { acerto } = dados;
-  const semDado = dados.consensoTotal === 0 && dados.vendas.total === 0;
 
-  if (semDado) {
-    return <Vazio texto={`Sem consenso nem venda para ${dados.codigo} em ${mesBr(dados.mes)}.`} />;
+  // Ter S&OP e ter movimento são coisas separadas, e a primeira versão desta
+  // tela tratava as duas como uma só: sem consenso, ela escondia tudo — venda,
+  // forecast e recebimento incluídos, mesmo existindo. Um item que só entra no
+  // S&OP em setembro tem agosto inteiro de história para mostrar.
+  const temConsenso = dados.divisoes.length > 0;
+  const temMovimento =
+    dados.vendas.total !== 0 || dados.forecast.filiais > 0 || dados.recebido.notas > 0;
+
+  if (!temConsenso && !temMovimento) {
+    return (
+      <Vazio
+        texto={`Nenhum registro de ${dados.codigo} em ${mesBr(dados.mes)}: sem S&OP, sem venda, sem forecast e sem recebimento.`}
+      />
+    );
   }
 
   return (
     <div className="space-y-5">
+      {/* Falta de consenso é informação, não ausência de tela. Dito aqui, no
+          topo, para ninguém ler os cards achando que o S&OP previu zero. */}
+      {!temConsenso ? (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm dark:bg-amber-950/20">
+          <Info className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <p className="text-amber-800 dark:text-amber-300">
+            {`Este produto não tem consenso de S&OP em ${mesBr(dados.mes)} — o que aparece abaixo é o que de fato aconteceu, sem previsão para comparar.`}
+          </p>
+        </div>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
           icone={Target}
@@ -301,7 +323,13 @@ function Painel({ dados }: { dados: RaioXProduto }) {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Acerto rotulo="Consenso × vendido" medida={acerto.consenso} />
+          {/* Sem linha de S&OP, "0% de acerto" seria uma acusação falsa: não
+              houve previsão errada, houve ausência de previsão. */}
+          <Acerto
+            rotulo="Consenso × vendido"
+            medida={acerto.consenso}
+            ausente={!temConsenso ? "sem consenso no mês" : undefined}
+          />
           <Acerto rotulo="Forecast M0 × vendido" medida={acerto.forecastM0} />
           <Acerto rotulo="Forecast ajustado × vendido" medida={acerto.forecastAjustado} />
           <div className="rounded-lg border p-3">
@@ -320,6 +348,7 @@ function Painel({ dados }: { dados: RaioXProduto }) {
         </CardContent>
       </Card>
 
+      {temConsenso ? (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -336,6 +365,7 @@ function Painel({ dados }: { dados: RaioXProduto }) {
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
       {dados.contratos.grupos.length > 0 ? (
         <Card className="border-l-4 border-teal-500">
@@ -418,7 +448,25 @@ function Kpi({
   );
 }
 
-function Acerto({ rotulo, medida }: { rotulo: string; medida: Medida }) {
+function Acerto({
+  rotulo,
+  medida,
+  ausente,
+}: {
+  rotulo: string;
+  medida: Medida;
+  /** Texto a exibir quando não há previsão — diferente de previsão errada. */
+  ausente?: string;
+}) {
+  if (ausente) {
+    return (
+      <div className="rounded-lg border border-dashed p-3">
+        <p className="text-xs text-muted-foreground">{rotulo}</p>
+        <p className="mt-1 font-mono text-2xl font-semibold text-muted-foreground tabular-nums">—</p>
+        <p className="mt-1 text-xs text-muted-foreground">{ausente}</p>
+      </div>
+    );
+  }
   const faixa = faixaAcuracidade(medida.acuracidade);
   const sobra = medida.vies !== null && medida.vies > 0;
   return (
