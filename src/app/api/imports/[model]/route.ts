@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { getIdField, getImportModel, getTableName, IMPORT_MODEL_KEYS } from "@/lib/imports/config";
 import { bulkLoadRecords } from "@/lib/imports/bulk-copy";
 import { decodificarCsv, parseCsvForModel, SkipTracker } from "@/lib/imports/csv";
+import { resolverDataCarga } from "@/lib/imports/data-carga";
 import { filterByReferences } from "@/lib/imports/references";
 import { limparCacheReferencia } from "@/lib/cache-referencia";
 import { metricas } from "@/lib/observabilidade/metricas";
@@ -190,7 +191,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    return await executarImportacao(request, model);
+    return await executarImportacao(request, model, session.user.email);
   } finally {
     // `finally` para o contador voltar mesmo se a importação lançar — senão
     // a primeira falha bloquearia o usuário até o processo reiniciar.
@@ -227,7 +228,9 @@ function erroDeTamanho(bytes: number): string {
 /** Corpo da importação, separado para o controle de concorrência envolvê-lo. */
 async function executarImportacao(
   request: NextRequest,
-  model: NonNullable<ReturnType<typeof getImportModel>>
+  model: NonNullable<ReturnType<typeof getImportModel>>,
+  /** Só para registrar quem fez uma carga retroativa. */
+  autor: string
 ) {
   // Recusa pelo cabeçalho antes de ler o corpo: com `formData()` o arquivo
   // inteiro já entrou na memória, e aí o dano de um envio grande demais está
@@ -246,6 +249,13 @@ async function executarImportacao(
 
   if (file.size > TAMANHO_MAXIMO_BYTES) {
     return NextResponse.json({ error: erroDeTamanho(file.size) }, { status: 413 });
+  }
+
+  // A data vem antes do trabalho pesado: recusar uma data inválida depois de
+  // parsear 160 MB de CSV seria desperdiçar o upload inteiro do usuário.
+  const dataCarga = resolverDataCarga(model, formData?.get("data_snapshot") as string | null, hojeNaOperacao());
+  if (!dataCarga.ok) {
+    return NextResponse.json({ error: dataCarga.erro }, { status: 400 });
   }
 
   const csvText = decodificarCsv(await file.arrayBuffer());
@@ -296,14 +306,16 @@ async function executarImportacao(
   }
 
   // Tabelas cumulativas (ex: Pedidos de Compra) não apagam o histórico —
-  // cada upload vira um novo snapshot do dia, marcado pelo servidor.
+  // cada upload vira um novo snapshot, marcado pelo servidor.
+  //
+  // A data padrão é o dia da operação, não o de UTC: uma carga feita às 21h no
+  // Brasil seria carimbada com a data de amanhã, e o relatório do dia sumiria
+  // da data de referência que a equipe está usando. `resolverDataCarga` permite
+  // substituí-la para reconstruir um período passado — `createdAt` continua
+  // guardando o instante real da carga.
   if (model.cumulative && model.snapshotField) {
-    // O dia da operação, não o de UTC: uma carga feita às 21h no Brasil já
-    // seria carimbada com a data de amanhã, e o relatório do dia sumiria da
-    // data de referência que a equipe está usando.
-    const snapshotDate = new Date(`${hojeNaOperacao()}T00:00:00.000Z`);
     for (const record of validRecords) {
-      record[model.snapshotField] = snapshotDate;
+      record[model.snapshotField] = dataCarga.data;
     }
   }
 
@@ -320,8 +332,17 @@ async function executarImportacao(
     );
   }
 
+  if (dataCarga.retroativa) {
+    console.info(
+      `[import:${model.key}] carga retroativa para ${dataCarga.data.toISOString().slice(0, 10)}` +
+        ` por ${autor}: ${insertedCount} linha(s)`
+    );
+  }
+
   return NextResponse.json({
     insertedCount,
+    dataSnapshot: model.cumulative ? dataCarga.data.toISOString().slice(0, 10) : undefined,
+    retroativa: dataCarga.retroativa,
     totalRows,
     skippedRows: tracker.sample,
     skippedSummary: tracker.summary(),

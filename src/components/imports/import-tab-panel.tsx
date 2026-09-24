@@ -1,8 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Loader2, Trash2, UploadCloud, X } from "lucide-react";
+import {
+  CalendarClock,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Loader2,
+  Trash2,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
+
+import { hojeNaOperacao } from "@/lib/data-referencia";
+import { dataBr } from "@/lib/visao-geral/formato";
 
 import {
   AlertDialog,
@@ -16,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -171,6 +184,13 @@ export function ImportTabPanel({
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  /**
+   * Data a carimbar no snapshot. Vazio = o dia de hoje, que é o caso normal.
+   *
+   * Existe para reconstruir um período passado: um arquivo de 12/08 carregado
+   * hoje viraria o relatório de hoje, e agosto ficaria sem como ser olhado.
+   */
+  const [dataCarga, setDataCarga] = useState("");
   const [clearing, setClearing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** Datas marcadas para exclusão; vazio = apagar a tabela inteira. */
@@ -247,6 +267,7 @@ export function ImportTabPanel({
     try {
       const formData = new FormData();
       formData.append("file", file);
+      if (dataCarga) formData.append("data_snapshot", dataCarga);
       const response = await fetch(`/api/imports/${modelKey}`, {
         method: "POST",
         body: formData,
@@ -296,7 +317,12 @@ export function ImportTabPanel({
         colunasAusentes: data.missingColumns ?? [],
       });
       const skippedMsg = data.skippedCount > 0 ? ` (${data.skippedCount} linha(s) ignorada(s))` : "";
-      toast.success(`${data.insertedCount} registro(s) importado(s) em ${label}${skippedMsg}`, {
+      // A data entra no texto só quando é retroativa: repeti-la em toda carga
+      // normal treinaria o olho a ignorá-la justamente quando ela importa.
+      const dataMsg = data.retroativa ? ` com data ${dataBr(data.dataSnapshot)}` : "";
+      toast.success(
+        `${data.insertedCount} registro(s) importado(s) em ${label}${dataMsg}${skippedMsg}`,
+        {
         description: data.missingColumns?.length
           ? `Colunas não encontradas no CSV, gravadas como vazias: ${data.missingColumns.join(", ")}`
           : undefined,
@@ -347,7 +373,7 @@ export function ImportTabPanel({
             {total} registro(s) {hasActiveFilter ? "no filtro atual" : "na tabela"}
           </CardDescription>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -355,6 +381,45 @@ export function ImportTabPanel({
             className="hidden"
             onChange={handleFileSelected}
           />
+          {/* Só onde existe snapshot: nas tabelas de substituição não haveria
+              onde gravar a data, e um campo inerte faria o usuário achar que
+              carimbou. O `max` é hoje — data futura ficaria à frente de todas
+              as cargas reais e seria lida como o relatório mais recente. */}
+          {isCumulative ? (
+            <div className="flex items-center gap-1.5">
+              <CalendarClock
+                className={
+                  "size-4 " + (dataCarga ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")
+                }
+              />
+              <Input
+                type="date"
+                value={dataCarga}
+                max={hojeNaOperacao()}
+                onChange={(e) => setDataCarga(e.target.value)}
+                disabled={!podeEditar || uploading}
+                aria-label="Data do snapshot da carga"
+                title="Vazio: grava com a data de hoje. Preenchido: grava com a data escolhida."
+                className={
+                  "w-40 " +
+                  (dataCarga
+                    ? "border-amber-500/60 bg-amber-500/5 text-amber-800 dark:text-amber-300"
+                    : "")
+                }
+              />
+              {dataCarga ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setDataCarga("")}
+                  aria-label="Usar a data de hoje"
+                  title="Usar a data de hoje"
+                >
+                  <X className="size-4" />
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           <Button
             variant="outline"
             onClick={() => setConfirmOpen(true)}
@@ -371,7 +436,7 @@ export function ImportTabPanel({
             className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
           >
             {uploading ? <Loader2 className="size-4 animate-spin" /> : <UploadCloud className="size-4" />}
-            Importar CSV
+            {dataCarga ? `Importar para ${dataBr(dataCarga)}` : "Importar CSV"}
           </Button>
         </div>
       </CardHeader>
