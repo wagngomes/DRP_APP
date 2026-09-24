@@ -75,8 +75,15 @@ export type GrupoContrato = {
   clientes: number;
   contratado: number;
   reserva: number;
-  /** Quanto este grupo de fato comprou do item no mês. */
+  /** O que os CNPJs com contrato deste item compraram no mês. */
   vendido: number;
+  /**
+   * O que outros CNPJs do mesmo grupo compraram, sem contrato próprio.
+   *
+   * Não entra no atingimento — o contrato é com o CNPJ — mas é informação
+   * comercial: o grupo está comprando por fora do que assinou.
+   */
+  vendidoForaDoContrato: number;
   /** Do cadastro de grupos, ou da própria base de contratos. */
   origem: "cadastro" | "arquivo";
 };
@@ -98,10 +105,12 @@ export type RaioXProduto = {
     clientes: number;
   };
   vendas: {
-    /** O que saiu para clientes com contrato deste item no mês. */
+    /** O que saiu para CNPJs com contrato deste item no mês. */
     comContrato: number;
-    /** O resto: venda avulsa, sem contrato. */
+    /** O resto: sem contrato no CNPJ que comprou. */
     spot: number;
+    /** Parcela do spot que veio de um grupo que tem contrato do item. */
+    spotDeGrupoContratado: number;
     total: number;
   };
   forecast: {
@@ -194,20 +203,23 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
       fim
     ),
 
-    // A alocação Contratos x Spot casa a venda com o contrato por duas chaves,
-    // não uma.
+    // A alocação Contratos x Spot casa a venda com o contrato **pelo CNPJ**.
     //
-    // O contrato é assinado com um CNPJ, mas a compra costuma sair por outro
-    // CNPJ do mesmo grupo — casar só por CNPJ perde essas. E casar só por
-    // grupo perde as vendas cujo CNPJ nem está no cadastro de grupos. No
-    // OPDIVO de agosto: 7.084 por CNPJ, 6.677 por grupo, 7.239 pela união.
+    // O CNPJ é a chave entre as bases; o grupo existe para juntar linhas na
+    // tela, não para casar registros. Casar por grupo atribuiria a um contrato
+    // a compra de um CNPJ que não assinou contrato nenhum — e o número
+    // deixaria de responder "este cliente cumpriu o que contratou".
     //
-    // O CNPJ tem precedência na hora de dizer *a qual* grupo a venda pertence:
-    // é a atribuição exata, e o grupo só entra quando ela não existe.
+    // A venda de outro CNPJ do mesmo grupo não some: volta numa coluna
+    // própria, porque é informação comercial de verdade (o grupo comprou por
+    // fora do contrato) e escondê-la dentro do Spot faria o Spot parecer
+    // demanda nova quando não é.
     //
     // O sinal vem invertido da origem (venda é saída de estoque), por isso o
     // menos. Sem ele todos os realizados apareceriam negativos.
-    prisma.$queryRawUnsafe<{ grupo: string | null; quantidade: number }[]>(
+    prisma.$queryRawUnsafe<
+      { grupo: string | null; quantidade: number; docontrato: boolean }[]
+    >(
       `WITH contratados AS (
          SELECT DISTINCT ON (c.cnpj) c.cnpj,
                 COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
@@ -218,9 +230,8 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
             AND c.cnpj IS NOT NULL
           ORDER BY c.cnpj
        ),
-       -- Os grupos do cadastro que têm contrato deste item. Só os do cadastro:
-       -- o nome que vem da coluna do arquivo não existe do lado da venda e
-       -- casá-lo por texto juntaria clientes diferentes de nome parecido.
+       -- Grupos do cadastro com contrato deste item: servem só para dizer em
+       -- que linha da tela a venda de fora do contrato aparece.
        grupos_com_contrato AS (
          SELECT DISTINCT grupo_cadastro AS grupo FROM contratados
           WHERE grupo_cadastro IS NOT NULL
@@ -231,11 +242,13 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
            LEFT JOIN ${GRUPOS_POR_CNPJ} gv ON gv.cliente_cnpj = h.cnpj
           WHERE h.cod_prod = $1 AND h.data >= $2::date AND h.data < $3::date
        )
-       SELECT COALESCE(k.grupo, gc.grupo) AS grupo, SUM(v.q)::float8 AS quantidade
+       SELECT COALESCE(k.grupo, gc.grupo) AS grupo,
+              (k.cnpj IS NOT NULL) AS docontrato,
+              SUM(v.q)::float8 AS quantidade
          FROM vendas v
          LEFT JOIN contratados k ON k.cnpj = v.cnpj
          LEFT JOIN grupos_com_contrato gc ON gc.grupo = v.grupo_venda
-        GROUP BY 1`,
+        GROUP BY 1, 2`,
       codigo,
       inicio,
       fim
@@ -287,10 +300,26 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
   );
 
   const vendidoPorGrupo = new Map<string, number>();
+  const foraDoContratoPorGrupo = new Map<string, number>();
+  let comContrato = 0;
   let spot = 0;
+  let spotDeGrupoContratado = 0;
+
   for (const v of vendas) {
-    if (v.grupo === null) spot += v.quantidade ?? 0;
-    else vendidoPorGrupo.set(v.grupo, (vendidoPorGrupo.get(v.grupo) ?? 0) + (v.quantidade ?? 0));
+    const q = v.quantidade ?? 0;
+    if (v.docontrato) {
+      // CNPJ com contrato: é o realizado do contrato.
+      comContrato += q;
+      if (v.grupo) vendidoPorGrupo.set(v.grupo, (vendidoPorGrupo.get(v.grupo) ?? 0) + q);
+    } else {
+      spot += q;
+      // Sem contrato no CNPJ, mas o grupo tem: continua sendo spot, e aparece
+      // na linha do grupo como compra fora do contrato.
+      if (v.grupo) {
+        spotDeGrupoContratado += q;
+        foraDoContratoPorGrupo.set(v.grupo, (foraDoContratoPorGrupo.get(v.grupo) ?? 0) + q);
+      }
+    }
   }
 
   const gruposCompletos: GrupoContrato[] = grupos
@@ -300,11 +329,11 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
       contratado: g.contratado ?? 0,
       reserva: g.reserva ?? 0,
       vendido: vendidoPorGrupo.get(g.grupo) ?? 0,
+      vendidoForaDoContrato: foraDoContratoPorGrupo.get(g.grupo) ?? 0,
       origem: g.docadastro ? ("cadastro" as const) : ("arquivo" as const),
     }))
     .sort((a, b) => b.contratado - a.contratado || a.grupo.localeCompare(b.grupo, "pt-BR"));
 
-  const comContrato = [...vendidoPorGrupo.values()].reduce((a, v) => a + v, 0);
   const contratos = {
     grupos: gruposCompletos,
     total: gruposCompletos.reduce((a, g) => a + g.contratado, 0),
@@ -355,7 +384,7 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
     consensoTotal,
     consensoContratos: divisoes.find((d) => d.divisao.toLowerCase() === "contratos")?.consenso ?? 0,
     contratos,
-    vendas: { comContrato, spot, total: comContrato + spot },
+    vendas: { comContrato, spot, spotDeGrupoContratado, total: comContrato + spot },
     forecast: {
       m0: forecast[0]?.m0 ?? 0,
       m0Ajustado: forecast[0]?.m0ajustado ?? 0,

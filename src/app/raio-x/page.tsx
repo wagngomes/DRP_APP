@@ -258,7 +258,12 @@ function Painel({ dados }: { dados: RaioXProduto }) {
           icone={Handshake}
           rotulo="Vendido no mês"
           valor={num(dados.vendas.total)}
-          apoio={`${num(dados.vendas.comContrato)} com contrato · ${num(dados.vendas.spot)} spot`}
+          apoio={
+            `${num(dados.vendas.comContrato)} com contrato · ${num(dados.vendas.spot)} spot` +
+            (dados.vendas.spotDeGrupoContratado > 0
+              ? ` (${num(dados.vendas.spotDeGrupoContratado)} de grupo contratado)`
+              : "")
+          }
           destaque
         />
         {/* Os dois forecasts no mesmo card: são a mesma previsão antes e
@@ -402,6 +407,7 @@ function Painel({ dados }: { dados: RaioXProduto }) {
                     <th className="py-2 text-right font-medium">Clientes</th>
                     <th className="py-2 text-right font-medium">Contratado</th>
                     <th className="py-2 text-right font-medium">Vendido</th>
+                    <th className="py-2 text-right font-medium">Fora do contrato</th>
                     <th className="py-2 text-right font-medium">Atingimento</th>
                   </tr>
                 </thead>
@@ -572,6 +578,13 @@ function LinhaGrupo({ grupo: g }: { grupo: GrupoContrato }) {
       </td>
       <td className="py-2 text-right font-mono tabular-nums">{num(g.contratado)}</td>
       <td className="py-2 text-right font-mono tabular-nums">{num(g.vendido)}</td>
+      {/* Compra de outro CNPJ do mesmo grupo. Não entra no atingimento — o
+          contrato é com o CNPJ — mas dizer que o grupo comprou por fora é
+          informação comercial, e escondê-la no Spot faria o Spot parecer
+          demanda nova. */}
+      <td className="py-2 text-right font-mono text-xs tabular-nums text-muted-foreground">
+        {g.vendidoForaDoContrato > 0 ? num(g.vendidoForaDoContrato) : "—"}
+      </td>
       <td className="py-2 text-right">
         <span
           className={`inline-block rounded-md px-1.5 py-0.5 font-mono text-xs tabular-nums ${
