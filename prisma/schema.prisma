@@ -688,3 +688,29 @@ model Contratos {
   @@index([competencia, codigo], map: "contratos_competencia_codigo_idx")
   @@map("contratos")
 }
+
+model Sop {
+  id            Int       @id @default(autoincrement())
+  createdAt     DateTime  @default(now())
+  // Dia do upload (não vem do CSV) — cada carga vira um snapshot novo em vez de
+  // sobrescrever a anterior, e pode ser datada para trás na tela de uploads.
+  data_snapshot DateTime  @default(now()) @db.Date
+  /**
+   * Mês a que o consenso se refere — vem do CSV e é ele, não o dia do upload,
+   * que a data de referência do sistema usa para recortar esta tabela.
+   */
+  competencia   DateTime? @db.Date
+  codigo        String?
+  descricao     String?
+  divisao       String?
+  consenso      Decimal?  @db.Decimal(24, 10)
+
+  // Sem chave estrangeira para Produtos, pelo mesmo motivo das outras bases de
+  // snapshot: o import de Produtos apaga a tabela antes de inserir, e uma
+  // relação com `onDelete: SetNull` zeraria `codigo` aqui em cascata, sem erro.
+
+  @@index([competencia])
+  @@index([data_snapshot])
+  @@index([competencia, codigo], map: "sop_competencia_codigo_idx")
+  @@map("sop")
+}

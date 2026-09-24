@@ -37,7 +37,8 @@ export type ImportModelKey =
   | "sla_transferencias"
   | "clientes_grupos"
   | "historico_vendas"
-  | "contratos";
+  | "contratos"
+  | "sop";
 
 export type ImportReference = {
   /** Campo do próprio model que guarda a chave estrangeira (ex: "codigo"). */
@@ -514,6 +515,24 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
       col("contribuinte"),
       col("local_ideal"),
       col("quantidade_final", "decimal"),
+    ],
+  },
+  {
+    key: "sop",
+    label: "SOP",
+    delegate: "sop",
+    // Mesmo desenho de Contratos: mensal, cumulativa, e recortada pela
+    // competência que vem no arquivo — não pelo dia em que foi carregada.
+    cumulative: true,
+    snapshotField: "data_snapshot",
+    snapshotScope: "month",
+    scopeField: "competencia",
+    columns: [
+      col("competencia", "date"),
+      col("codigo", "codigo"),
+      col("descricao"),
+      col("divisao"),
+      col("consenso", "decimal"),
     ],
   },
 ];
