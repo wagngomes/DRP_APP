@@ -194,26 +194,48 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
       fim
     ),
 
-    // A alocação Contratos x Spot acontece por CNPJ: quem comprou e tem
-    // contrato deste item neste mês entra no grupo dele; quem não tem é Spot.
+    // A alocação Contratos x Spot casa a venda com o contrato por duas chaves,
+    // não uma.
+    //
+    // O contrato é assinado com um CNPJ, mas a compra costuma sair por outro
+    // CNPJ do mesmo grupo — casar só por CNPJ perde essas. E casar só por
+    // grupo perde as vendas cujo CNPJ nem está no cadastro de grupos. No
+    // OPDIVO de agosto: 7.084 por CNPJ, 6.677 por grupo, 7.239 pela união.
+    //
+    // O CNPJ tem precedência na hora de dizer *a qual* grupo a venda pertence:
+    // é a atribuição exata, e o grupo só entra quando ela não existe.
     //
     // O sinal vem invertido da origem (venda é saída de estoque), por isso o
     // menos. Sem ele todos os realizados apareceriam negativos.
     prisma.$queryRawUnsafe<{ grupo: string | null; quantidade: number }[]>(
       `WITH contratados AS (
          SELECT DISTINCT ON (c.cnpj) c.cnpj,
-                COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo
+                COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
+                g.cliente_grupo AS grupo_cadastro
            FROM contratos c
            LEFT JOIN ${GRUPOS_POR_CNPJ} g ON g.cliente_cnpj = c.cnpj
           WHERE c.codigo = $1 AND ${cargaVigente("contratos", "c")}
             AND c.cnpj IS NOT NULL
           ORDER BY c.cnpj
+       ),
+       -- Os grupos do cadastro que têm contrato deste item. Só os do cadastro:
+       -- o nome que vem da coluna do arquivo não existe do lado da venda e
+       -- casá-lo por texto juntaria clientes diferentes de nome parecido.
+       grupos_com_contrato AS (
+         SELECT DISTINCT grupo_cadastro AS grupo FROM contratados
+          WHERE grupo_cadastro IS NOT NULL
+       ),
+       vendas AS (
+         SELECT h.cnpj, gv.cliente_grupo AS grupo_venda, -h.quantidade AS q
+           FROM historico_vendas h
+           LEFT JOIN ${GRUPOS_POR_CNPJ} gv ON gv.cliente_cnpj = h.cnpj
+          WHERE h.cod_prod = $1 AND h.data >= $2::date AND h.data < $3::date
        )
-       SELECT k.grupo, SUM(-h.quantidade)::float8 AS quantidade
-         FROM historico_vendas h
-         LEFT JOIN contratados k ON k.cnpj = h.cnpj
-        WHERE h.cod_prod = $1 AND h.data >= $2::date AND h.data < $3::date
-        GROUP BY k.grupo`,
+       SELECT COALESCE(k.grupo, gc.grupo) AS grupo, SUM(v.q)::float8 AS quantidade
+         FROM vendas v
+         LEFT JOIN contratados k ON k.cnpj = v.cnpj
+         LEFT JOIN grupos_com_contrato gc ON gc.grupo = v.grupo_venda
+        GROUP BY 1`,
       codigo,
       inicio,
       fim
