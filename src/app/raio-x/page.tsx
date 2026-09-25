@@ -242,9 +242,9 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
                 linha por CD, porque as duas variam entre centros e a média
                 entre elas não é a política de ninguém. */}
             {dados && dados.politicas.length > 0 ? (
-              {/* Painel próprio, de tom diferente do cabeçalho: separa a ficha
-                  de abastecimento da identificação do item sem precisar de um
-                  card à parte, que era o que ocupava tela demais. */}
+              // Painel próprio, de tom diferente do cabeçalho: separa a ficha
+              // de abastecimento da identificação do item sem precisar de um
+              // card à parte, que era o que ocupava tela demais.
               <div className="shrink-0 rounded-lg border bg-background/70 p-3 dark:bg-background/40">
                 <p className="mb-1.5 flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
                   <Route className="size-3" />
