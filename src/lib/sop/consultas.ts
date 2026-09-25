@@ -3,6 +3,7 @@ import { lerConfiguracoes } from "@/lib/configuracao.server";
 import { prisma } from "@/lib/prisma";
 import { resolverAbertura, type Abertura } from "@/utils/abertura-mes";
 import { limitesDoMes } from "@/utils/mes";
+import { listarSnapshots } from "@/lib/snapshots";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
 import {
   COLUNAS_COMPRAS,
@@ -597,14 +598,11 @@ export async function carregarAbertura(
   codigo: string,
   mes: string
 ): Promise<SaldoAbertura> {
-  const [config, datas] = await Promise.all([
+  const [config, snapshots] = await Promise.all([
     lerConfiguracoes(),
-    prisma.$queryRawUnsafe<{ d: Date }[]>(
-      `SELECT DISTINCT data_snapshot AS d FROM simulador ORDER BY 1`
-    ),
+    listarSnapshots("simulador"),
   ]);
 
-  const snapshots = datas.map((x) => x.d.toISOString().slice(0, 10));
   const abertura = resolverAbertura(mes.slice(0, 7), config, snapshots);
 
   if (!abertura.data) {

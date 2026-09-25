@@ -13,6 +13,7 @@ import { decodificarCsv, parseCsvForModel, SkipTracker } from "@/lib/imports/csv
 import { resolverDataCarga } from "@/lib/imports/data-carga";
 import { filterByReferences } from "@/lib/imports/references";
 import { limparCacheReferencia } from "@/lib/cache-referencia";
+import { listarSnapshots } from "@/lib/snapshots";
 import { metricas } from "@/lib/observabilidade/metricas";
 import { IMPORTACAO, IMPORTACAO_SIMULTANEA } from "@/lib/seguranca/limites";
 import { sair, tentarEntrar, verificarCamadas } from "@/lib/seguranca/rate-limit";
@@ -105,15 +106,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   let where: Record<string, unknown> | undefined;
 
   if (model.cumulative && model.snapshotField) {
-    const field = model.snapshotField;
-    const distinctRows = await delegate.findMany({
-      distinct: [field],
-      select: { [field]: true },
-      orderBy: { [field]: "desc" },
-    });
-    snapshotDates = distinctRows
-      .map((row) => row[field])
-      .filter((value): value is Date => value instanceof Date);
+    // `findMany({ distinct })` vira `SELECT DISTINCT`, que percorre o índice
+    // inteiro para descobrir treze datas — 262ms no simulador. `listarSnapshots`
+    // pergunta ao índice qual é a próxima maior, um salto por data, e faz o
+    // mesmo em 1,5ms.
+    snapshotDates = (await listarSnapshots(getTableName(model), model.snapshotField)).map(
+      (d) => new Date(`${d}T00:00:00.000Z`)
+    );
 
     if (dia !== undefined || mes !== undefined || ano !== undefined) {
       // Filtrar a lista de datas (poucas, uma por upload) e usar `in` evita
@@ -124,7 +123,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           (mes === undefined || date.getUTCMonth() + 1 === mes) &&
           (ano === undefined || date.getUTCFullYear() === ano)
       );
-      where = { [field]: { in: matching } };
+      where = { [model.snapshotField]: { in: matching } };
     }
   }
 
