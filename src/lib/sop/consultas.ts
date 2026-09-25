@@ -1,5 +1,14 @@
 import { carregarClientesFora, type ClienteFora, type CurvaMes } from "@/lib/aceleracao/consultas";
+import { lerConfiguracoes } from "@/lib/configuracao.server";
 import { prisma } from "@/lib/prisma";
+import { resolverAbertura, type Abertura } from "@/utils/abertura-mes";
+import { simuladorPorCd } from "@/utils/cds-virtuais";
+import {
+  COLUNAS_COMPRAS,
+  COLUNAS_ESTOQUE_CHAO,
+  COLUNAS_TRANSFERENCIA,
+  somaSql,
+} from "@/utils/dias-estoque";
 import {
   acuracidade,
   erroAbsoluto,
@@ -504,4 +513,64 @@ export async function carregarCurvas(
     diaCorte > 0 ? await carregarClientesFora(codigo, diaCorte, mesReferencia, desde) : [];
 
   return { curvas, diaCorte, clientes };
+}
+
+/** O saldo com que o mês começou, na carga marcada como abertura. */
+export type SaldoAbertura = {
+  estoque: number;
+  compras: number;
+  transferencias: number;
+  filiais: number;
+} & Abertura;
+
+/**
+ * Estoque, compras e transferências em aberto na virada do mês.
+ *
+ * Qual carga vale como abertura é escolha explícita, marcada na tela de
+ * uploads — a base é cumulativa e nem todo mês tem carga no dia 1º (agosto de
+ * 2026 começa no dia 6). Sem marca, vale a primeira do próprio mês, e a tela
+ * diz qual data usou e se veio de marca ou de palpite: uma carga quebrada feita
+ * cedo viraria a abertura em silêncio.
+ *
+ * Passa por `simuladorPorCd` como todas as outras consultas do simulador, então
+ * o armazém 11 já sai separado no CD virtual.
+ */
+export async function carregarAbertura(
+  codigo: string,
+  mes: string
+): Promise<SaldoAbertura> {
+  const [config, datas] = await Promise.all([
+    lerConfiguracoes(),
+    prisma.$queryRawUnsafe<{ d: Date }[]>(
+      `SELECT DISTINCT data_snapshot AS d FROM simulador ORDER BY 1`
+    ),
+  ]);
+
+  const snapshots = datas.map((x) => x.d.toISOString().slice(0, 10));
+  const abertura = resolverAbertura(mes.slice(0, 7), config, snapshots);
+
+  if (!abertura.data) {
+    return { ...abertura, estoque: 0, compras: 0, transferencias: 0, filiais: 0 };
+  }
+
+  const linhas = await prisma.$queryRawUnsafe<
+    { estoque: number; compras: number; transferencias: number; filiais: number }[]
+  >(
+    `SELECT COALESCE(SUM(${somaSql(COLUNAS_ESTOQUE_CHAO, "s")}),0)::float8 AS estoque,
+            COALESCE(SUM(${somaSql(COLUNAS_COMPRAS, "s")}),0)::float8 AS compras,
+            COALESCE(SUM(${somaSql(COLUNAS_TRANSFERENCIA, "s")}),0)::float8 AS transferencias,
+            COUNT(*)::int AS filiais
+       FROM ${simuladorPorCd("s.data_snapshot = $2::date")} s
+      WHERE s.data_snapshot = $2::date AND s.codigo = $1`,
+    codigo,
+    abertura.data
+  );
+
+  return {
+    ...abertura,
+    estoque: linhas[0]?.estoque ?? 0,
+    compras: linhas[0]?.compras ?? 0,
+    transferencias: linhas[0]?.transferencias ?? 0,
+    filiais: linhas[0]?.filiais ?? 0,
+  };
 }

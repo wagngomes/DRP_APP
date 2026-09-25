@@ -4,6 +4,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Boxes,
+  Flag,
   ChevronDown,
   ChevronRight,
   Handshake,
@@ -11,8 +12,10 @@ import {
   LineChart,
   PackageCheck,
   Search,
+  ShoppingCart,
   ScanLine,
   Target,
+  Truck,
   TrendingUp,
   UserRoundSearch,
   Users,
@@ -27,8 +30,10 @@ import { exigirSessao } from "@/lib/autorizacao";
 import { CurvaAcumulada } from "@/components/aceleracao/curva-acumulada";
 import type { ClienteFora, CurvaMes } from "@/lib/aceleracao/consultas";
 import {
+  carregarAbertura,
   carregarCurvas,
   carregarRaioX,
+  type SaldoAbertura,
   listarMesesSop,
   type DivisaoSop,
   type GrupoContrato,
@@ -36,6 +41,7 @@ import {
   type RaioXProduto,
 } from "@/lib/sop/consultas";
 import { faixaAcuracidade } from "@/utils/acuracidade";
+import { dataBr } from "@/lib/visao-geral/formato";
 
 export const dynamic = "force-dynamic";
 
@@ -128,9 +134,10 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
   const codigo = primeiro(params.codigo);
 
   const abrir = primeiro(params.abrir);
-  const [dados, curva] = await Promise.all([
+  const [dados, curva, abertura] = await Promise.all([
     codigo && mes ? carregarRaioX(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarCurvas(codigo, mes) : Promise.resolve(null),
+    codigo && mes ? carregarAbertura(codigo, mes) : Promise.resolve(null),
   ]);
 
   return (
@@ -234,7 +241,7 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
         ) : !dados ? (
           <Vazio texto={`Produto ${codigo} não encontrado no cadastro.`} />
         ) : (
-          <Painel dados={dados} curva={curva} abrir={abrir} />
+          <Painel dados={dados} curva={curva} abrir={abrir} abertura={abertura} />
         )}
       </div>
       </div>
@@ -254,10 +261,12 @@ function Painel({
   dados,
   curva,
   abrir,
+  abertura,
 }: {
   dados: RaioXProduto;
   curva: { curvas: CurvaMes[]; diaCorte: number; clientes: ClienteFora[] } | null;
   abrir?: string;
+  abertura: SaldoAbertura | null;
 }) {
   const { acerto } = dados;
 
@@ -289,6 +298,43 @@ function Painel({
           </p>
         </div>
       ) : null}
+      {/* A abertura vem antes: é o ponto de partida do mês, e lida depois dos
+          números do fechamento vira curiosidade em vez de contexto. */}
+      {abertura && abertura.data ? (
+        <Card className="border-l-4 border-slate-400">
+          <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-3 pt-6">
+            <div className="flex items-center gap-2">
+              <Flag className="size-4 text-muted-foreground" />
+              <div>
+                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Abertura do mês
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {`carga de ${dataBr(abertura.data)}`}
+                  {/* Palpite e escolha não são a mesma coisa, e confundi-los faz
+                      alguém defender um número que ninguém decidiu. */}
+                  {abertura.origem === "primeira-do-mes" ? (
+                    <span className="ml-1 text-amber-700 dark:text-amber-400">
+                      (primeira do mês, não marcada)
+                    </span>
+                  ) : null}
+                </p>
+              </div>
+            </div>
+            <SaldoInicial rotulo="Estoque" valor={abertura.estoque} icone={Boxes} />
+            <SaldoInicial rotulo="Compras em aberto" valor={abertura.compras} icone={ShoppingCart} />
+            <SaldoInicial
+              rotulo="Transferências em aberto"
+              valor={abertura.transferencias}
+              icone={Truck}
+            />
+            <span className="ml-auto text-xs text-muted-foreground">
+              {`${abertura.filiais} filial(is)`}
+            </span>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
           icone={Target}
@@ -829,5 +875,26 @@ function LinhaGrupo({ grupo: g }: { grupo: GrupoContrato }) {
         </span>
       </td>
     </tr>
+  );
+}
+
+/** Um número da abertura: rótulo pequeno, valor grande, sem card próprio. */
+function SaldoInicial({
+  rotulo,
+  valor,
+  icone: Icone,
+}: {
+  rotulo: string;
+  valor: number;
+  icone: typeof Boxes;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <Icone className="size-4 text-muted-foreground" />
+      <div>
+        <p className="text-xs text-muted-foreground">{rotulo}</p>
+        <p className="font-mono text-xl font-semibold tabular-nums">{num(valor)}</p>
+      </div>
+    </div>
   );
 }

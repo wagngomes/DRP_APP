@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Flag,
   Loader2,
   Trash2,
   UploadCloud,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { mesesQuePodeAbrir } from "@/utils/abertura-mes";
 import { hojeNaOperacao } from "@/lib/data-referencia";
 import { dataBr } from "@/lib/visao-geral/formato";
 
@@ -191,6 +193,9 @@ export function ImportTabPanel({
    * hoje viraria o relatório de hoje, e agosto ficaria sem como ser olhado.
    */
   const [dataCarga, setDataCarga] = useState("");
+  /** Mês -> data do snapshot que abre aquele mês. Só o simulador usa. */
+  const [aberturas, setAberturas] = useState<Record<string, string>>({});
+  const [marcando, setMarcando] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** Datas marcadas para exclusão; vazio = apagar a tabela inteira. */
@@ -257,6 +262,49 @@ export function ImportTabPanel({
   }, [snapshotDates]);
 
   const hasActiveFilter = Object.values(filters).some((value) => value !== ALL);
+
+  // O marco de abertura só existe para o simulador: é dele que saem estoque,
+  // pedidos e transferências com que o mês começou.
+  const temAbertura = modelKey === "simulador";
+
+  useEffect(() => {
+    if (!temAbertura || !podeEditar) return;
+    fetch("/api/abertura")
+      .then((r) => (r.ok ? r.json() : { marcas: {} }))
+      .then((d) => setAberturas(d.marcas ?? {}))
+      .catch(() => {});
+  }, [temAbertura, podeEditar]);
+
+  async function marcarAbertura(mes: string, data: string | null) {
+    setMarcando(true);
+    try {
+      const r = await fetch("/api/abertura", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mes, data }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        toast.error(d.error ?? "Não foi possível marcar a abertura");
+        return;
+      }
+      setAberturas((a) => {
+        const proximo = { ...a };
+        if (data) proximo[mes] = data;
+        else delete proximo[mes];
+        return proximo;
+      });
+      toast.success(
+        data
+          ? `${formatarData(data)} é a abertura de ${rotuloMesAbertura(mes)}`
+          : `Abertura de ${rotuloMesAbertura(mes)} desmarcada`
+      );
+    } catch {
+      toast.error("Não foi possível marcar a abertura");
+    } finally {
+      setMarcando(false);
+    }
+  }
 
   async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -526,6 +574,76 @@ export function ImportTabPanel({
           </div>
         )}
 
+        {/* Marco de abertura: a base é cumulativa e nem todo mês tem carga no
+            dia 1º — em agosto a primeira é do dia 6. E a melhor foto da
+            abertura pode ser a última carga do mês anterior, que é a posição
+            imediatamente antes da virada. Por isso a escolha é explícita, e
+            cada carga pode abrir o próprio mês ou o seguinte. */}
+        {temAbertura && snapshotDates.length > 0 ? (
+          <div className="rounded-md border bg-muted/20 p-3">
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <Flag className="size-4 text-(--brand-turquoise)" />
+              Abertura do mês
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Qual carga vale como o saldo com que o mês começou. Sem marca, a tela usa a
+              primeira carga do próprio mês.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {snapshotDates.slice(0, 20).map((data) => {
+                const abertos = Object.entries(aberturas)
+                  .filter(([, d]) => d === data)
+                  .map(([m]) => m);
+                return (
+                  <div
+                    key={data}
+                    className={`flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${
+                      abertos.length > 0
+                        ? "border-(--brand-turquoise) bg-(--brand-turquoise)/10"
+                        : "bg-card"
+                    }`}
+                  >
+                    <span className="font-mono">{formatarData(data)}</span>
+                    {abertos.length > 0 ? (
+                      <>
+                        <span className="text-(--brand-petrol) dark:text-(--brand-turquoise)">
+                          {`abre ${abertos.map(rotuloMesAbertura).join(", ")}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => abertos.forEach((m) => marcarAbertura(m, null))}
+                          disabled={marcando || !podeEditar}
+                          aria-label={`Desmarcar abertura de ${data}`}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </>
+                    ) : (
+                      mesesQuePodeAbrir(data).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => marcarAbertura(m, data)}
+                          disabled={marcando || !podeEditar}
+                          title={
+                            podeEditar
+                              ? `Marcar como abertura de ${rotuloMesAbertura(m)}`
+                              : "Exige perfil de administrador"
+                          }
+                          className="rounded px-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                        >
+                          {`abrir ${rotuloMesAbertura(m)}`}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <div className="max-h-[28rem] overflow-auto rounded-md border">
           <Table>
             <TableHeader>
@@ -669,4 +787,13 @@ export function ImportTabPanel({
       </AlertDialog>
     </Card>
   );
+}
+
+/** "2026-08" -> "ago/26", curto o bastante para caber num chip. */
+function rotuloMesAbertura(mes: string): string {
+  const [ano, m] = mes.split("-").map(Number);
+  const nome = new Date(Date.UTC(ano, m - 1, 1))
+    .toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" })
+    .replace(".", "");
+  return `${nome}/${String(ano).slice(2)}`;
 }
