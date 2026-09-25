@@ -9,11 +9,14 @@ import {
   ChevronRight,
   Handshake,
   Info,
+  Landmark,
   LineChart,
   PackageCheck,
+  Route,
   Search,
   ShoppingCart,
   ScanLine,
+  Snowflake,
   Target,
   Truck,
   TrendingUp,
@@ -36,6 +39,7 @@ import {
   carregarCurvas,
   carregarRaioX,
   carregarMovimentoDoMes,
+  type PoliticaCd,
   type RecebimentoDia,
   type SaldoAbertura,
   listarMesesSop,
@@ -48,6 +52,7 @@ import { faixaAcuracidade } from "@/utils/acuracidade";
 import { BadgeDias } from "@/components/produto/badge-dias";
 import { diasDeEstoque } from "@/utils/dias-estoque";
 import { dataBr } from "@/lib/visao-geral/formato";
+import { parseRotaCompra } from "@/utils/rota-compra";
 
 export const dynamic = "force-dynamic";
 
@@ -196,6 +201,37 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
                   ? `${dados.codigo}${dados.fornecedor ? ` · ${dados.fornecedor}` : ""} · ${mesBr(dados.mes)}`
                   : "De onde vem o consenso, quem está por trás dele e o que de fato aconteceu."}
               </p>
+
+              {/* Ficha do item: o que não muda com o mês e condiciona tudo o
+                  que muda. Refrigeração decide como transferir, tributação
+                  decide de onde comprar, curva decide quanta atenção o item
+                  merece — as três mudam a leitura dos números abaixo. */}
+              {dados ? (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {dados.usaRefrigeracao === null ? null : dados.usaRefrigeracao ? (
+                    <Badge className="gap-1 bg-sky-500/10 text-sky-700 dark:text-sky-400">
+                      <Snowflake className="size-3" />
+                      Refrigerado
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="gap-1 text-muted-foreground">
+                      <Snowflake className="size-3" />
+                      Sem refrigeração
+                    </Badge>
+                  )}
+                  {dados.curva ? (
+                    <Badge variant="secondary" className="font-mono">
+                      {`Curva ${dados.curva}`}
+                    </Badge>
+                  ) : null}
+                  {dados.tributacao ? (
+                    <Badge variant="outline" className="gap-1 font-normal">
+                      <Landmark className="size-3 shrink-0" />
+                      {dados.tributacao}
+                    </Badge>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             {/* GET simples: o recorte vira URL e o link é compartilhável. */}
@@ -377,6 +413,30 @@ function Painel({
             </Card>
           </div>
         </section>
+      ) : null}
+
+      {/* Política e rota por CD.
+          
+          Por CD e não um número só porque as duas variam: cada centro tem a sua
+          régua de cobertura e a sua cadeia de abastecimento, e a média entre
+          elas não é a política de ninguém. Compacto como os cartões de m-1/m-2
+          da tela de produto — é contexto para ler o resto, não o assunto. */}
+      {dados.politicas.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Route className="size-4 text-(--brand-turquoise)" />
+              Política e abastecimento por CD
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {dados.politicas.map((p) => (
+                <PoliticaDoCd key={p.filial} politica={p} rotulos={rotulos} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
 
       <h2 className="flex items-center gap-1.5 pt-1 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
@@ -970,5 +1030,61 @@ function LinhaGrupo({ grupo: g }: { grupo: GrupoContrato }) {
         </span>
       </td>
     </tr>
+  );
+}
+
+/** Política de cobertura e rota de compra de um CD. */
+function PoliticaDoCd({
+  politica: p,
+  rotulos,
+}: {
+  politica: PoliticaCd;
+  rotulos: Record<string, string>;
+}) {
+  const rotulo = (codigo: string) => rotulos[codigo] ?? codigo;
+  const percurso = parseRotaCompra(p.rotaCompra);
+
+  return (
+    <div className="rounded-md border bg-muted/20 p-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="inline-flex shrink-0 items-center rounded-md bg-(--brand-petrol) px-2 py-0.5 font-mono text-xs leading-none font-bold text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
+          {rotulo(p.filial)}
+        </span>
+        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+          {`forecast ${num(p.forecastM0)}`}
+        </span>
+        {/* Política e plano lado a lado: quando divergem, é a diferença que
+            interessa, e em linhas separadas ela some. */}
+        <span className="ml-auto flex items-baseline gap-2 text-xs">
+          <span>
+            <span className="text-muted-foreground">pol </span>
+            <span className="font-mono font-semibold tabular-nums">
+              {p.politica === null ? "—" : num(p.politica)}
+            </span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">plano </span>
+            <span
+              className={`font-mono font-semibold tabular-nums ${
+                p.politicaPlano !== null &&
+                p.politica !== null &&
+                p.politicaPlano !== p.politica
+                  ? "text-amber-700 dark:text-amber-400"
+                  : ""
+              }`}
+            >
+              {p.politicaPlano === null ? "—" : num(p.politicaPlano)}
+            </span>
+          </span>
+        </span>
+      </div>
+
+      {/* A rota em siglas: "1036->1039->1006" não diz nada a quem lê, "DF2 > ES
+          > CAJ" diz o caminho. */}
+      <p className="mt-1 flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
+        <Route className="size-3 shrink-0" />
+        {percurso.length > 0 ? percurso.map(rotulo).join(" › ") : "sem rota de compra"}
+      </p>
+    </div>
   );
 }

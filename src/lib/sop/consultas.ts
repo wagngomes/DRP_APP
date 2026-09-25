@@ -109,10 +109,32 @@ export type GrupoContrato = {
   origem: "cadastro" | "arquivo";
 };
 
+/** Política de estoque e rota de abastecimento de um CD. */
+export type PoliticaCd = {
+  filial: string;
+  politica: number | null;
+  politicaPlano: number | null;
+  rotaCompra: string | null;
+  forecastM0: number;
+};
+
 export type RaioXProduto = {
   codigo: string;
   descricao: string | null;
   fornecedor: string | null;
+  /** "S"/"N" do cadastro: o item precisa de cadeia fria. */
+  usaRefrigeracao: boolean | null;
+  /** Regime tributário do item, da base fiscal. */
+  tributacao: string | null;
+  /** Classificação ABC, do forecast. */
+  curva: string | null;
+  /**
+   * Política por CD.
+   *
+   * Por CD e não um número só porque ela varia: cada centro tem a sua régua de
+   * cobertura, e a média entre elas não é a política de ninguém.
+   */
+  politicas: PoliticaCd[];
   mes: string;
   /** Composição do consenso por divisão, maior primeiro. */
   divisoes: DivisaoSop[];
@@ -177,15 +199,26 @@ function medir(previsto: number, realizado: number): Medida {
 export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXProduto | null> {
   const { inicio, fim } = limitesDoMes(mes);
 
-  const [produto, divisoesCru, grupos, vendas, forecast, recebido] = await Promise.all([
+  const [produto, fiscal, divisoesCru, grupos, vendas, forecast, recebido] = await Promise.all([
     prisma.$queryRawUnsafe<
-      { codigo: string; descricao: string | null; fornecedor: string | null }[]
+      {
+        codigo: string;
+        descricao: string | null;
+        fornecedor: string | null;
+        usa_refrig: string | null;
+      }[]
     >(
-      `SELECT p.codigo, p.descricao,
+      `SELECT p.codigo, p.descricao, p.usa_refrig,
               (SELECT s.fornecedor FROM simulador s
                 WHERE s.codigo = p.codigo AND s.fornecedor IS NOT NULL
                 ORDER BY s.data_snapshot DESC LIMIT 1) AS fornecedor
          FROM produtos p WHERE p.codigo = $1`,
+      codigo
+    ),
+
+    // Tributação: lookup por chave, 141ms medidos, em paralelo com as demais.
+    prisma.$queryRawUnsafe<{ tributacao: string | null }[]>(
+      `SELECT tributacao FROM fiscal WHERE codigo = $1 LIMIT 1`,
       codigo
     ),
 
@@ -284,24 +317,33 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
     ),
 
     // Forecast é do mês: vale a carga mais recente dentro dele.
+    // Uma linha por filial em vez do agregado: a política e a rota variam por
+    // CD, e o total é somado aqui. Mesmo custo medido (142ms) — são sete linhas
+    // em vez de uma, e o trabalho do banco é o mesmo.
     prisma.$queryRawUnsafe<
       {
+        filial: string | null;
         m0: number;
         m0ajustado: number;
-        filiais: number;
-        snapshot: Date | null;
+        politica: number | null;
+        politica_plano: number | null;
+        rota_compra: string | null;
+        curva: string | null;
+        snapshot: Date;
       }[]
     >(
-      `SELECT COALESCE(SUM(f.forecast_m0),0)::float8 AS m0,
-              COALESCE(SUM(f.forecast_m0_atualizado),0)::float8 AS m0ajustado,
-              COUNT(*)::int AS filiais,
-              MAX(f.data_snapshot) AS snapshot
+      `SELECT f.filial,
+              COALESCE(f.forecast_m0,0)::float8 AS m0,
+              COALESCE(f.forecast_m0_atualizado,0)::float8 AS m0ajustado,
+              f.politica::float8, f.politica_plano::float8, f.rota_compra, f.curva,
+              f.data_snapshot AS snapshot
          FROM forecast f
         WHERE f.codigo = $1
           AND f.data_snapshot = (
             SELECT MAX(_f.data_snapshot) FROM forecast _f
              WHERE _f.data_snapshot >= $2::date AND _f.data_snapshot < $3::date
-          )`,
+          )
+        ORDER BY f.filial`,
       codigo,
       inicio,
       fim
@@ -406,10 +448,28 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
     .filter((d): d is DivisaoSop & { realizado: number } => d.realizado !== null)
     .map((d) => ({ previsto: d.consenso, realizado: d.realizado }));
 
+  const politicas: PoliticaCd[] = forecast.map((f) => ({
+    filial: f.filial ?? "—",
+    politica: f.politica,
+    politicaPlano: f.politica_plano,
+    rotaCompra: f.rota_compra,
+    forecastM0: f.m0 ?? 0,
+  }));
+
+  const m0 = forecast.reduce((a, f) => a + (f.m0 ?? 0), 0);
+  const m0Ajustado = forecast.reduce((a, f) => a + (f.m0ajustado ?? 0), 0);
+
   return {
     codigo: produto[0].codigo,
     descricao: produto[0].descricao,
     fornecedor: produto[0].fornecedor,
+    // "S"/"N" no cadastro; qualquer outra coisa (vazio, nulo) vira desconhecido
+    // em vez de "não" — dizer que não refrigera sem saber é pior que calar.
+    usaRefrigeracao:
+      produto[0].usa_refrig === "S" ? true : produto[0].usa_refrig === "N" ? false : null,
+    tributacao: fiscal[0]?.tributacao ?? null,
+    curva: forecast.find((f) => f.curva)?.curva ?? null,
+    politicas,
     mes: inicio,
     divisoes,
     consensoTotal,
@@ -417,9 +477,9 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
     contratos,
     vendas: { comContrato, spot, spotDeGrupoContratado, total: comContrato + spot },
     forecast: {
-      m0: forecast[0]?.m0 ?? 0,
-      m0Ajustado: forecast[0]?.m0ajustado ?? 0,
-      filiais: forecast[0]?.filiais ?? 0,
+      m0,
+      m0Ajustado,
+      filiais: forecast.length,
       snapshot: forecast[0]?.snapshot ?? null,
     },
     recebido: {
@@ -428,8 +488,8 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
     },
     acerto: {
       consenso: medir(consensoTotal, comContrato + spot),
-      forecastM0: medir(forecast[0]?.m0 ?? 0, comContrato + spot),
-      forecastAjustado: medir(forecast[0]?.m0ajustado ?? 0, comContrato + spot),
+      forecastM0: medir(m0, comContrato + spot),
+      forecastAjustado: medir(m0Ajustado, comContrato + spot),
       composicao: wmape(paresComposicao),
     },
   };
