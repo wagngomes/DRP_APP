@@ -38,10 +38,18 @@ export function CurvaAcumulada({
   curvas,
   mesCorrente,
   diaCorte,
+  grid = false,
 }: {
   curvas: CurvaMes[];
   mesCorrente: string;
   diaCorte: number;
+  /**
+   * Malha pontilhada de fundo.
+   *
+   * Opcional e desligada por padrão para a tela de aceleração continuar
+   * exatamente como está — quem pediu a malha foi o raio-X.
+   */
+  grid?: boolean;
 }) {
   const [diaAtivo, setDiaAtivo] = useState<number | null>(null);
 
@@ -109,6 +117,25 @@ export function CurvaAcumulada({
             setDiaAtivo(dia >= 1 && dia <= maxDia ? dia : null);
           }}
         >
+          {/* Malha vertical pontilhada: dá a leitura de "que dia do mês é
+              este ponto" sem precisar descer até o eixo. Fica atrás de tudo e
+              bem apagada, para não disputar com as linhas. */}
+          {grid
+            ? Array.from({ length: Math.floor(maxDia / 5) }, (_, i) => (i + 1) * 5).map((d) => (
+                <line
+                  key={`g${d}`}
+                  x1={x(d)}
+                  x2={x(d)}
+                  y1={MARGEM.topo}
+                  y2={ALTURA - MARGEM.baixo}
+                  stroke="currentColor"
+                  className="text-border"
+                  strokeWidth={1}
+                  strokeDasharray="2 4"
+                  opacity={0.7}
+                />
+              ))
+            : null}
           {marcas.map((v, i) => (
             <g key={i}>
               <line
@@ -119,6 +146,7 @@ export function CurvaAcumulada({
                 stroke="currentColor"
                 className="text-border"
                 strokeWidth={1}
+                strokeDasharray={grid ? "2 4" : undefined}
               />
               <text
                 x={MARGEM.esquerda - 8}

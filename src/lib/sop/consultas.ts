@@ -1,4 +1,4 @@
-import type { CurvaMes } from "@/lib/aceleracao/consultas";
+import { carregarClientesFora, type ClienteFora, type CurvaMes } from "@/lib/aceleracao/consultas";
 import { prisma } from "@/lib/prisma";
 import {
   acuracidade,
@@ -448,7 +448,7 @@ export async function listarMesesSop(): Promise<string[]> {
 export async function carregarCurvas(
   codigo: string,
   mes: string
-): Promise<{ curvas: CurvaMes[]; diaCorte: number }> {
+): Promise<{ curvas: CurvaMes[]; diaCorte: number; clientes: ClienteFora[] }> {
   const { inicio, fim } = limitesDoMes(mes);
   const d = new Date(`${inicio}T00:00:00.000Z`);
   const desde = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 3, 1))
@@ -496,5 +496,12 @@ export async function carregarCurvas(
   const doMes = porMes.get(mesReferencia) ?? [];
   const diaCorte = doMes.length > 0 ? Math.max(...doMes.map((l) => l.dia)) : 0;
 
-  return { curvas, diaCorte };
+  // Mesma regra da tela de aceleração, numa janela diferente: lá o mês corrente
+  // é o de hoje, aqui é o de referência. A função é a mesma de propósito —
+  // duas implementações da mesma comparação dariam números diferentes para a
+  // mesma pergunta em telas vizinhas.
+  const clientes =
+    diaCorte > 0 ? await carregarClientesFora(codigo, diaCorte, mesReferencia, desde) : [];
+
+  return { curvas, diaCorte, clientes };
 }

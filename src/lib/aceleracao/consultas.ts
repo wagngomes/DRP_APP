@@ -419,47 +419,7 @@ export async function carregarDetalheItem(
       codigo,
       janela.inicioBaseline
     ),
-    prisma.$queryRawUnsafe<
-      {
-        cnpj: string; cliente: string; grupo: string | null;
-        atual: number; mediana: number;
-      }[]
-    >(
-      `WITH janela AS (
-         SELECT h.cnpj, MIN(h.nome) AS cliente,
-                to_char(h.data, 'YYYY-MM') AS mes,
-                SUM(-h.quantidade)::float8 AS qtd
-           FROM historico_vendas h
-          WHERE h.cod_prod = $1 AND h.cnpj IS NOT NULL
-            AND h.data >= $4::date
-            AND extract(day FROM h.data) <= $2
-          GROUP BY 1, 3
-       ),
-       comparado AS (
-         SELECT cnpj, MIN(cliente) AS cliente,
-                SUM(qtd) FILTER (WHERE mes = $3) AS atual,
-                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY qtd)
-                  FILTER (WHERE mes < $3) AS mediana,
-                COUNT(*) FILTER (WHERE mes < $3) AS meses_com_dado
-           FROM janela GROUP BY 1
-       )
-       SELECT c.cnpj, c.cliente, g.cliente_grupo AS grupo,
-              c.atual::float8, c.mediana::float8
-         FROM comparado c
-         LEFT JOIN (
-           SELECT DISTINCT cliente_cnpj, cliente_grupo FROM clientes_grupos
-         ) g ON g.cliente_cnpj = c.cnpj
-        WHERE c.atual IS NOT NULL AND c.mediana > 0
-          AND c.meses_com_dado >= ${MINIMO_MESES_HISTORICO}
-          AND c.atual >= ${MINIMO_UNIDADES_CLIENTE}
-          AND c.atual >= c.mediana * ${FATOR_CLIENTE}
-        ORDER BY (c.atual - c.mediana) DESC
-        LIMIT 30`,
-      codigo,
-      janela.diaCorte,
-      janela.mesCorrente,
-      janela.inicioBaseline
-    ),
+    carregarClientesFora(codigo, janela.diaCorte, janela.mesCorrente, janela.inicioBaseline),
   ]);
 
   // Acumula por mês. O mês corrente pára no dia com dado; os outros vão até o
@@ -488,16 +448,80 @@ export async function carregarDetalheItem(
   return {
     codigo,
     curvas,
-    clientes: clientes.map((c) => ({
-      cnpj: c.cnpj,
-      cliente: c.cliente,
-      grupo: c.grupo,
-      atual: c.atual,
-      mediana: c.mediana,
-      excedente: c.atual - c.mediana,
-      fator: c.mediana > 0 ? c.atual / c.mediana : 0,
-    })),
+    // Excedente e fator já vêm calculados de `carregarClientesFora`, que é
+    // agora o único lugar onde a regra mora.
+    clientes,
     diaCorte: janela.diaCorte,
     mesCorrente: janela.mesCorrente,
   };
+}
+
+/**
+ * Clientes que compraram fora do próprio padrão, na mesma janela do mês.
+ *
+ * Extraída de `carregarDetalheItem` para a tela de raio-X usar a mesma regra
+ * numa janela diferente — lá o "mês corrente" é o mês de referência escolhido,
+ * não o de hoje. Duas implementações da mesma comparação acabariam divergindo,
+ * e a divergência apareceria como dois números diferentes para a mesma
+ * pergunta em telas vizinhas.
+ *
+ * A comparação é de cada cliente consigo mesmo: mediana dos meses anteriores
+ * **no mesmo recorte de dias**, para o mês em curso não perder por estar pela
+ * metade. Mediana em vez de média porque com três ou quatro pontos um mês
+ * atípico desloca a média inteira.
+ */
+export async function carregarClientesFora(
+  codigo: string,
+  diaCorte: number,
+  mes: string,
+  inicioBaseline: string
+): Promise<ClienteFora[]> {
+  const linhas = await prisma.$queryRawUnsafe<
+    { cnpj: string; cliente: string; grupo: string | null; atual: number; mediana: number }[]
+  >(
+    `WITH janela AS (
+       SELECT h.cnpj, MIN(h.nome) AS cliente,
+              to_char(h.data, 'YYYY-MM') AS mes,
+              SUM(-h.quantidade)::float8 AS qtd
+         FROM historico_vendas h
+        WHERE h.cod_prod = $1 AND h.cnpj IS NOT NULL
+          AND h.data >= $4::date
+          AND extract(day FROM h.data) <= $2
+        GROUP BY 1, 3
+     ),
+     comparado AS (
+       SELECT cnpj, MIN(cliente) AS cliente,
+              SUM(qtd) FILTER (WHERE mes = $3) AS atual,
+              PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY qtd)
+                FILTER (WHERE mes < $3) AS mediana,
+              COUNT(*) FILTER (WHERE mes < $3) AS meses_com_dado
+         FROM janela GROUP BY 1
+     )
+     SELECT c.cnpj, c.cliente, g.cliente_grupo AS grupo,
+            c.atual::float8, c.mediana::float8
+       FROM comparado c
+       LEFT JOIN (
+         SELECT DISTINCT cliente_cnpj, cliente_grupo FROM clientes_grupos
+       ) g ON g.cliente_cnpj = c.cnpj
+      WHERE c.atual IS NOT NULL AND c.mediana > 0
+        AND c.meses_com_dado >= ${MINIMO_MESES_HISTORICO}
+        AND c.atual >= ${MINIMO_UNIDADES_CLIENTE}
+        AND c.atual >= c.mediana * ${FATOR_CLIENTE}
+      ORDER BY (c.atual - c.mediana) DESC
+      LIMIT 30`,
+    codigo,
+    diaCorte,
+    mes,
+    inicioBaseline
+  );
+
+  return linhas.map((l) => ({
+    cnpj: l.cnpj,
+    cliente: l.cliente,
+    grupo: l.grupo,
+    atual: l.atual,
+    mediana: l.mediana,
+    excedente: l.atual - l.mediana,
+    fator: l.mediana > 0 ? l.atual / l.mediana : 0,
+  }));
 }

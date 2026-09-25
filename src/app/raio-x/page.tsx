@@ -14,6 +14,7 @@ import {
   ScanLine,
   Target,
   TrendingUp,
+  UserRoundSearch,
   Users,
 } from "lucide-react";
 
@@ -24,7 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { exigirSessao } from "@/lib/autorizacao";
 import { CurvaAcumulada } from "@/components/aceleracao/curva-acumulada";
-import type { CurvaMes } from "@/lib/aceleracao/consultas";
+import type { ClienteFora, CurvaMes } from "@/lib/aceleracao/consultas";
 import {
   carregarCurvas,
   carregarRaioX,
@@ -255,7 +256,7 @@ function Painel({
   abrir,
 }: {
   dados: RaioXProduto;
-  curva: { curvas: CurvaMes[]; diaCorte: number } | null;
+  curva: { curvas: CurvaMes[]; diaCorte: number; clientes: ClienteFora[] } | null;
   abrir?: string;
 }) {
   const { acerto } = dados;
@@ -443,21 +444,76 @@ function Painel({
       {/* A curva fica depois da composição: primeiro de onde a demanda deveria
           vir, depois como ela de fato chegou ao longo do mês. */}
       {curva && curva.curvas.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <LineChart className="size-4 text-(--brand-turquoise)" />
-              Venda acumulada no mês
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <CurvaAcumulada
-              curvas={curva.curvas}
-              mesCorrente={dados.mes.slice(0, 7)}
-              diaCorte={curva.diaCorte}
-            />
-          </CardContent>
-        </Card>
+        <div className="grid gap-5 xl:grid-cols-3">
+          <Card className="xl:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <LineChart className="size-4 text-(--brand-turquoise)" />
+                Venda acumulada no mês
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CurvaAcumulada
+                curvas={curva.curvas}
+                mesCorrente={dados.mes.slice(0, 7)}
+                diaCorte={curva.diaCorte}
+                grid
+              />
+            </CardContent>
+          </Card>
+
+          {/* Ao lado da curva, não abaixo: a curva mostra *que* o mês descolou,
+              a lista mostra *quem* descolou. Separadas por uma rolagem, a
+              segunda pergunta raramente chega a ser feita.
+
+              Mesma regra da tela de aceleração, pela mesma função: cada cliente
+              comparado consigo mesmo, mediana dos meses anteriores no mesmo
+              recorte de dias. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <UserRoundSearch className="size-4 text-(--brand-turquoise)" />
+                Comprando fora do padrão
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {curva.clientes.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Nenhum cliente comprou acima do próprio padrão neste mês.
+                </p>
+              ) : (
+                <ul className="grid gap-2">
+                  {curva.clientes.slice(0, 8).map((c) => (
+                    <li key={c.cnpj} className="rounded-md border bg-muted/20 px-3 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm" title={c.cliente}>
+                          {c.cliente}
+                        </span>
+                        <Badge className="shrink-0 bg-rose-500/10 font-mono text-[11px] text-rose-700 dark:text-rose-400">
+                          {`${c.fator.toFixed(1)}×`}
+                        </Badge>
+                      </div>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                        {c.grupo ? <span className="truncate">{c.grupo}</span> : null}
+                        <span className="font-mono tabular-nums">
+                          {`${num(c.atual)} un · padrão ${num(c.mediana)}`}
+                        </span>
+                        <span className="font-mono font-semibold text-rose-700 tabular-nums dark:text-rose-400">
+                          {`+${num(c.excedente)}`}
+                        </span>
+                      </p>
+                    </li>
+                  ))}
+                  {curva.clientes.length > 8 ? (
+                    <li className="pt-1 text-center text-xs text-muted-foreground">
+                      {`e mais ${curva.clientes.length - 8} cliente(s)`}
+                    </li>
+                  ) : null}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       ) : null}
 
     </div>
