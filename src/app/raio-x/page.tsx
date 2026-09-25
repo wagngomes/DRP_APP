@@ -67,7 +67,11 @@ const primeiro = (v: string | string[] | undefined) =>
   (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
 
 /** Abre ou fecha uma divisão da composição, preservando produto e competência. */
-function hrefAbrir(dados: RaioXProduto, abertaAtual: string | undefined, divisao: string): string {
+function hrefAbrir(
+  dados: RaioXProduto,
+  abertaAtual: string | undefined,
+  divisao: string,
+): string {
   const p = new URLSearchParams({ codigo: dados.codigo, mes: dados.mes });
   if (abertaAtual !== divisao) p.set("abrir", divisao);
   return `/raio-x?${p.toString()}`;
@@ -80,7 +84,10 @@ function hrefAbrir(dados: RaioXProduto, abertaAtual: string | undefined, divisao
  * reconhecer, e portanto as únicas que a tela consegue medir. As demais ficam
  * em cinza, o que já diz que delas não há realizado.
  */
-const COR_DIVISAO: Record<string, { barra: string; texto: string; fundo: string }> = {
+const COR_DIVISAO: Record<
+  string,
+  { barra: string; texto: string; fundo: string }
+> = {
   contratos: {
     barra: "bg-teal-500",
     texto: "text-teal-700 dark:text-teal-300",
@@ -136,7 +143,11 @@ const TOM_FAIXA = {
   sem: "bg-muted text-muted-foreground",
 } as const;
 
-export default async function RaioX({ searchParams }: { searchParams: Promise<SearchParams> }) {
+export default async function RaioX({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   const sessao = await exigirSessao();
   const params = await searchParams;
 
@@ -167,156 +178,190 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 h-[420px] opacity-[0.55] dark:opacity-30"
           style={{
-            backgroundImage: "radial-gradient(var(--brand-turquoise) 1px, transparent 1px)",
+            backgroundImage:
+              "radial-gradient(var(--brand-turquoise) 1px, transparent 1px)",
             backgroundSize: "22px 22px",
             maskImage: "linear-gradient(to bottom, black, transparent)",
           }}
         />
-      <div className="relative space-y-5">
-        {/* Malha das telas de análise: dá profundidade ao cabeçalho sem
+        <div className="relative space-y-5">
+          {/* Malha das telas de análise: dá profundidade ao cabeçalho sem
             competir com os números, e é CSS puro. */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-4">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 opacity-[0.07] dark:opacity-[0.12]"
-            style={{
-              backgroundImage:
-                "linear-gradient(to right, var(--brand-petrol) 1px, transparent 1px)," +
-                "linear-gradient(to bottom, var(--brand-petrol) 1px, transparent 1px)",
-              backgroundSize: "28px 28px",
-              maskImage: "radial-gradient(ellipse 80% 120% at 30% 0%, black, transparent)",
-            }}
-          />
-          <div className="relative">
-            <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-            <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
-                <ScanLine className="size-3.5" />
-                Raio-X do produto
-              </p>
-              <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-(--brand-petrol) dark:text-foreground">
-                {dados ? (dados.descricao ?? dados.codigo) : "Composição da demanda"}
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {dados
-                  ? `${dados.codigo}${dados.fornecedor ? ` · ${dados.fornecedor}` : ""} · ${mesBr(dados.mes)}`
-                  : "De onde vem o consenso, quem está por trás dele e o que de fato aconteceu."}
-              </p>
+          <div className="relative overflow-hidden rounded-xl border bg-card p-4">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 opacity-[0.07] dark:opacity-[0.12]"
+              style={{
+                backgroundImage:
+                  "linear-gradient(to right, var(--brand-petrol) 1px, transparent 1px)," +
+                  "linear-gradient(to bottom, var(--brand-petrol) 1px, transparent 1px)",
+                backgroundSize: "28px 28px",
+                maskImage:
+                  "radial-gradient(ellipse 80% 120% at 30% 0%, black, transparent)",
+              }}
+            />
+            <div className="relative">
+              {/* Duas colunas: à esquerda a identificação com o filtro abaixo
+                dela; à direita o abastecimento, ocupando a altura das duas. */}
+              <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+                <div className="min-w-0 flex-1 space-y-3">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
+                      <ScanLine className="size-3.5" />
+                      Raio-X do produto
+                    </p>
+                    <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-(--brand-petrol) dark:text-foreground">
+                      {dados
+                        ? (dados.descricao ?? dados.codigo)
+                        : "Composição da demanda"}
+                    </h1>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {dados
+                        ? `${dados.codigo}${dados.fornecedor ? ` · ${dados.fornecedor}` : ""} · ${mesBr(dados.mes)}`
+                        : "De onde vem o consenso, quem está por trás dele e o que de fato aconteceu."}
+                    </p>
 
-              {/* Ficha do item: o que não muda com o mês e condiciona tudo o
+                    {/* Ficha do item: o que não muda com o mês e condiciona tudo o
                   que muda. Refrigeração decide como transferir, tributação
                   decide de onde comprar, curva decide quanta atenção o item
                   merece — as três mudam a leitura dos números abaixo. */}
-              {dados ? (
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {dados.usaRefrigeracao === null ? null : dados.usaRefrigeracao ? (
-                    <Badge className="gap-1 bg-sky-500/10 text-sky-700 dark:text-sky-400">
-                      <Snowflake className="size-3" />
-                      Refrigerado
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="gap-1 text-muted-foreground">
-                      <Snowflake className="size-3" />
-                      Sem refrigeração
-                    </Badge>
-                  )}
-                  {dados.curva ? (
-                    <Badge variant="secondary" className="font-mono">
-                      {`Curva ${dados.curva}`}
-                    </Badge>
-                  ) : null}
-                  {dados.tributacao ? (
-                    <Badge variant="outline" className="gap-1 font-normal">
-                      <Landmark className="size-3 shrink-0" />
-                      {dados.tributacao}
-                    </Badge>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+                    {dados ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        {dados.usaRefrigeracao ===
+                        null ? null : dados.usaRefrigeracao ? (
+                          <Badge className="gap-1 bg-sky-500/10 text-sky-700 dark:text-sky-400">
+                            <Snowflake className="size-3" />
+                            Refrigerado
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="gap-1 text-muted-foreground"
+                          >
+                            <Snowflake className="size-3" />
+                            Sem refrigeração
+                          </Badge>
+                        )}
+                        {dados.curva ? (
+                          <Badge variant="secondary" className="font-mono">
+                            {`Curva ${dados.curva}`}
+                          </Badge>
+                        ) : null}
+                        {dados.tributacao ? (
+                          <Badge
+                            variant="outline"
+                            className="gap-1 font-normal"
+                          >
+                            <Landmark className="size-3 shrink-0" />
+                            {dados.tributacao}
+                          </Badge>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
 
-              {/* GET simples: o recorte vira URL e o link é compartilhável.
-                  Fica na mesma linha do título, não abaixo: empilhado, o
-                  cabeçalho tomava um terço da tela antes do primeiro número. */}
-              <form action="/raio-x" className="flex flex-wrap items-end gap-2 pt-1">
-                <div className="space-y-1.5">
-                <label htmlFor="codigo" className="text-xs text-muted-foreground">
-                  Produto
-                </label>
-                    <div className="relative">
-                  <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="codigo"
-                    name="codigo"
-                    defaultValue={codigo ?? ""}
-                    placeholder="Código"
-                    className="h-9 w-44 pl-8"
-                  />
+                  {/* GET simples: o recorte vira URL e o link é compartilhável. */}
+                  <form
+                    action="/raio-x"
+                    className="flex flex-wrap items-end gap-2"
+                  >
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="codigo"
+                        className="text-xs text-muted-foreground"
+                      >
+                        Produto
+                      </label>
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="codigo"
+                          name="codigo"
+                          defaultValue={codigo ?? ""}
+                          placeholder="Código"
+                          className="h-9 w-44 pl-8"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="mes"
+                        className="text-xs text-muted-foreground"
+                      >
+                        Competência
+                      </label>
+                      <select
+                        id="mes"
+                        name="mes"
+                        defaultValue={mes}
+                        className="h-9 rounded-md border bg-transparent px-3 text-sm"
+                      >
+                        {meses.map((m) => (
+                          <option key={m} value={m}>
+                            {mesBr(m)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <Button
+                      type="submit"
+                      className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
+                    >
+                      Analisar
+                    </Button>
+                  </form>
                 </div>
-                </div>
-                <div className="space-y-1.5">
-                <label htmlFor="mes" className="text-xs text-muted-foreground">
-                  Competência
-                </label>
-                <select
-                  id="mes"
-                  name="mes"
-                  defaultValue={mes}
-                  className="h-9 rounded-md border bg-transparent px-3 text-sm"
-                >
-                  {meses.map((m) => (
-                    <option key={m} value={m}>
-                      {mesBr(m)}
-                    </option>
-                  ))}
-                </select>
-                </div>
-                <Button
-                type="submit"
-                className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
-              >
-                Analisar
-              </Button>
-              </form>
 
-            {/* Política e rota por CD, encostadas à direita do cabeçalho.
+                {/* Política e rota por CD, encostadas à direita do cabeçalho.
                 
                 Aqui e não em card próprio: é contexto para ler o resto, não
                 assunto — em card grande competia com os números do mês. Uma
                 linha por CD, porque as duas variam entre centros e a média
                 entre elas não é a política de ninguém. */}
-            {dados && dados.politicas.length > 0 ? (
-              // Painel próprio, de tom diferente do cabeçalho: separa a ficha
-              // de abastecimento da identificação do item sem precisar de um
-              // card à parte, que era o que ocupava tela demais.
-              <div className="shrink-0 rounded-lg border bg-background/70 p-3 dark:bg-background/40">
-                <p className="mb-1.5 flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                  <Route className="size-3" />
-                  Abastecimento
-                  <span className="ml-1 font-normal normal-case">política / plano</span>
-                </p>
-                <div className="grid gap-1">
-                  {dados.politicas.map((p) => (
-                    <PoliticaDoCd key={p.filial} politica={p} rotulos={Object.fromEntries(rotulos)} />
-                  ))}
-                </div>
+                {dados && dados.politicas.length > 0 ? (
+                  // Painel próprio, de tom diferente do cabeçalho: separa a ficha
+                  // de abastecimento da identificação do item sem precisar de um
+                  // card à parte, que era o que ocupava tela demais.
+                  <div className="shrink-0 rounded-lg border bg-background/70 p-3 dark:bg-background/40">
+                    <p className="mb-1.5 flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                      <Route className="size-3" />
+                      Abastecimento
+                      <span className="ml-1 font-normal normal-case">
+                        política / plano
+                      </span>
+                    </p>
+                    <div className="grid gap-1">
+                      {dados.politicas.map((p) => (
+                        <PoliticaDoCd
+                          key={p.filial}
+                          politica={p}
+                          rotulos={Object.fromEntries(rotulos)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
             </div>
-
           </div>
-        </div>
 
-        {meses.length === 0 ? (
-          <Vazio texto="Nenhuma competência de S&OP importada. Carregue a base SOP em Importar CSV." />
-        ) : !codigo ? (
-          <Vazio texto="Informe o código de um produto para ver a composição da demanda dele." />
-        ) : !dados ? (
-          <Vazio texto={`Produto ${codigo} não encontrado no cadastro.`} />
-        ) : (
-          <Painel dados={dados} curva={curva} abrir={abrir} abertura={abertura} entradas={entradas} rotulos={Object.fromEntries(rotulos)} />
-        )}
-      </div>
+          {meses.length === 0 ? (
+            <Vazio texto="Nenhuma competência de S&OP importada. Carregue a base SOP em Importar CSV." />
+          ) : !codigo ? (
+            <Vazio texto="Informe o código de um produto para ver a composição da demanda dele." />
+          ) : !dados ? (
+            <Vazio texto={`Produto ${codigo} não encontrado no cadastro.`} />
+          ) : (
+            <Painel
+              dados={dados}
+              curva={curva}
+              abrir={abrir}
+              abertura={abertura}
+              entradas={entradas}
+              rotulos={Object.fromEntries(rotulos)}
+            />
+          )}
+        </div>
       </div>
     </DashboardShell>
   );
@@ -325,7 +370,9 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
 function Vazio({ texto }: { texto: string }) {
   return (
     <Card className="border-dashed">
-      <CardContent className="py-14 text-center text-muted-foreground">{texto}</CardContent>
+      <CardContent className="py-14 text-center text-muted-foreground">
+        {texto}
+      </CardContent>
     </Card>
   );
 }
@@ -339,7 +386,11 @@ function Painel({
   rotulos,
 }: {
   dados: RaioXProduto;
-  curva: { curvas: CurvaMes[]; diaCorte: number; clientes: ClienteFora[] } | null;
+  curva: {
+    curvas: CurvaMes[];
+    diaCorte: number;
+    clientes: ClienteFora[];
+  } | null;
   abrir?: string;
   abertura: SaldoAbertura | null;
   entradas: RecebimentoDia[] | null;
@@ -353,7 +404,9 @@ function Painel({
   // S&OP em setembro tem agosto inteiro de história para mostrar.
   const temConsenso = dados.divisoes.length > 0;
   const temMovimento =
-    dados.vendas.total !== 0 || dados.forecast.filiais > 0 || dados.recebido.notas > 0;
+    dados.vendas.total !== 0 ||
+    dados.forecast.filiais > 0 ||
+    dados.recebido.notas > 0;
 
   if (!temConsenso && !temMovimento) {
     return (
@@ -429,8 +482,10 @@ function Painel({
                 <div className="mt-2">
                   <BadgeDias
                     dias={diasDeEstoque(
-                      abertura.estoque + abertura.transferencias + abertura.compras,
-                      dados.forecast.m0
+                      abertura.estoque +
+                        abertura.transferencias +
+                        abertura.compras,
+                      dados.forecast.m0,
                     )}
                     rotulo="Cobertura"
                   />
@@ -557,18 +612,28 @@ function Painel({
             ausente={!temConsenso ? "sem consenso no mês" : undefined}
           />
           <Acerto rotulo="Forecast M0 × vendido" medida={acerto.forecastM0} />
-          <Acerto rotulo="Forecast ajustado × vendido" medida={acerto.forecastAjustado} />
+          <Acerto
+            rotulo="Forecast ajustado × vendido"
+            medida={acerto.forecastAjustado}
+          />
           <div className="rounded-lg border p-3">
-            <p className="text-xs text-muted-foreground">Erro da composição (WMAPE)</p>
+            <p className="text-xs text-muted-foreground">
+              Erro da composição (WMAPE)
+            </p>
             <p
               className={`mt-1 inline-flex rounded-md px-2 py-0.5 font-mono text-2xl font-semibold tabular-nums ${
-                TOM_FAIXA[faixaAcuracidade(acerto.composicao === null ? null : 1 - acerto.composicao)]
+                TOM_FAIXA[
+                  faixaAcuracidade(
+                    acerto.composicao === null ? null : 1 - acerto.composicao,
+                  )
+                ]
               }`}
             >
               {pct(acerto.composicao)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Quanto o rateio entre Contratos e Spot errou, ponderado pelo volume.
+              Quanto o rateio entre Contratos e Spot errou, ponderado pelo
+              volume.
             </p>
           </div>
         </CardContent>
@@ -583,14 +648,21 @@ function Painel({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <BarraComposicao divisoes={dados.divisoes} total={dados.consensoTotal} />
+            <BarraComposicao
+              divisoes={dados.divisoes}
+              total={dados.consensoTotal}
+            />
             <div className="grid gap-2">
               {dados.divisoes.map((d) => (
                 <LinhaDivisao
                   key={d.divisao}
                   divisao={d}
                   total={dados.consensoTotal}
-                  contratos={d.divisao.toLowerCase() === "contratos" ? dados.contratos : null}
+                  contratos={
+                    d.divisao.toLowerCase() === "contratos"
+                      ? dados.contratos
+                      : null
+                  }
                   aberta={abrir === d.divisao}
                   href={hrefAbrir(dados, abrir, d.divisao)}
                   consensoContratos={dados.consensoContratos}
@@ -605,8 +677,12 @@ function Painel({
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border-2 border-(--brand-petrol)/30 bg-(--brand-petrol)/5 px-3 py-2.5 dark:border-(--brand-turquoise)/30 dark:bg-(--brand-turquoise)/5">
                 <span className="size-4 shrink-0" />
                 <span className="size-2.5 shrink-0 rounded-full bg-(--brand-petrol) dark:bg-(--brand-turquoise)" />
-                <span className="min-w-0 flex-1 text-sm font-semibold">Total do mês</span>
-                <span className="font-mono text-xs text-muted-foreground tabular-nums">100%</span>
+                <span className="min-w-0 flex-1 text-sm font-semibold">
+                  Total do mês
+                </span>
+                <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                  100%
+                </span>
                 <span className="font-mono text-base font-bold text-(--brand-petrol) tabular-nums dark:text-(--brand-turquoise)">
                   {num(dados.consensoTotal)}
                 </span>
@@ -617,12 +693,16 @@ function Painel({
                   className={`w-20 rounded-md px-1.5 py-0.5 text-right font-mono text-xs font-semibold tabular-nums ${
                     TOM_FAIXA[
                       faixaAcuracidade(
-                        acerto.consenso.erro === null ? null : 1 - acerto.consenso.erro
+                        acerto.consenso.erro === null
+                          ? null
+                          : 1 - acerto.consenso.erro,
                       )
                     ]
                   }`}
                 >
-                  {acerto.consenso.erro === null ? "—" : `erro ${pct(acerto.consenso.erro, 0)}`}
+                  {acerto.consenso.erro === null
+                    ? "—"
+                    : `erro ${pct(acerto.consenso.erro, 0)}`}
                 </span>
               </div>
             </div>
@@ -673,9 +753,15 @@ function Painel({
               ) : (
                 <ul className="grid gap-2">
                   {curva.clientes.slice(0, 8).map((c) => (
-                    <li key={c.cnpj} className="rounded-md border bg-muted/20 px-3 py-2">
+                    <li
+                      key={c.cnpj}
+                      className="rounded-md border bg-muted/20 px-3 py-2"
+                    >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="min-w-0 flex-1 truncate text-sm" title={c.cliente}>
+                        <span
+                          className="min-w-0 flex-1 truncate text-sm"
+                          title={c.cliente}
+                        >
                           {c.cliente}
                         </span>
                         <Badge className="shrink-0 bg-rose-500/10 font-mono text-[11px] text-rose-700 dark:text-rose-400">
@@ -683,7 +769,9 @@ function Painel({
                         </Badge>
                       </div>
                       <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                        {c.grupo ? <span className="truncate">{c.grupo}</span> : null}
+                        {c.grupo ? (
+                          <span className="truncate">{c.grupo}</span>
+                        ) : null}
                         <span className="font-mono tabular-nums">
                           {`${num(c.atual)} un · padrão ${num(c.mediana)}`}
                         </span>
@@ -721,7 +809,6 @@ function Painel({
           </CardContent>
         </Card>
       ) : null}
-
     </div>
   );
 }
@@ -758,7 +845,9 @@ function Kpi({
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
             {rotulo}
           </p>
-          <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${t.disco}`}>
+          <span
+            className={`grid size-9 shrink-0 place-items-center rounded-xl ${t.disco}`}
+          >
             <Icone className="size-4.5" />
           </span>
         </div>
@@ -773,13 +862,16 @@ function Kpi({
 
 const TOM_KPI = {
   petrol: {
-    borda: "border-t-4 border-t-(--brand-petrol) dark:border-t-(--brand-turquoise)",
-    disco: "bg-(--brand-petrol)/10 text-(--brand-petrol) dark:bg-(--brand-turquoise)/15 dark:text-(--brand-turquoise)",
+    borda:
+      "border-t-4 border-t-(--brand-petrol) dark:border-t-(--brand-turquoise)",
+    disco:
+      "bg-(--brand-petrol)/10 text-(--brand-petrol) dark:bg-(--brand-turquoise)/15 dark:text-(--brand-turquoise)",
     brilho: "bg-(--brand-petrol)/10 dark:bg-(--brand-turquoise)/10",
   },
   turquesa: {
     borda: "border-t-4 border-t-(--brand-turquoise)",
-    disco: "bg-(--brand-turquoise)/20 text-teal-700 dark:text-(--brand-turquoise)",
+    disco:
+      "bg-(--brand-turquoise)/20 text-teal-700 dark:text-(--brand-turquoise)",
     brilho: "bg-(--brand-turquoise)/20",
   },
   ambar: {
@@ -808,7 +900,9 @@ function Acerto({
     return (
       <div className="rounded-lg border border-dashed p-3">
         <p className="text-xs text-muted-foreground">{rotulo}</p>
-        <p className="mt-1 font-mono text-2xl font-semibold text-muted-foreground tabular-nums">—</p>
+        <p className="mt-1 font-mono text-2xl font-semibold text-muted-foreground tabular-nums">
+          —
+        </p>
         <p className="mt-1 text-xs text-muted-foreground">{ausente}</p>
       </div>
     );
@@ -842,7 +936,13 @@ function Acerto({
 }
 
 /** A composição inteira numa barra: a proporção antes de qualquer número. */
-function BarraComposicao({ divisoes, total }: { divisoes: DivisaoSop[]; total: number }) {
+function BarraComposicao({
+  divisoes,
+  total,
+}: {
+  divisoes: DivisaoSop[];
+  total: number;
+}) {
   if (total <= 0) return null;
   return (
     <div className="flex h-3 overflow-hidden rounded-full bg-muted">
@@ -879,7 +979,8 @@ function LinhaDivisao({
   const cor = corDivisao(d.divisao);
   const parte = total > 0 ? d.consenso / total : 0;
   const podeAbrir = contratos !== null && contratos.grupos.length > 0;
-  const confere = Math.abs(contratos ? contratos.total - consensoContratos : 0) < 0.5;
+  const confere =
+    Math.abs(contratos ? contratos.total - consensoContratos : 0) < 0.5;
 
   const linha = (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5">
@@ -893,15 +994,23 @@ function LinhaDivisao({
         <span className="size-4 shrink-0" />
       )}
       <span className={`size-2.5 shrink-0 rounded-full ${cor.barra}`} />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">{d.divisao}</span>
-      <span className="font-mono text-xs text-muted-foreground tabular-nums">{pct(parte, 0)}</span>
-      <span className={`font-mono text-sm font-semibold tabular-nums ${cor.texto}`}>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+        {d.divisao}
+      </span>
+      <span className="font-mono text-xs text-muted-foreground tabular-nums">
+        {pct(parte, 0)}
+      </span>
+      <span
+        className={`font-mono text-sm font-semibold tabular-nums ${cor.texto}`}
+      >
         {num(d.consenso)}
       </span>
       {/* Realizado ausente não é zero: a venda não carrega a marca da divisão,
           então não há como apurar. Dizer "0" seria afirmar que não vendeu. */}
       {d.realizado === null ? (
-        <span className="w-28 text-right text-xs text-muted-foreground">sem apuração</span>
+        <span className="w-28 text-right text-xs text-muted-foreground">
+          sem apuração
+        </span>
       ) : (
         <span className="w-28 text-right font-mono text-sm tabular-nums">
           {`→ ${num(d.realizado)}`}
@@ -918,9 +1027,15 @@ function LinhaDivisao({
   );
 
   return (
-    <div className={`rounded-md border bg-muted/20 ${aberta ? "ring-1 ring-(--brand-turquoise)/40" : ""}`}>
+    <div
+      className={`rounded-md border bg-muted/20 ${aberta ? "ring-1 ring-(--brand-turquoise)/40" : ""}`}
+    >
       {podeAbrir ? (
-        <Link href={href} scroll={false} className="block transition-colors hover:bg-muted/40">
+        <Link
+          href={href}
+          scroll={false}
+          className="block transition-colors hover:bg-muted/40"
+        >
           {linha}
         </Link>
       ) : (
@@ -957,7 +1072,9 @@ function LinhaDivisao({
                   <th className="py-2 text-right font-medium">Qtd inicial</th>
                   <th className="py-2 text-right font-medium">Qtd final</th>
                   <th className="py-2 text-right font-medium">Vendido</th>
-                  <th className="py-2 text-right font-medium">Fora do contrato</th>
+                  <th className="py-2 text-right font-medium">
+                    Fora do contrato
+                  </th>
                   <th className="py-2 text-right font-medium">Atingimento</th>
                 </tr>
               </thead>
@@ -990,7 +1107,10 @@ function LinhaGrupo({ grupo: g }: { grupo: GrupoContrato }) {
           {/* Quem veio do arquivo e não do cadastro merece marca: é grupo que
               ninguém cadastrou, e a soma dele não conversa com as outras telas. */}
           {g.origem === "arquivo" ? (
-            <Badge variant="outline" className="shrink-0 text-[10px] text-muted-foreground">
+            <Badge
+              variant="outline"
+              className="shrink-0 text-[10px] text-muted-foreground"
+            >
               fora do cadastro
             </Badge>
           ) : null}
@@ -1011,7 +1131,9 @@ function LinhaGrupo({ grupo: g }: { grupo: GrupoContrato }) {
       <td className="py-2 text-right font-mono font-semibold tabular-nums">
         {num(g.contratado)}
       </td>
-      <td className="py-2 text-right font-mono tabular-nums">{num(g.vendido)}</td>
+      <td className="py-2 text-right font-mono tabular-nums">
+        {num(g.vendido)}
+      </td>
       {/* Compra de outro CNPJ do mesmo grupo. Não entra no atingimento — o
           contrato é com o CNPJ — mas dizer que o grupo comprou por fora é
           informação comercial, e escondê-la no Spot faria o Spot parecer
@@ -1051,7 +1173,9 @@ function PoliticaDoCd({
   // Plano diferente da política é o que se quer notar; iguais, não há nada a
   // destacar e a cor só faria barulho.
   const divergente =
-    p.politicaPlano !== null && p.politica !== null && p.politicaPlano !== p.politica;
+    p.politicaPlano !== null &&
+    p.politica !== null &&
+    p.politicaPlano !== p.politica;
 
   return (
     <div className="flex items-center gap-2.5 text-[11px]">
@@ -1068,7 +1192,11 @@ function PoliticaDoCd({
       <span className="shrink-0 font-mono tabular-nums">
         {p.politica === null ? "—" : num(p.politica)}
         <span className="text-muted-foreground"> / </span>
-        <span className={divergente ? "font-semibold text-amber-700 dark:text-amber-400" : ""}>
+        <span
+          className={
+            divergente ? "font-semibold text-amber-700 dark:text-amber-400" : ""
+          }
+        >
           {p.politicaPlano === null ? "—" : num(p.politicaPlano)}
         </span>
       </span>
