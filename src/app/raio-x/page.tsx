@@ -307,31 +307,48 @@ function Painel({
           }
           tom="turquesa"
         />
-        {/* Os dois forecasts no mesmo card: são a mesma previsão antes e
-            depois do ajuste do analista, e o que interessa é a diferença
-            entre eles — separá-los em dois cards obrigaria a subtrair de
-            cabeça. */}
-        <Card>
-          <CardContent className="pt-6">
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <TrendingUp className="size-4" />
-              Forecast
-            </p>
-            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-              <span>
-                <span className="font-mono text-3xl font-semibold text-(--brand-petrol) tabular-nums dark:text-foreground">
-                  {num(dados.forecast.m0)}
-                </span>
-                <span className="ml-1 text-xs text-muted-foreground">M0</span>
-              </span>
-              <span>
-                <span className="font-mono text-xl font-semibold tabular-nums">
-                  {num(dados.forecast.m0Ajustado)}
-                </span>
-                <span className="ml-1 text-xs text-muted-foreground">ajustado</span>
+        {/* Os dois forecasts num card só, partido ao meio por uma linha
+            pontilhada: são a mesma previsão antes e depois do ajuste, e o que
+            interessa é a diferença entre elas. Em cards separados o leitor
+            teria de subtrair de cabeça; empilhados sem divisória, leria os dois
+            números como um só. O M0 fica maior porque é o oficial — o ajustado
+            é leitura de apoio. */}
+        <Card className="relative overflow-hidden border-t-4 border-t-amber-500">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-16 -right-16 size-40 rounded-full bg-amber-500/15 blur-2xl"
+          />
+          <CardContent className="relative pt-6">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                Forecast
+              </p>
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                <TrendingUp className="size-4.5" />
               </span>
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+
+            <div className="mt-2 flex items-baseline justify-between gap-2">
+              <span className="font-mono text-4xl font-semibold tracking-tight text-amber-700 tabular-nums dark:text-amber-400">
+                {num(dados.forecast.m0)}
+              </span>
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                M0
+              </span>
+            </div>
+
+            <div className="my-2 border-t border-dashed" />
+
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-mono text-2xl font-semibold text-sky-700 tabular-nums dark:text-sky-400">
+                {num(dados.forecast.m0Ajustado)}
+              </span>
+              <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                ajustado
+              </span>
+            </div>
+
+            <p className="mt-2 text-xs text-muted-foreground">
               {dados.forecast.snapshot
                 ? `${dados.forecast.filiais} filial(is) · carga de ${dados.forecast.snapshot.toLocaleDateString("pt-BR", { timeZone: "UTC" })}`
                 : "sem forecast nesta competência"}
@@ -339,7 +356,7 @@ function Painel({
             {/* O ajuste só aparece quando existe: repetir "sem ajuste" em todo
                 item treinaria o olho a ignorar a linha. */}
             {Math.abs(dados.forecast.m0Ajustado - dados.forecast.m0) > 0.5 ? (
-              <p className="mt-1 flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+              <p className="mt-1 flex items-center gap-1 text-xs text-sky-700 dark:text-sky-400">
                 {dados.forecast.m0Ajustado > dados.forecast.m0 ? (
                   <ArrowUpRight className="size-3" />
                 ) : (
@@ -350,6 +367,7 @@ function Painel({
             ) : null}
           </CardContent>
         </Card>
+
         <Kpi
           icone={PackageCheck}
           tom="violeta"
@@ -672,8 +690,10 @@ function LinhaDivisao({
               <thead>
                 <tr className="border-b text-xs text-muted-foreground">
                   <th className="py-2 text-left font-medium">Grupo</th>
+                  <th className="py-2 text-left font-medium">Representante</th>
                   <th className="py-2 text-right font-medium">Clientes</th>
-                  <th className="py-2 text-right font-medium">Contratado</th>
+                  <th className="py-2 text-right font-medium">Qtd inicial</th>
+                  <th className="py-2 text-right font-medium">Qtd final</th>
                   <th className="py-2 text-right font-medium">Vendido</th>
                   <th className="py-2 text-right font-medium">Fora do contrato</th>
                   <th className="py-2 text-right font-medium">Atingimento</th>
@@ -714,10 +734,21 @@ function LinhaGrupo({ grupo: g }: { grupo: GrupoContrato }) {
           ) : null}
         </div>
       </td>
+      <td className="py-2 text-xs text-muted-foreground">
+        {/* Um representante em 177 dos 186 grupos. Quando há mais, dizer
+            quantos é mais honesto que escolher um e omitir o resto. */}
+        {g.representante ??
+          (g.representantes > 1 ? `${g.representantes} representantes` : "—")}
+      </td>
       <td className="py-2 text-right font-mono text-xs text-muted-foreground tabular-nums">
         {g.clientes}
       </td>
-      <td className="py-2 text-right font-mono tabular-nums">{num(g.contratado)}</td>
+      <td className="py-2 text-right font-mono text-muted-foreground tabular-nums">
+        {num(g.quantidadeInicial)}
+      </td>
+      <td className="py-2 text-right font-mono font-semibold tabular-nums">
+        {num(g.contratado)}
+      </td>
       <td className="py-2 text-right font-mono tabular-nums">{num(g.vendido)}</td>
       {/* Compra de outro CNPJ do mesmo grupo. Não entra no atingimento — o
           contrato é com o CNPJ — mas dizer que o grupo comprou por fora é

@@ -74,8 +74,19 @@ export type DivisaoSop = {
 export type GrupoContrato = {
   grupo: string;
   clientes: number;
+  /** `quantidade_final`: o que vale hoje no contrato. */
   contratado: number;
-  reserva: number;
+  /**
+   * `reserva_final_contrato`: a quantidade com que o contrato começou.
+   *
+   * Difere da final em 397 das 34.063 linhas de agosto — poucas linhas, mas
+   * 7.659 unidades. Ver as duas lado a lado mostra o que foi renegociado.
+   */
+  quantidadeInicial: number;
+  /** Quem responde pelo grupo; `null` quando há mais de um. */
+  representante: string | null;
+  /** Quantos representantes distintos atendem o grupo neste item. */
+  representantes: number;
   /** O que os CNPJs com contrato deste item compraram no mês. */
   vendido: number;
   /**
@@ -102,7 +113,8 @@ export type RaioXProduto = {
   contratos: {
     grupos: GrupoContrato[];
     total: number;
-    reserva: number;
+    /** Soma de `reserva_final_contrato`: com quanto os contratos começaram. */
+    quantidadeInicial: number;
     clientes: number;
   };
   vendas: {
@@ -186,15 +198,22 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
         grupo: string;
         clientes: number;
         contratado: number;
-        reserva: number;
+        inicial: number;
         docadastro: boolean;
+        representante: string | null;
+        representantes: number;
       }[]
     >(
       `SELECT COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
               COUNT(DISTINCT c.cnpj)::int AS clientes,
               SUM(c.quantidade_final)::float8 AS contratado,
-              SUM(c.reserva_final_contrato)::float8 AS reserva,
-              bool_or(g.cliente_grupo IS NOT NULL) AS docadastro
+              SUM(c.reserva_final_contrato)::float8 AS inicial,
+              bool_or(g.cliente_grupo IS NOT NULL) AS docadastro,
+              -- Com um representante só, mostra o nome; com vários, a tela diz
+              -- quantos. MIN em vez de um nome qualquer para a ordem não mudar
+              -- entre execuções.
+              MIN(c.representante) AS representante,
+              COUNT(DISTINCT c.representante)::int AS representantes
          FROM contratos c
          LEFT JOIN ${GRUPOS_POR_CNPJ} g ON g.cliente_cnpj = c.cnpj
         WHERE c.codigo = $1 AND ${cargaVigente("contratos", "c")}
@@ -328,7 +347,9 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
       grupo: g.grupo,
       clientes: g.clientes,
       contratado: g.contratado ?? 0,
-      reserva: g.reserva ?? 0,
+      quantidadeInicial: g.inicial ?? 0,
+      representante: g.representantes === 1 ? g.representante : null,
+      representantes: g.representantes,
       vendido: vendidoPorGrupo.get(g.grupo) ?? 0,
       vendidoForaDoContrato: foraDoContratoPorGrupo.get(g.grupo) ?? 0,
       origem: g.docadastro ? ("cadastro" as const) : ("arquivo" as const),
@@ -338,7 +359,7 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
   const contratos = {
     grupos: gruposCompletos,
     total: gruposCompletos.reduce((a, g) => a + g.contratado, 0),
-    reserva: gruposCompletos.reduce((a, g) => a + g.reserva, 0),
+    quantidadeInicial: gruposCompletos.reduce((a, g) => a + g.quantidadeInicial, 0),
     clientes: gruposCompletos.reduce((a, g) => a + g.clientes, 0),
   };
 
