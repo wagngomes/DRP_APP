@@ -37,14 +37,17 @@ export async function GET() {
       em: new Date().toISOString(),
     });
   } catch (erro) {
+    console.error("[health] banco inacessível:", erro);
     return NextResponse.json(
       {
         status: "degradado",
-        banco: {
-          conectado: false,
-          latenciaMs: Date.now() - inicio,
-          erro: erro instanceof Error ? erro.message : "falha desconhecida",
-        },
+        // A mensagem do erro fica no log, não na resposta.
+        //
+        // O endpoint é público (o proxy não cobre `/api`, e o nginx só bloqueia
+        // `/api/metrics`), e erro de conexão do Prisma costuma citar host, porta
+        // e às vezes usuário do banco. Quem monitora precisa do estado; quem
+        // investiga tem o log.
+        banco: { conectado: false, latenciaMs: Date.now() - inicio },
         em: new Date().toISOString(),
       },
       { status: 503 }

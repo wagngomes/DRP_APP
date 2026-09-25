@@ -1,12 +1,9 @@
-import Link from "next/link";
 import {
   Activity,
   ArrowDownRight,
   ArrowUpRight,
   Boxes,
   Flag,
-  ChevronDown,
-  ChevronRight,
   Handshake,
   Info,
   Landmark,
@@ -21,7 +18,6 @@ import {
   Truck,
   TrendingUp,
   UserRoundSearch,
-  Users,
 } from "lucide-react";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -37,22 +33,21 @@ import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import {
   carregarAbertura,
   carregarCurvas,
-  carregarRaioX,
   carregarMovimentoDoMes,
-  type PoliticaCd,
+  carregarRaioX,
+  listarMesesSop,
+  type RaioXProduto,
   type RecebimentoDia,
   type SaldoAbertura,
-  listarMesesSop,
-  type DivisaoSop,
-  type GrupoContrato,
-  type Medida,
-  type RaioXProduto,
 } from "@/lib/sop/consultas";
+import { Acerto, Kpi } from "@/components/raio-x/cartoes";
+import { BarraComposicao, LinhaDivisao } from "@/components/raio-x/composicao";
+import { mesBr, num, pct, TOM_FAIXA } from "@/components/raio-x/formato";
+import { PoliticaDoCd } from "@/components/raio-x/politica-cd";
 import { faixaAcuracidade } from "@/utils/acuracidade";
 import { BadgeDias } from "@/components/produto/badge-dias";
 import { diasDeEstoque } from "@/utils/dias-estoque";
 import { dataBr } from "@/lib/visao-geral/formato";
-import { parseRotaCompra } from "@/utils/rota-compra";
 
 export const dynamic = "force-dynamic";
 
@@ -76,72 +71,6 @@ function hrefAbrir(
   if (abertaAtual !== divisao) p.set("abrir", divisao);
   return `/raio-x?${p.toString()}`;
 }
-
-/**
- * Cores das divisões do consenso.
- *
- * Só "Contratos" e "Spot" ganham cor própria: são as duas que a venda consegue
- * reconhecer, e portanto as únicas que a tela consegue medir. As demais ficam
- * em cinza, o que já diz que delas não há realizado.
- */
-const COR_DIVISAO: Record<
-  string,
-  { barra: string; texto: string; fundo: string }
-> = {
-  contratos: {
-    barra: "bg-teal-500",
-    texto: "text-teal-700 dark:text-teal-300",
-    fundo: "bg-teal-500/10",
-  },
-  spot: {
-    barra: "bg-amber-500",
-    texto: "text-amber-700 dark:text-amber-400",
-    fundo: "bg-amber-500/10",
-  },
-};
-
-const NEUTRO = {
-  barra: "bg-slate-400",
-  texto: "text-muted-foreground",
-  fundo: "bg-muted",
-};
-
-const corDivisao = (nome: string) => COR_DIVISAO[nome.toLowerCase()] ?? NEUTRO;
-
-function num(v: number): string {
-  return Math.round(v).toLocaleString("pt-BR");
-}
-
-function pct(v: number | null, casas = 1): string {
-  return v === null ? "—" : `${(v * 100).toFixed(casas)}%`;
-}
-
-function mesBr(iso: string): string {
-  const [ano, mes] = iso.split("-");
-  const nomes = [
-    "janeiro",
-    "fevereiro",
-    "março",
-    "abril",
-    "maio",
-    "junho",
-    "julho",
-    "agosto",
-    "setembro",
-    "outubro",
-    "novembro",
-    "dezembro",
-  ];
-  return `${nomes[Number(mes) - 1]} de ${ano}`;
-}
-
-/** Verde, âmbar ou vermelho pela régua de acuracidade — nunca por número solto na tela. */
-const TOM_FAIXA = {
-  boa: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
-  razoavel: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
-  ruim: "bg-rose-500/10 text-rose-700 dark:text-rose-400",
-  sem: "bg-muted text-muted-foreground",
-} as const;
 
 export default async function RaioX({
   searchParams,
@@ -809,397 +738,6 @@ function Painel({
           </CardContent>
         </Card>
       ) : null}
-    </div>
-  );
-}
-
-/**
- * Cartão de número grande.
- *
- * O ícone vai num disco tinto em vez de solto ao lado do rótulo: dá peso visual
- * ao cartão sem aumentar a fonte, que é o que faria quatro cartões brigarem
- * entre si. O brilho no canto é um `radial-gradient` — zero peso.
- */
-function Kpi({
-  icone: Icone,
-  rotulo,
-  valor,
-  apoio,
-  tom = "petrol",
-}: {
-  icone: typeof Target;
-  rotulo: string;
-  valor: string;
-  apoio: string;
-  tom?: keyof typeof TOM_KPI;
-}) {
-  const t = TOM_KPI[tom];
-  return (
-    <Card className={`relative overflow-hidden ${t.borda}`}>
-      <div
-        aria-hidden
-        className={`pointer-events-none absolute -top-16 -right-16 size-40 rounded-full blur-2xl ${t.brilho}`}
-      />
-      <CardContent className="relative pt-6">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {rotulo}
-          </p>
-          <span
-            className={`grid size-9 shrink-0 place-items-center rounded-xl ${t.disco}`}
-          >
-            <Icone className="size-4.5" />
-          </span>
-        </div>
-        <p className="mt-2 font-mono text-4xl font-semibold tracking-tight text-(--brand-petrol) tabular-nums dark:text-foreground">
-          {valor}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">{apoio}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-const TOM_KPI = {
-  petrol: {
-    borda:
-      "border-t-4 border-t-(--brand-petrol) dark:border-t-(--brand-turquoise)",
-    disco:
-      "bg-(--brand-petrol)/10 text-(--brand-petrol) dark:bg-(--brand-turquoise)/15 dark:text-(--brand-turquoise)",
-    brilho: "bg-(--brand-petrol)/10 dark:bg-(--brand-turquoise)/10",
-  },
-  turquesa: {
-    borda: "border-t-4 border-t-(--brand-turquoise)",
-    disco:
-      "bg-(--brand-turquoise)/20 text-teal-700 dark:text-(--brand-turquoise)",
-    brilho: "bg-(--brand-turquoise)/20",
-  },
-  ambar: {
-    borda: "border-t-4 border-t-amber-500",
-    disco: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-    brilho: "bg-amber-500/15",
-  },
-  violeta: {
-    borda: "border-t-4 border-t-violet-500",
-    disco: "bg-violet-500/15 text-violet-700 dark:text-violet-400",
-    brilho: "bg-violet-500/15",
-  },
-} as const;
-
-function Acerto({
-  rotulo,
-  medida,
-  ausente,
-}: {
-  rotulo: string;
-  medida: Medida;
-  /** Texto a exibir quando não há previsão — diferente de previsão errada. */
-  ausente?: string;
-}) {
-  if (ausente) {
-    return (
-      <div className="rounded-lg border border-dashed p-3">
-        <p className="text-xs text-muted-foreground">{rotulo}</p>
-        <p className="mt-1 font-mono text-2xl font-semibold text-muted-foreground tabular-nums">
-          —
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">{ausente}</p>
-      </div>
-    );
-  }
-  const faixa = faixaAcuracidade(medida.acuracidade);
-  const sobra = medida.vies !== null && medida.vies > 0;
-  return (
-    <div className="rounded-lg border p-3">
-      <p className="text-xs text-muted-foreground">{rotulo}</p>
-      <p
-        className={`mt-1 inline-flex rounded-md px-2 py-0.5 font-mono text-2xl font-semibold tabular-nums ${TOM_FAIXA[faixa]}`}
-      >
-        {pct(medida.acuracidade)}
-      </p>
-      <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-        {medida.vies === null ? (
-          "sem realizado para comparar"
-        ) : (
-          <>
-            {sobra ? (
-              <ArrowUpRight className="size-3 text-amber-600" />
-            ) : (
-              <ArrowDownRight className="size-3 text-sky-600" />
-            )}
-            {`previu ${sobra ? "a mais" : "a menos"}: ${pct(Math.abs(medida.vies))}`}
-          </>
-        )}
-      </p>
-    </div>
-  );
-}
-
-/** A composição inteira numa barra: a proporção antes de qualquer número. */
-function BarraComposicao({
-  divisoes,
-  total,
-}: {
-  divisoes: DivisaoSop[];
-  total: number;
-}) {
-  if (total <= 0) return null;
-  return (
-    <div className="flex h-3 overflow-hidden rounded-full bg-muted">
-      {divisoes
-        .filter((d) => d.consenso > 0)
-        .map((d) => (
-          <div
-            key={d.divisao}
-            className={corDivisao(d.divisao).barra}
-            style={{ width: `${(d.consenso / total) * 100}%` }}
-            title={`${d.divisao}: ${num(d.consenso)}`}
-          />
-        ))}
-    </div>
-  );
-}
-
-function LinhaDivisao({
-  divisao: d,
-  total,
-  contratos,
-  aberta,
-  href,
-  consensoContratos,
-}: {
-  divisao: DivisaoSop;
-  total: number;
-  /** Detalhe a abrir sob a linha; só "Contratos" tem um. */
-  contratos: RaioXProduto["contratos"] | null;
-  aberta: boolean;
-  href: string;
-  consensoContratos: number;
-}) {
-  const cor = corDivisao(d.divisao);
-  const parte = total > 0 ? d.consenso / total : 0;
-  const podeAbrir = contratos !== null && contratos.grupos.length > 0;
-  const confere =
-    Math.abs(contratos ? contratos.total - consensoContratos : 0) < 0.5;
-
-  const linha = (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5">
-      {podeAbrir ? (
-        aberta ? (
-          <ChevronDown className="size-4 shrink-0 text-(--brand-turquoise)" />
-        ) : (
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-        )
-      ) : (
-        <span className="size-4 shrink-0" />
-      )}
-      <span className={`size-2.5 shrink-0 rounded-full ${cor.barra}`} />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-        {d.divisao}
-      </span>
-      <span className="font-mono text-xs text-muted-foreground tabular-nums">
-        {pct(parte, 0)}
-      </span>
-      <span
-        className={`font-mono text-sm font-semibold tabular-nums ${cor.texto}`}
-      >
-        {num(d.consenso)}
-      </span>
-      {/* Realizado ausente não é zero: a venda não carrega a marca da divisão,
-          então não há como apurar. Dizer "0" seria afirmar que não vendeu. */}
-      {d.realizado === null ? (
-        <span className="w-28 text-right text-xs text-muted-foreground">
-          sem apuração
-        </span>
-      ) : (
-        <span className="w-28 text-right font-mono text-sm tabular-nums">
-          {`→ ${num(d.realizado)}`}
-        </span>
-      )}
-      <span
-        className={`w-20 rounded-md px-1.5 py-0.5 text-right font-mono text-xs tabular-nums ${
-          TOM_FAIXA[faixaAcuracidade(d.erro === null ? null : 1 - d.erro)]
-        }`}
-      >
-        {d.erro === null ? "—" : `erro ${pct(d.erro, 0)}`}
-      </span>
-    </div>
-  );
-
-  return (
-    <div
-      className={`rounded-md border bg-muted/20 ${aberta ? "ring-1 ring-(--brand-turquoise)/40" : ""}`}
-    >
-      {podeAbrir ? (
-        <Link
-          href={href}
-          scroll={false}
-          className="block transition-colors hover:bg-muted/40"
-        >
-          {linha}
-        </Link>
-      ) : (
-        linha
-      )}
-
-      {/* O detalhe dos contratos vive aqui, sob a divisão que ele explica.
-          Solto no fim da página, obrigava a ligar duas coisas distantes: o
-          número de cima e a lista de baixo. */}
-      {aberta && contratos ? (
-        <div className="border-t bg-card px-3 py-3">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="secondary" className="gap-1">
-              <Users className="size-3" />
-              {`${contratos.clientes} cliente(s) em ${contratos.grupos.length} grupo(s)`}
-            </Badge>
-            {confere ? (
-              <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
-                confere com o S&amp;OP
-              </Badge>
-            ) : (
-              <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-400">
-                {`difere do S&OP em ${num(Math.abs(contratos.total - consensoContratos))} un`}
-              </Badge>
-            )}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-xs text-muted-foreground">
-                  <th className="py-2 text-left font-medium">Grupo</th>
-                  <th className="py-2 text-left font-medium">Representante</th>
-                  <th className="py-2 text-right font-medium">Clientes</th>
-                  <th className="py-2 text-right font-medium">Qtd inicial</th>
-                  <th className="py-2 text-right font-medium">Qtd final</th>
-                  <th className="py-2 text-right font-medium">Vendido</th>
-                  <th className="py-2 text-right font-medium">
-                    Fora do contrato
-                  </th>
-                  <th className="py-2 text-right font-medium">Atingimento</th>
-                </tr>
-              </thead>
-              <tbody>
-                {contratos.grupos.map((g) => (
-                  <LinhaGrupo key={g.grupo} grupo={g} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function LinhaGrupo({ grupo: g }: { grupo: GrupoContrato }) {
-  const atingimento = g.contratado > 0 ? g.vendido / g.contratado : null;
-  return (
-    <tr className="border-b last:border-0 hover:bg-muted/40">
-      <td className="py-2">
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/produto?q=${encodeURIComponent(g.grupo)}`}
-            className="truncate font-medium"
-            title={g.grupo}
-          >
-            {g.grupo}
-          </Link>
-          {/* Quem veio do arquivo e não do cadastro merece marca: é grupo que
-              ninguém cadastrou, e a soma dele não conversa com as outras telas. */}
-          {g.origem === "arquivo" ? (
-            <Badge
-              variant="outline"
-              className="shrink-0 text-[10px] text-muted-foreground"
-            >
-              fora do cadastro
-            </Badge>
-          ) : null}
-        </div>
-      </td>
-      <td className="py-2 text-xs text-muted-foreground">
-        {/* Um representante em 177 dos 186 grupos. Quando há mais, dizer
-            quantos é mais honesto que escolher um e omitir o resto. */}
-        {g.representante ??
-          (g.representantes > 1 ? `${g.representantes} representantes` : "—")}
-      </td>
-      <td className="py-2 text-right font-mono text-xs text-muted-foreground tabular-nums">
-        {g.clientes}
-      </td>
-      <td className="py-2 text-right font-mono text-muted-foreground tabular-nums">
-        {num(g.quantidadeInicial)}
-      </td>
-      <td className="py-2 text-right font-mono font-semibold tabular-nums">
-        {num(g.contratado)}
-      </td>
-      <td className="py-2 text-right font-mono tabular-nums">
-        {num(g.vendido)}
-      </td>
-      {/* Compra de outro CNPJ do mesmo grupo. Não entra no atingimento — o
-          contrato é com o CNPJ — mas dizer que o grupo comprou por fora é
-          informação comercial, e escondê-la no Spot faria o Spot parecer
-          demanda nova. */}
-      <td className="py-2 text-right font-mono text-xs tabular-nums text-muted-foreground">
-        {g.vendidoForaDoContrato > 0 ? num(g.vendidoForaDoContrato) : "—"}
-      </td>
-      <td className="py-2 text-right">
-        <span
-          className={`inline-block rounded-md px-1.5 py-0.5 font-mono text-xs tabular-nums ${
-            atingimento === null
-              ? TOM_FAIXA.sem
-              : atingimento >= 0.9
-                ? TOM_FAIXA.boa
-                : atingimento >= 0.6
-                  ? TOM_FAIXA.razoavel
-                  : TOM_FAIXA.ruim
-          }`}
-        >
-          {pct(atingimento, 0)}
-        </span>
-      </td>
-    </tr>
-  );
-}
-
-/** Política e rota de um CD, em uma linha só. */
-function PoliticaDoCd({
-  politica: p,
-  rotulos,
-}: {
-  politica: PoliticaCd;
-  rotulos: Record<string, string>;
-}) {
-  const rotulo = (codigo: string) => rotulos[codigo] ?? codigo;
-  const percurso = parseRotaCompra(p.rotaCompra);
-  // Plano diferente da política é o que se quer notar; iguais, não há nada a
-  // destacar e a cor só faria barulho.
-  const divergente =
-    p.politicaPlano !== null &&
-    p.politica !== null &&
-    p.politicaPlano !== p.politica;
-
-  return (
-    <div className="flex items-center gap-2.5 text-[11px]">
-      {/* Largura mínima, não fixa: as siglas dos CDs virtuais ("CAJ·11") são
-          mais longas que as normais e eram cortadas nas laterais. */}
-      <span className="inline-flex min-w-14 shrink-0 justify-center rounded bg-(--brand-petrol) px-1.5 py-0.5 font-mono leading-none font-bold whitespace-nowrap text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
-        {rotulo(p.filial)}
-      </span>
-      {/* A rota em siglas: "1036->1039->1006" não diz nada a quem lê,
-          "DF2 › CTL2 › CAJ" diz o caminho. */}
-      <span className="flex-1 truncate pr-2 font-mono text-muted-foreground">
-        {percurso.length > 0 ? percurso.map(rotulo).join(" › ") : "sem rota"}
-      </span>
-      <span className="shrink-0 font-mono tabular-nums">
-        {p.politica === null ? "—" : num(p.politica)}
-        <span className="text-muted-foreground"> / </span>
-        <span
-          className={
-            divergente ? "font-semibold text-amber-700 dark:text-amber-400" : ""
-          }
-        >
-          {p.politicaPlano === null ? "—" : num(p.politicaPlano)}
-        </span>
-      </span>
     </div>
   );
 }

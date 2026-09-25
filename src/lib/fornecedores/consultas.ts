@@ -14,6 +14,7 @@ import { simuladorPorCd } from "@/utils/cds-virtuais";
 import { carregarChegadas, chaveChegada } from "@/lib/reposicoes/chegadas";
 import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
 import { VAZIO, type Categoria, type PosicaoRompida } from "./agregacao";
+import { limitesDoMes } from "@/utils/mes";
 
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
 // Mesmas linhas do simulador que já trazem o estoque — nenhum join a mais.
@@ -33,13 +34,6 @@ export type DadosFornecedores = {
   linhasIgnoradas: { pedidos: number; transferencias: number };
 };
 
-function limitesDoMes(data: string): [string, string] {
-  const [ano, mes] = data.split("-").map(Number);
-  return [
-    new Date(Date.UTC(ano, mes - 1, 1)).toISOString().slice(0, 10),
-    new Date(Date.UTC(ano, mes, 1)).toISOString().slice(0, 10),
-  ];
-}
 
 export async function carregarFornecedores(
   data: string,
@@ -51,7 +45,7 @@ export async function carregarFornecedores(
    */
   faixa: FaixaId = "zero"
 ): Promise<DadosFornecedores> {
-  const [inicioMes, proximoMes] = limitesDoMes(data);
+  const { inicio: inicioMes, fim: proximoMes } = limitesDoMes(data);
 
   const [rompidas, chegadas, ignoradas, saldos] =
     await Promise.all([

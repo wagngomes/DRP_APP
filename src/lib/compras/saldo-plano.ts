@@ -16,6 +16,7 @@
  */
 import { prisma } from "@/lib/prisma";
 import { snapshotMensalSql } from "@/utils/dias-estoque";
+import { limitesDoMes } from "@/utils/mes";
 
 export type SaldoPlano = {
   /** Quantidade planejada para o mês. */
@@ -28,17 +29,10 @@ export type SaldoPlano = {
   saldo: number;
 };
 
-function limitesDoMes(data: string): [string, string] {
-  const [ano, mes] = data.split("-").map(Number);
-  return [
-    new Date(Date.UTC(ano, mes - 1, 1)).toISOString().slice(0, 10),
-    new Date(Date.UTC(ano, mes, 1)).toISOString().slice(0, 10),
-  ];
-}
 
 /** Saldo por código de produto, para o mês da data de referência. */
 export async function carregarSaldoPlano(data: string): Promise<Map<string, SaldoPlano>> {
-  const [inicioMes, proximoMes] = limitesDoMes(data);
+  const { inicio: inicioMes, fim: proximoMes } = limitesDoMes(data);
 
   const linhas = await prisma.$queryRawUnsafe<
     { codigo: string; plano: number; aberto: number; recebido: number; saldo: number }[]

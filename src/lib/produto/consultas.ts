@@ -16,6 +16,7 @@ import {
 import { projetar, type Projecao } from "@/utils/projecao-transferencias";
 import { projetarPedido, type ProjecaoPedido } from "@/utils/projecao-pedidos";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
+import { limitesDoMes } from "@/utils/mes";
 import {
   FATOR_CLIENTE,
   MESES_BASELINE,
@@ -145,13 +146,6 @@ export function lerRefrigeracao(valor: string | null | undefined): Refrigeracao 
   return "desconhecido";
 }
 
-function limitesDoMes(data: string): [string, string] {
-  const [ano, mes] = data.split("-").map(Number);
-  return [
-    new Date(Date.UTC(ano, mes - 1, 1)).toISOString().slice(0, 10),
-    new Date(Date.UTC(ano, mes, 1)).toISOString().slice(0, 10),
-  ];
-}
 
 /** Busca por código exato ou trecho da descrição. */
 export async function buscarProdutos(termo: string, limite = 40) {
@@ -211,7 +205,7 @@ export async function carregarDetalheProduto(
   data: string,
   parametros: { diasTransferencias: number; diasPedidos: number }
 ): Promise<DetalheProduto | null> {
-  const [inicioMes, proximoMes] = limitesDoMes(data);
+  const { inicio: inicioMes, fim: proximoMes } = limitesDoMes(data);
 
   const produto = await prisma.produtos.findUnique({
     where: { codigo },

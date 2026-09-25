@@ -12,6 +12,7 @@ import {
   snapshotMensalSql,
 } from "@/utils/dias-estoque";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
+import { limitesDoMes } from "@/utils/mes";
 
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
 const EST_TOTAL = somaSql(COLUNAS_ESTOQUE_TOTAL, "s");
@@ -68,19 +69,12 @@ export type ItemDisponibilidade = {
 };
 
 /** Limites do mês da data de referência (forecast tem escopo mensal). */
-function limitesDoMes(data: string): [string, string] {
-  const [ano, mes] = data.split("-").map(Number);
-  return [
-    new Date(Date.UTC(ano, mes - 1, 1)).toISOString().slice(0, 10),
-    new Date(Date.UTC(ano, mes, 1)).toISOString().slice(0, 10),
-  ];
-}
 
 export async function contarPorFaixa(
   data: string,
   fornecedor?: string
 ): Promise<ContagemFaixa[]> {
-  const [inicio, fim] = limitesDoMes(data);
+  const { inicio, fim } = limitesDoMes(data);
   const args: unknown[] = [data, inicio, fim];
   if (fornecedor) args.push(fornecedor);
 
@@ -109,7 +103,7 @@ export async function listarItens(
   analista?: string,
   limite = 500
 ): Promise<ItemDisponibilidade[]> {
-  const [inicio, fim] = limitesDoMes(data);
+  const { inicio, fim } = limitesDoMes(data);
   const args: unknown[] = [data, inicio, fim];
   if (fornecedor) args.push(fornecedor);
   const posFilial = args.length + 1;
@@ -173,7 +167,7 @@ export type ContagemCia = {
 };
 
 export async function contarCia(data: string, fornecedor?: string): Promise<ContagemCia[]> {
-  const [inicio, fim] = limitesDoMes(data);
+  const { inicio, fim } = limitesDoMes(data);
   const args: unknown[] = [data, inicio, fim];
   if (fornecedor) args.push(fornecedor);
 
@@ -203,7 +197,7 @@ export async function listarItensCia(
   analista?: string,
   limite = 500
 ): Promise<ItemDisponibilidade[]> {
-  const [inicio, fim] = limitesDoMes(data);
+  const { inicio, fim } = limitesDoMes(data);
   const args: unknown[] = [data, inicio, fim];
   if (fornecedor) args.push(fornecedor);
   const posFaixa = args.length + 1;

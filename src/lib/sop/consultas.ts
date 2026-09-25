@@ -2,6 +2,7 @@ import { carregarClientesFora, type ClienteFora, type CurvaMes } from "@/lib/ace
 import { lerConfiguracoes } from "@/lib/configuracao.server";
 import { prisma } from "@/lib/prisma";
 import { resolverAbertura, type Abertura } from "@/utils/abertura-mes";
+import { limitesDoMes } from "@/utils/mes";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
 import {
   COLUNAS_COMPRAS,
@@ -30,13 +31,6 @@ import { agruparPorRotulo } from "@/utils/rotulos";
  * daquela competência em vez de somar tudo que estiver lá.
  */
 
-/** Primeiro e último dia (exclusivo) do mês de uma data ISO. */
-export function limitesDoMes(mes: string): { inicio: string; fim: string } {
-  const d = new Date(`${mes}T00:00:00.000Z`);
-  const inicio = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-  const fim = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
-  return { inicio: inicio.toISOString().slice(0, 10), fim: fim.toISOString().slice(0, 10) };
-}
 
 /**
  * Recorte da carga que vale para uma competência.

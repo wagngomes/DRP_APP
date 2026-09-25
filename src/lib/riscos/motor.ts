@@ -31,6 +31,7 @@ import {
 } from "@/lib/reposicoes/chegadas";
 import type { Coberturas } from "@/lib/parametros";
 import type { PosicaoRisco, Severidade } from "./tipos";
+import { limitesDoMes } from "@/utils/mes";
 
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
 const EST_TOTAL = somaSql(COLUNAS_ESTOQUE_TOTAL, "s");
@@ -47,13 +48,6 @@ function somarDias(base: Date, dias: number): Date {
   return new Date(base.getTime() + dias * MS_POR_DIA);
 }
 
-function limitesDoMes(data: string): [string, string] {
-  const [ano, mes] = data.split("-").map(Number);
-  return [
-    new Date(Date.UTC(ano, mes - 1, 1)).toISOString().slice(0, 10),
-    new Date(Date.UTC(ano, mes, 1)).toISOString().slice(0, 10),
-  ];
-}
 
 /**
  * Posições válidas com estoque do dia.
@@ -63,7 +57,7 @@ function limitesDoMes(data: string): [string, string] {
  * forecast que nem aparece no simulador do CD conta como estoque zero.
  */
 async function carregarPosicoes(data: string) {
-  const [inicioMes, proximoMes] = limitesDoMes(data);
+  const { inicio: inicioMes, fim: proximoMes } = limitesDoMes(data);
 
   return prisma.$queryRawUnsafe<
     {

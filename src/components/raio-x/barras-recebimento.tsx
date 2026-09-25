@@ -82,15 +82,18 @@ export function BarrasRecebimento({
   const alturaBaixo = util.altura - alturaCima;
   const zero = MARGEM.topo + alturaCima;
 
-  const yCima = (v: number) => (maxEntrada > 0 ? zero - (v / maxEntrada) * alturaCima : zero);
-  const alturaSaida = (v: number) => (maxSaida > 0 ? (v / maxSaida) * alturaBaixo : 0);
+  const yCima = (v: number) =>
+    maxEntrada > 0 ? zero - (v / maxEntrada) * alturaCima : zero;
+  const alturaSaida = (v: number) =>
+    maxSaida > 0 ? (v / maxSaida) * alturaBaixo : 0;
 
   const passo = util.largura / dias.length;
   // Barra mais estreita que a coluna, com teto: com a `viewBox` larga, ocupar
   // a coluna inteira daria blocos de trinta pontos que parecem um histograma
   // contínuo, e o que se quer ver são eventos separados no tempo.
   const larguraBarra = Math.max(2, Math.min(passo - 8, 24));
-  const x = (i: number) => MARGEM.esquerda + i * passo + (passo - larguraBarra) / 2;
+  const x = (i: number) =>
+    MARGEM.esquerda + i * passo + (passo - larguraBarra) / 2;
 
   const comEntrada = dias.filter((d) => d.quantidade > 0).length;
   const comVenda = dias.filter((d) => d.vendido > 0).length;
@@ -300,7 +303,8 @@ export function BarrasRecebimento({
         ) : (
           <div className="space-y-1.5">
             <p className="font-medium">{`Dia ${diaAtivo.dia}`}</p>
-            {diaAtivo.entradasPorCd.length === 0 && diaAtivo.vendasPorCd.length === 0 ? (
+            {diaAtivo.entradasPorCd.length === 0 &&
+            diaAtivo.vendasPorCd.length === 0 ? (
               <p className="text-muted-foreground">Sem movimento neste dia.</p>
             ) : null}
             {diaAtivo.entradasPorCd.length > 0 ? (
@@ -310,7 +314,10 @@ export function BarrasRecebimento({
                   {`+${num(diaAtivo.quantidade)} entrada`}
                 </span>
                 {diaAtivo.entradasPorCd.map((c) => (
-                  <span key={c.filial} className="rounded bg-violet-500/10 px-1.5 py-0.5 font-mono">
+                  <span
+                    key={c.filial}
+                    className="rounded bg-violet-500/10 px-1.5 py-0.5 font-mono"
+                  >
                     {`${rotulo(c.filial)} ${num(c.quantidade)}`}
                     <span className="ml-1 text-muted-foreground">{`(${c.notas} NF)`}</span>
                   </span>
