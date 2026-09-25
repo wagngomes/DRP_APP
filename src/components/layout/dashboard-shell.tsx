@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
@@ -49,6 +49,51 @@ type DashboardUser = {
  * servidor, e continua valendo para quem digitar a URL na mão. Isto é cortesia
  * de interface — não oferecer a porta que vai bater na cara de quem abrir.
  */
+/**
+ * Onde a preferência de menu recolhido é guardada.
+ *
+ * Por navegador, e de propósito: é escolha de quem está olhando, não
+ * configuração da equipe como a data de referência.
+ */
+const CHAVE_MENU = "drp:menu-recolhido";
+
+/**
+ * A preferência como fonte externa, no formato que `useSyncExternalStore` pede.
+ *
+ * Tudo em try/catch: navegador com dados de site bloqueados lança ao ler e ao
+ * escrever, e derrubar a barra lateral inteira por causa de uma preferência de
+ * largura seria desproporcional — sem ela, o menu só volta a nascer expandido.
+ */
+const ouvintes = new Set<() => void>();
+
+function lerMenuRecolhido(): boolean {
+  try {
+    return window.localStorage.getItem(CHAVE_MENU) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function gravarMenuRecolhido(valor: boolean): void {
+  try {
+    window.localStorage.setItem(CHAVE_MENU, valor ? "1" : "0");
+  } catch {
+    // A preferência não sobrevive ao recarregamento, mas a tela funciona.
+  }
+  for (const avisar of ouvintes) avisar();
+}
+
+function assinarMenu(avisar: () => void): () => void {
+  ouvintes.add(avisar);
+  // `storage` dispara em outras abas: recolher aqui recolhe lá também, que é o
+  // comportamento esperado de uma preferência do navegador.
+  window.addEventListener("storage", avisar);
+  return () => {
+    ouvintes.delete(avisar);
+    window.removeEventListener("storage", avisar);
+  };
+}
+
 const NAV_ITEMS = [
   { label: "Painel", icon: LayoutDashboard, href: "/" },
   { label: "Cockpit", icon: Sparkles, href: "/cockpit" },
@@ -87,7 +132,16 @@ export function DashboardShell({
   papel: "admin" | "user";
   children: React.ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  /**
+   * Menu recolhido, lido do `localStorage`.
+   *
+   * `useSyncExternalStore` em vez de estado com efeito: o servidor renderiza
+   * sempre expandido (não tem como saber a preferência), e este hook é o que
+   * concilia as duas fontes sem produzir HTML diferente do servidor. Ler dentro
+   * de um efeito daria o mesmo resultado visual, mas com um render a mais e um
+   * salto de largura depois da tela já pintada.
+   */
+  const collapsed = useSyncExternalStore(assinarMenu, lerMenuRecolhido, () => false);
   /**
    * Gaveta do celular, separada de `collapsed` de propósito.
    *
@@ -100,6 +154,17 @@ export function DashboardShell({
   const [rolou, setRolou] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+
+  // A animação de largura só é ligada depois do primeiro pintado. Sem isso,
+  // quem deixou o menu recolhido via ele nascer aberto (o HTML do servidor) e
+  // *deslizar* até fechado — pior que o salto que queríamos evitar.
+  const barra = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const quadro = requestAnimationFrame(() => {
+      barra.current?.classList.add("transition-[transform,width]", "duration-200");
+    });
+    return () => cancelAnimationFrame(quadro);
+  }, []);
 
   // Quem rola é o documento (a barra lateral é sticky, não um painel próprio),
   // então o estado do header vem do scroll da janela.
@@ -150,7 +215,8 @@ export function DashboardShell({
           `md` tudo volta ao que era — as classes com prefixo desfazem as de
           celular, e o desktop não muda em nada. */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[transform,width] duration-200 md:sticky md:top-0 md:z-auto md:translate-x-0 ${
+        ref={barra}
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:z-auto md:translate-x-0 ${
           aberto ? "translate-x-0" : "-translate-x-full"
         } ${collapsed ? "md:w-18" : "md:w-64"}`}
       >
@@ -168,7 +234,7 @@ export function DashboardShell({
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setCollapsed((prev) => !prev)}
+            onClick={() => gravarMenuRecolhido(!collapsed)}
             title={collapsed ? "Expandir menu" : "Recolher menu"}
             className="hidden text-sidebar-foreground hover:bg-white/10 hover:text-sidebar-foreground md:inline-flex"
           >
