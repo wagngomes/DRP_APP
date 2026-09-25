@@ -461,8 +461,6 @@ export async function carregarCurvas(
   curvas: CurvaMes[];
   diaCorte: number;
   clientes: ClienteFora[];
-  /** Venda dia a dia no mês de referência, sem acumular. */
-  vendasPorDia: Map<number, number>;
 }> {
   const { inicio, fim } = limitesDoMes(mes);
   const d = new Date(`${inicio}T00:00:00.000Z`);
@@ -511,12 +509,6 @@ export async function carregarCurvas(
   const doMes = porMes.get(mesReferencia) ?? [];
   const diaCorte = doMes.length > 0 ? Math.max(...doMes.map((l) => l.dia)) : 0;
 
-  // A mesma linha diária que alimenta a curva, antes de acumular. Sai daqui
-  // porque já está em memória: pedir de novo ao banco seria uma consulta a mais
-  // para um dado que a função acabou de ler.
-  const vendasPorDia = new Map<number, number>();
-  for (const l of doMes) vendasPorDia.set(l.dia, (vendasPorDia.get(l.dia) ?? 0) + l.qtd);
-
   // Mesma regra da tela de aceleração, numa janela diferente: lá o mês corrente
   // é o de hoje, aqui é o de referência. A função é a mesma de propósito —
   // duas implementações da mesma comparação dariam números diferentes para a
@@ -524,7 +516,7 @@ export async function carregarCurvas(
   const clientes =
     diaCorte > 0 ? await carregarClientesFora(codigo, diaCorte, mesReferencia, desde) : [];
 
-  return { curvas, diaCorte, clientes, vendasPorDia };
+  return { curvas, diaCorte, clientes };
 }
 
 /** O saldo com que o mês começou, na carga marcada como abertura. */
@@ -587,56 +579,92 @@ export async function carregarAbertura(
   };
 }
 
-/** Movimento de um dia do mês: o que entrou e o que saiu. */
+/** Quanto um CD movimentou num dia. */
+export type MovimentoCd = { filial: string; quantidade: number; notas: number };
+
+/** Movimento de um dia do mês: o que entrou e o que saiu, e por onde. */
 export type RecebimentoDia = {
   dia: number;
   quantidade: number;
   notas: number;
   /** Venda do dia, positiva; o gráfico é que a desenha para baixo. */
   vendido: number;
+  entradasPorCd: MovimentoCd[];
+  vendasPorCd: MovimentoCd[];
 };
 
 /**
- * Entradas do produto dia a dia, com o mês inteiro no eixo.
+ * Entradas e vendas do produto dia a dia, abertas por CD.
  *
- * Os dias sem recebimento vêm com zero em vez de faltarem: um eixo que pula de
- * 3 para 17 esconde justamente a informação que interessa — que houve duas
+ * O total do dia é somado a partir da abertura por CD, não consultado à parte:
+ * duas consultas para o mesmo número acabariam divergindo, e a divergência
+ * apareceria como um rótulo que não bate com a soma do próprio tooltip.
+ *
+ * Os dias sem movimento vêm com zero em vez de faltarem: um eixo que pula de 3
+ * para 17 esconde justamente a informação que interessa — que houve duas
  * semanas sem nada entrar. Preencher aqui, e não no componente, mantém o
  * gráfico burro e a regra num lugar só.
  */
-export async function carregarRecebimentosDoMes(
+export async function carregarMovimentoDoMes(
   codigo: string,
-  mes: string,
-  /** Venda diária já lida por `carregarCurvas` — evita consultar duas vezes. */
-  vendasPorDia?: Map<number, number>
+  mes: string
 ): Promise<RecebimentoDia[]> {
   const { inicio, fim } = limitesDoMes(mes);
 
-  const linhas = await prisma.$queryRawUnsafe<{ dia: number; qtd: number; notas: number }[]>(
-    `SELECT extract(day FROM r.data)::int AS dia,
-            COALESCE(SUM(r.quantidade),0)::float8 AS qtd,
-            COUNT(*)::int AS notas
-       FROM recebimento r
-      WHERE r.codigo = $1 AND r.data >= $2::date AND r.data < $3::date
-      GROUP BY 1 ORDER BY 1`,
-    codigo,
-    inicio,
-    fim
-  );
+  const [entradas, vendas] = await Promise.all([
+    prisma.$queryRawUnsafe<{ dia: number; filial: string | null; qtd: number; notas: number }[]>(
+      `SELECT extract(day FROM r.data)::int AS dia, r.filial,
+              COALESCE(SUM(r.quantidade),0)::float8 AS qtd, COUNT(*)::int AS notas
+         FROM recebimento r
+        WHERE r.codigo = $1 AND r.data >= $2::date AND r.data < $3::date
+        GROUP BY 1, 2`,
+      codigo,
+      inicio,
+      fim
+    ),
+    prisma.$queryRawUnsafe<{ dia: number; filial: string | null; qtd: number; notas: number }[]>(
+      // O sinal vem invertido da origem (venda é saída de estoque), por isso o
+      // menos. Sem ele todas as vendas apareceriam negativas.
+      `SELECT extract(day FROM h.data)::int AS dia, h.filial,
+              SUM(-h.quantidade)::float8 AS qtd, COUNT(*)::int AS notas
+         FROM historico_vendas h
+        WHERE h.cod_prod = $1 AND h.data >= $2::date AND h.data < $3::date
+        GROUP BY 1, 2`,
+      codigo,
+      inicio,
+      fim
+    ),
+  ]);
 
-  const porDia = new Map(linhas.map((l) => [l.dia, l]));
-  const diasNoMes = new Date(`${fim}T00:00:00.000Z`).getUTCDate() === 1
-    ? new Date(new Date(`${fim}T00:00:00.000Z`).getTime() - 86400000).getUTCDate()
-    : 31;
+  const agrupar = (linhas: typeof entradas) => {
+    const porDia = new Map<number, MovimentoCd[]>();
+    for (const l of linhas) {
+      const lista = porDia.get(l.dia) ?? [];
+      lista.push({ filial: l.filial ?? "—", quantidade: l.qtd ?? 0, notas: l.notas });
+      porDia.set(l.dia, lista);
+    }
+    // Maior primeiro: o tooltip é lido de cima para baixo e o CD que mais pesa
+    // deve ser o primeiro a aparecer.
+    for (const lista of porDia.values()) lista.sort((a, b) => b.quantidade - a.quantidade);
+    return porDia;
+  };
 
-  return Array.from({ length: diasNoMes }, (_, i) => {
+  const porDiaEntrada = agrupar(entradas);
+  const porDiaVenda = agrupar(vendas);
+
+  const ultimoDia = new Date(new Date(`${fim}T00:00:00.000Z`).getTime() - 86400000).getUTCDate();
+
+  return Array.from({ length: ultimoDia }, (_, i) => {
     const dia = i + 1;
-    const l = porDia.get(dia);
+    const entradasPorCd = porDiaEntrada.get(dia) ?? [];
+    const vendasPorCd = porDiaVenda.get(dia) ?? [];
     return {
       dia,
-      quantidade: l?.qtd ?? 0,
-      notas: l?.notas ?? 0,
-      vendido: vendasPorDia?.get(dia) ?? 0,
+      quantidade: entradasPorCd.reduce((a, c) => a + c.quantidade, 0),
+      notas: entradasPorCd.reduce((a, c) => a + c.notas, 0),
+      vendido: vendasPorCd.reduce((a, c) => a + c.quantidade, 0),
+      entradasPorCd,
+      vendasPorCd,
     };
   });
 }

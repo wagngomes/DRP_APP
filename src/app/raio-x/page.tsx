@@ -30,11 +30,12 @@ import { exigirSessao } from "@/lib/autorizacao";
 import { CurvaAcumulada } from "@/components/aceleracao/curva-acumulada";
 import type { ClienteFora, CurvaMes } from "@/lib/aceleracao/consultas";
 import { BarrasRecebimento } from "@/components/raio-x/barras-recebimento";
+import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import {
   carregarAbertura,
   carregarCurvas,
   carregarRaioX,
-  carregarRecebimentosDoMes,
+  carregarMovimentoDoMes,
   type RecebimentoDia,
   type SaldoAbertura,
   listarMesesSop,
@@ -139,16 +140,13 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
   const codigo = primeiro(params.codigo);
 
   const abrir = primeiro(params.abrir);
-  const [dados, curva, abertura] = await Promise.all([
+  const [dados, curva, abertura, entradas, rotulos] = await Promise.all([
     codigo && mes ? carregarRaioX(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarCurvas(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarAbertura(codigo, mes) : Promise.resolve(null),
+    codigo && mes ? carregarMovimentoDoMes(codigo, mes) : Promise.resolve(null),
+    carregarRotulosFiliais(),
   ]);
-
-  // Depende da curva: a venda diária já foi lida lá, e pedi-la de novo ao banco
-  // seria uma consulta a mais para um dado que está em memória.
-  const entradas =
-    codigo && mes ? await carregarRecebimentosDoMes(codigo, mes, curva?.vendasPorDia) : null;
 
   return (
     <DashboardShell
@@ -251,7 +249,7 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
         ) : !dados ? (
           <Vazio texto={`Produto ${codigo} não encontrado no cadastro.`} />
         ) : (
-          <Painel dados={dados} curva={curva} abrir={abrir} abertura={abertura} entradas={entradas} />
+          <Painel dados={dados} curva={curva} abrir={abrir} abertura={abertura} entradas={entradas} rotulos={Object.fromEntries(rotulos)} />
         )}
       </div>
       </div>
@@ -273,12 +271,14 @@ function Painel({
   abrir,
   abertura,
   entradas,
+  rotulos,
 }: {
   dados: RaioXProduto;
   curva: { curvas: CurvaMes[]; diaCorte: number; clientes: ClienteFora[] } | null;
   abrir?: string;
   abertura: SaldoAbertura | null;
   entradas: RecebimentoDia[] | null;
+  rotulos: Record<string, string>;
 }) {
   const { acerto } = dados;
 
@@ -531,6 +531,35 @@ function Painel({
                   consensoContratos={dados.consensoContratos}
                 />
               ))}
+
+              {/* Fecha a lista somando tudo, no mesmo desenho das linhas acima
+                  para a soma ser lida na mesma coluna de cada parcela. O
+                  realizado do total inclui o Spot, que não tem linha própria
+                  entre as divisões apuráveis — sem isso o total não fecharia
+                  com o card de vendido lá em cima. */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border-2 border-(--brand-petrol)/30 bg-(--brand-petrol)/5 px-3 py-2.5 dark:border-(--brand-turquoise)/30 dark:bg-(--brand-turquoise)/5">
+                <span className="size-4 shrink-0" />
+                <span className="size-2.5 shrink-0 rounded-full bg-(--brand-petrol) dark:bg-(--brand-turquoise)" />
+                <span className="min-w-0 flex-1 text-sm font-semibold">Total do mês</span>
+                <span className="font-mono text-xs text-muted-foreground tabular-nums">100%</span>
+                <span className="font-mono text-base font-bold text-(--brand-petrol) tabular-nums dark:text-(--brand-turquoise)">
+                  {num(dados.consensoTotal)}
+                </span>
+                <span className="w-28 text-right font-mono text-base font-bold tabular-nums">
+                  {`→ ${num(dados.vendas.total)}`}
+                </span>
+                <span
+                  className={`w-20 rounded-md px-1.5 py-0.5 text-right font-mono text-xs font-semibold tabular-nums ${
+                    TOM_FAIXA[
+                      faixaAcuracidade(
+                        acerto.consenso.erro === null ? null : 1 - acerto.consenso.erro
+                      )
+                    ]
+                  }`}
+                >
+                  {acerto.consenso.erro === null ? "—" : `erro ${pct(acerto.consenso.erro, 0)}`}
+                </span>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -623,7 +652,7 @@ function Painel({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <BarrasRecebimento dias={entradas} />
+            <BarrasRecebimento dias={entradas} rotulos={rotulos} />
           </CardContent>
         </Card>
       ) : null}
