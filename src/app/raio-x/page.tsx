@@ -175,7 +175,7 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
       <div className="relative space-y-5">
         {/* Malha das telas de análise: dá profundidade ao cabeçalho sem
             competir com os números, e é CSS puro. */}
-        <div className="relative overflow-hidden rounded-xl border bg-card p-6">
+        <div className="relative overflow-hidden rounded-xl border bg-card p-4">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 opacity-[0.07] dark:opacity-[0.12]"
@@ -187,14 +187,14 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
               maskImage: "radial-gradient(ellipse 80% 120% at 30% 0%, black, transparent)",
             }}
           />
-          <div className="relative space-y-4">
-            <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+          <div className="relative">
+            <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
                 <ScanLine className="size-3.5" />
                 Raio-X do produto
               </p>
-              <h1 className="mt-1 text-3xl font-semibold tracking-tight text-(--brand-petrol) dark:text-foreground">
+              <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-(--brand-petrol) dark:text-foreground">
                 {dados ? (dados.descricao ?? dados.codigo) : "Composição da demanda"}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -235,6 +235,50 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
               ) : null}
             </div>
 
+              {/* GET simples: o recorte vira URL e o link é compartilhável.
+                  Fica na mesma linha do título, não abaixo: empilhado, o
+                  cabeçalho tomava um terço da tela antes do primeiro número. */}
+              <form action="/raio-x" className="flex flex-wrap items-end gap-2 pt-1">
+                <div className="space-y-1.5">
+                <label htmlFor="codigo" className="text-xs text-muted-foreground">
+                  Produto
+                </label>
+                    <div className="relative">
+                  <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="codigo"
+                    name="codigo"
+                    defaultValue={codigo ?? ""}
+                    placeholder="Código"
+                    className="h-9 w-44 pl-8"
+                  />
+                </div>
+                </div>
+                <div className="space-y-1.5">
+                <label htmlFor="mes" className="text-xs text-muted-foreground">
+                  Competência
+                </label>
+                <select
+                  id="mes"
+                  name="mes"
+                  defaultValue={mes}
+                  className="h-9 rounded-md border bg-transparent px-3 text-sm"
+                >
+                  {meses.map((m) => (
+                    <option key={m} value={m}>
+                      {mesBr(m)}
+                    </option>
+                  ))}
+                </select>
+                </div>
+                <Button
+                type="submit"
+                className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
+              >
+                Analisar
+              </Button>
+              </form>
+
             {/* Política e rota por CD, encostadas à direita do cabeçalho.
                 
                 Aqui e não em card próprio: é contexto para ler o resto, não
@@ -260,47 +304,6 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
             ) : null}
             </div>
 
-            {/* GET simples: o recorte vira URL e o link é compartilhável. */}
-            <form action="/raio-x" className="flex flex-wrap items-end gap-2">
-              <div className="space-y-1.5">
-                <label htmlFor="codigo" className="text-xs text-muted-foreground">
-                  Código do produto
-                </label>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="codigo"
-                    name="codigo"
-                    defaultValue={codigo ?? ""}
-                    placeholder="Ex.: 203087"
-                    className="w-52 pl-8"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="mes" className="text-xs text-muted-foreground">
-                  Competência
-                </label>
-                <select
-                  id="mes"
-                  name="mes"
-                  defaultValue={mes}
-                  className="h-9 rounded-md border bg-transparent px-3 text-sm"
-                >
-                  {meses.map((m) => (
-                    <option key={m} value={m}>
-                      {mesBr(m)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <Button
-                type="submit"
-                className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
-              >
-                Analisar
-              </Button>
-            </form>
           </div>
         </div>
 
