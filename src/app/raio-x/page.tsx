@@ -29,10 +29,13 @@ import { Input } from "@/components/ui/input";
 import { exigirSessao } from "@/lib/autorizacao";
 import { CurvaAcumulada } from "@/components/aceleracao/curva-acumulada";
 import type { ClienteFora, CurvaMes } from "@/lib/aceleracao/consultas";
+import { BarrasRecebimento } from "@/components/raio-x/barras-recebimento";
 import {
   carregarAbertura,
   carregarCurvas,
   carregarRaioX,
+  carregarRecebimentosDoMes,
+  type RecebimentoDia,
   type SaldoAbertura,
   listarMesesSop,
   type DivisaoSop,
@@ -41,6 +44,8 @@ import {
   type RaioXProduto,
 } from "@/lib/sop/consultas";
 import { faixaAcuracidade } from "@/utils/acuracidade";
+import { BadgeDias } from "@/components/produto/badge-dias";
+import { diasDeEstoque } from "@/utils/dias-estoque";
 import { dataBr } from "@/lib/visao-geral/formato";
 
 export const dynamic = "force-dynamic";
@@ -134,10 +139,11 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
   const codigo = primeiro(params.codigo);
 
   const abrir = primeiro(params.abrir);
-  const [dados, curva, abertura] = await Promise.all([
+  const [dados, curva, abertura, entradas] = await Promise.all([
     codigo && mes ? carregarRaioX(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarCurvas(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarAbertura(codigo, mes) : Promise.resolve(null),
+    codigo && mes ? carregarRecebimentosDoMes(codigo, mes) : Promise.resolve(null),
   ]);
 
   return (
@@ -241,7 +247,7 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
         ) : !dados ? (
           <Vazio texto={`Produto ${codigo} não encontrado no cadastro.`} />
         ) : (
-          <Painel dados={dados} curva={curva} abrir={abrir} abertura={abertura} />
+          <Painel dados={dados} curva={curva} abrir={abrir} abertura={abertura} entradas={entradas} />
         )}
       </div>
       </div>
@@ -262,11 +268,13 @@ function Painel({
   curva,
   abrir,
   abertura,
+  entradas,
 }: {
   dados: RaioXProduto;
   curva: { curvas: CurvaMes[]; diaCorte: number; clientes: ClienteFora[] } | null;
   abrir?: string;
   abertura: SaldoAbertura | null;
+  entradas: RecebimentoDia[] | null;
 }) {
   const { acerto } = dados;
 
@@ -301,39 +309,76 @@ function Painel({
       {/* A abertura vem antes: é o ponto de partida do mês, e lida depois dos
           números do fechamento vira curiosidade em vez de contexto. */}
       {abertura && abertura.data ? (
-        <Card className="border-l-4 border-slate-400">
-          <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-3 pt-6">
-            <div className="flex items-center gap-2">
-              <Flag className="size-4 text-muted-foreground" />
-              <div>
-                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Abertura do mês
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {`carga de ${dataBr(abertura.data)}`}
-                  {/* Palpite e escolha não são a mesma coisa, e confundi-los faz
-                      alguém defender um número que ninguém decidiu. */}
-                  {abertura.origem === "primeira-do-mes" ? (
-                    <span className="ml-1 text-amber-700 dark:text-amber-400">
-                      (primeira do mês, não marcada)
-                    </span>
-                  ) : null}
-                </p>
-              </div>
-            </div>
-            <SaldoInicial rotulo="Estoque" valor={abertura.estoque} icone={Boxes} />
-            <SaldoInicial rotulo="Compras em aberto" valor={abertura.compras} icone={ShoppingCart} />
-            <SaldoInicial
-              rotulo="Transferências em aberto"
-              valor={abertura.transferencias}
-              icone={Truck}
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+              <Flag className="size-4" />
+              Abertura do mês
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {`carga de ${dataBr(abertura.data)}`}
+              {/* Palpite e escolha não são a mesma coisa, e confundi-los faz
+                  alguém defender um número que ninguém decidiu. */}
+              {abertura.origem === "primeira-do-mes" ? (
+                <span className="ml-1 text-amber-700 dark:text-amber-400">
+                  (primeira do mês, não marcada — marque na tela de importação)
+                </span>
+              ) : null}
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Kpi
+              icone={Boxes}
+              rotulo="Estoque chão"
+              valor={num(abertura.estoque)}
+              apoio={`${abertura.filiais} filial(is)`}
             />
-            <span className="ml-auto text-xs text-muted-foreground">
-              {`${abertura.filiais} filial(is)`}
-            </span>
-          </CardContent>
-        </Card>
+            <Kpi
+              icone={Truck}
+              tom="turquesa"
+              rotulo="Transferências em aberto"
+              valor={num(abertura.transferencias)}
+              apoio="a caminho entre CDs"
+            />
+            <Kpi
+              icone={ShoppingCart}
+              tom="ambar"
+              rotulo="Pedidos de compra em aberto"
+              valor={num(abertura.compras)}
+              apoio="colocados e não recebidos"
+            />
+            {/* Estoque total = chão + o que está a caminho, sobre o consumo
+                diário do forecast do mês. Mesma fórmula e mesmas cores da tela
+                de Disponibilidade, pela mesma função — duas contas do mesmo
+                número acabariam divergindo. */}
+            <Card className="relative overflow-hidden border-t-4 border-t-slate-400">
+              <CardContent className="relative pt-6">
+                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Dias de estoque total
+                </p>
+                <div className="mt-2">
+                  <BadgeDias
+                    dias={diasDeEstoque(
+                      abertura.estoque + abertura.transferencias + abertura.compras,
+                      dados.forecast.m0
+                    )}
+                    rotulo="Cobertura"
+                  />
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {`${num(abertura.estoque + abertura.transferencias + abertura.compras)} un sobre forecast de ${num(dados.forecast.m0)}`}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </section>
       ) : null}
+
+      <h2 className="flex items-center gap-1.5 pt-1 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+        <Target className="size-4" />
+        Consenso e realizado
+      </h2>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi
@@ -560,6 +605,23 @@ function Painel({
             </CardContent>
           </Card>
         </div>
+      ) : null}
+
+      {/* As entradas ficam abaixo da venda: a curva diz quanto saiu, as barras
+          dizem quando repôs. Juntas mostram se a reposição acompanhou o ritmo
+          ou chegou em dois blocos no meio do mês. */}
+      {entradas && entradas.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <PackageCheck className="size-4 text-(--brand-turquoise)" />
+              Entradas no mês, dia a dia
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BarrasRecebimento dias={entradas} />
+          </CardContent>
+        </Card>
       ) : null}
 
     </div>
@@ -875,26 +937,5 @@ function LinhaGrupo({ grupo: g }: { grupo: GrupoContrato }) {
         </span>
       </td>
     </tr>
-  );
-}
-
-/** Um número da abertura: rótulo pequeno, valor grande, sem card próprio. */
-function SaldoInicial({
-  rotulo,
-  valor,
-  icone: Icone,
-}: {
-  rotulo: string;
-  valor: number;
-  icone: typeof Boxes;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <Icone className="size-4 text-muted-foreground" />
-      <div>
-        <p className="text-xs text-muted-foreground">{rotulo}</p>
-        <p className="font-mono text-xl font-semibold tabular-nums">{num(valor)}</p>
-      </div>
-    </div>
   );
 }

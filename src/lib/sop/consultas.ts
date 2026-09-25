@@ -574,3 +574,44 @@ export async function carregarAbertura(
     filiais: linhas[0]?.filiais ?? 0,
   };
 }
+
+/** Recebimento de um dia do mês. */
+export type RecebimentoDia = { dia: number; quantidade: number; notas: number };
+
+/**
+ * Entradas do produto dia a dia, com o mês inteiro no eixo.
+ *
+ * Os dias sem recebimento vêm com zero em vez de faltarem: um eixo que pula de
+ * 3 para 17 esconde justamente a informação que interessa — que houve duas
+ * semanas sem nada entrar. Preencher aqui, e não no componente, mantém o
+ * gráfico burro e a regra num lugar só.
+ */
+export async function carregarRecebimentosDoMes(
+  codigo: string,
+  mes: string
+): Promise<RecebimentoDia[]> {
+  const { inicio, fim } = limitesDoMes(mes);
+
+  const linhas = await prisma.$queryRawUnsafe<{ dia: number; qtd: number; notas: number }[]>(
+    `SELECT extract(day FROM r.data)::int AS dia,
+            COALESCE(SUM(r.quantidade),0)::float8 AS qtd,
+            COUNT(*)::int AS notas
+       FROM recebimento r
+      WHERE r.codigo = $1 AND r.data >= $2::date AND r.data < $3::date
+      GROUP BY 1 ORDER BY 1`,
+    codigo,
+    inicio,
+    fim
+  );
+
+  const porDia = new Map(linhas.map((l) => [l.dia, l]));
+  const diasNoMes = new Date(`${fim}T00:00:00.000Z`).getUTCDate() === 1
+    ? new Date(new Date(`${fim}T00:00:00.000Z`).getTime() - 86400000).getUTCDate()
+    : 31;
+
+  return Array.from({ length: diasNoMes }, (_, i) => {
+    const dia = i + 1;
+    const l = porDia.get(dia);
+    return { dia, quantidade: l?.qtd ?? 0, notas: l?.notas ?? 0 };
+  });
+}
