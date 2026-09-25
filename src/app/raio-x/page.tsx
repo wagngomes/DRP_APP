@@ -139,12 +139,16 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
   const codigo = primeiro(params.codigo);
 
   const abrir = primeiro(params.abrir);
-  const [dados, curva, abertura, entradas] = await Promise.all([
+  const [dados, curva, abertura] = await Promise.all([
     codigo && mes ? carregarRaioX(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarCurvas(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarAbertura(codigo, mes) : Promise.resolve(null),
-    codigo && mes ? carregarRecebimentosDoMes(codigo, mes) : Promise.resolve(null),
   ]);
+
+  // Depende da curva: a venda diária já foi lida lá, e pedi-la de novo ao banco
+  // seria uma consulta a mais para um dado que está em memória.
+  const entradas =
+    codigo && mes ? await carregarRecebimentosDoMes(codigo, mes, curva?.vendasPorDia) : null;
 
   return (
     <DashboardShell
@@ -615,7 +619,7 @@ function Painel({
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <PackageCheck className="size-4 text-(--brand-turquoise)" />
-              Entradas no mês, dia a dia
+              Entradas e vendas, dia a dia
             </CardTitle>
           </CardHeader>
           <CardContent>

@@ -457,7 +457,13 @@ export async function listarMesesSop(): Promise<string[]> {
 export async function carregarCurvas(
   codigo: string,
   mes: string
-): Promise<{ curvas: CurvaMes[]; diaCorte: number; clientes: ClienteFora[] }> {
+): Promise<{
+  curvas: CurvaMes[];
+  diaCorte: number;
+  clientes: ClienteFora[];
+  /** Venda dia a dia no mês de referência, sem acumular. */
+  vendasPorDia: Map<number, number>;
+}> {
   const { inicio, fim } = limitesDoMes(mes);
   const d = new Date(`${inicio}T00:00:00.000Z`);
   const desde = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 3, 1))
@@ -505,6 +511,12 @@ export async function carregarCurvas(
   const doMes = porMes.get(mesReferencia) ?? [];
   const diaCorte = doMes.length > 0 ? Math.max(...doMes.map((l) => l.dia)) : 0;
 
+  // A mesma linha diária que alimenta a curva, antes de acumular. Sai daqui
+  // porque já está em memória: pedir de novo ao banco seria uma consulta a mais
+  // para um dado que a função acabou de ler.
+  const vendasPorDia = new Map<number, number>();
+  for (const l of doMes) vendasPorDia.set(l.dia, (vendasPorDia.get(l.dia) ?? 0) + l.qtd);
+
   // Mesma regra da tela de aceleração, numa janela diferente: lá o mês corrente
   // é o de hoje, aqui é o de referência. A função é a mesma de propósito —
   // duas implementações da mesma comparação dariam números diferentes para a
@@ -512,7 +524,7 @@ export async function carregarCurvas(
   const clientes =
     diaCorte > 0 ? await carregarClientesFora(codigo, diaCorte, mesReferencia, desde) : [];
 
-  return { curvas, diaCorte, clientes };
+  return { curvas, diaCorte, clientes, vendasPorDia };
 }
 
 /** O saldo com que o mês começou, na carga marcada como abertura. */
@@ -575,8 +587,14 @@ export async function carregarAbertura(
   };
 }
 
-/** Recebimento de um dia do mês. */
-export type RecebimentoDia = { dia: number; quantidade: number; notas: number };
+/** Movimento de um dia do mês: o que entrou e o que saiu. */
+export type RecebimentoDia = {
+  dia: number;
+  quantidade: number;
+  notas: number;
+  /** Venda do dia, positiva; o gráfico é que a desenha para baixo. */
+  vendido: number;
+};
 
 /**
  * Entradas do produto dia a dia, com o mês inteiro no eixo.
@@ -588,7 +606,9 @@ export type RecebimentoDia = { dia: number; quantidade: number; notas: number };
  */
 export async function carregarRecebimentosDoMes(
   codigo: string,
-  mes: string
+  mes: string,
+  /** Venda diária já lida por `carregarCurvas` — evita consultar duas vezes. */
+  vendasPorDia?: Map<number, number>
 ): Promise<RecebimentoDia[]> {
   const { inicio, fim } = limitesDoMes(mes);
 
@@ -612,6 +632,11 @@ export async function carregarRecebimentosDoMes(
   return Array.from({ length: diasNoMes }, (_, i) => {
     const dia = i + 1;
     const l = porDia.get(dia);
-    return { dia, quantidade: l?.qtd ?? 0, notas: l?.notas ?? 0 };
+    return {
+      dia,
+      quantidade: l?.qtd ?? 0,
+      notas: l?.notas ?? 0,
+      vendido: vendasPorDia?.get(dia) ?? 0,
+    };
   });
 }
