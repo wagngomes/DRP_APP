@@ -21,9 +21,18 @@ import type { RecebimentoDia } from "@/lib/sop/consultas";
  * linha de base. Uma biblioteca de gráfico pesaria mais que o desenho inteiro.
  */
 
-const ALTURA = 260;
-const LARGURA = 760;
-const MARGEM = { topo: 18, direita: 12, baixo: 24, esquerda: 60 };
+/**
+ * A `viewBox` é larga de propósito.
+ *
+ * O SVG preserva a proporção ao escalar, então uma caixa de 760 por 260 ficava
+ * com barras pretas nas laterais dentro do card, que é bem mais largo que alto.
+ * Com 1220 por 300 a proporção acompanha o card, o desenho ocupa a largura toda
+ * e sobram uns quarenta pontos por coluna — espaço para o número de **todos**
+ * os trinta e um dias, que antes só cabiam de cinco em cinco.
+ */
+const ALTURA = 300;
+const LARGURA = 1220;
+const MARGEM = { topo: 20, direita: 14, baixo: 26, esquerda: 64 };
 
 function num(v: number): string {
   return Math.round(v).toLocaleString("pt-BR");
@@ -77,8 +86,10 @@ export function BarrasRecebimento({
   const alturaSaida = (v: number) => (maxSaida > 0 ? (v / maxSaida) * alturaBaixo : 0);
 
   const passo = util.largura / dias.length;
-  // Folga de um ponto entre barras: encostadas, 31 delas viram um bloco só.
-  const larguraBarra = Math.max(2, passo - 3);
+  // Barra mais estreita que a coluna, com teto: com a `viewBox` larga, ocupar
+  // a coluna inteira daria blocos de trinta pontos que parecem um histograma
+  // contínuo, e o que se quer ver são eventos separados no tempo.
+  const larguraBarra = Math.max(2, Math.min(passo - 8, 24));
   const x = (i: number) => MARGEM.esquerda + i * passo + (passo - larguraBarra) / 2;
 
   const comEntrada = dias.filter((d) => d.quantidade > 0).length;
@@ -92,16 +103,24 @@ export function BarrasRecebimento({
       <div className="relative overflow-x-auto">
         <svg
           viewBox={`0 0 ${LARGURA} ${ALTURA}`}
-          className="h-[260px] w-full min-w-[560px]"
+          className="h-[300px] w-full min-w-[900px]"
           onMouseLeave={() => setAtivo(null)}
         >
           <defs>
             {/* Malha da área de plotagem. Em `pattern` e não em linhas soltas:
                 são trinta e uma colunas, e desenhá-las uma a uma encheria o DOM
                 de nós que ninguém vai consultar. */}
-            <pattern id="malha-mov" width="24" height="22" patternUnits="userSpaceOnUse">
+            <pattern
+              id="malha-mov"
+              width={passo}
+              height="24"
+              patternUnits="userSpaceOnUse"
+              // Sem o deslocamento, a malha começa no zero do SVG e as
+              // verticais caem no meio das barras em vez de entre elas.
+              patternTransform={`translate(${MARGEM.esquerda} ${MARGEM.topo})`}
+            >
               <path
-                d="M 24 0 L 0 0 0 22"
+                d={`M ${passo} 0 L 0 0 0 24`}
                 fill="none"
                 stroke="currentColor"
                 className="text-border"
@@ -245,21 +264,27 @@ export function BarrasRecebimento({
             );
           })}
 
-          {/* Só os múltiplos de 5 recebem rótulo: 31 números não cabem. */}
-          {dias
-            .filter((d) => d.dia === 1 || d.dia % 5 === 0)
-            .map((d) => (
+          {/* Todos os dias rotulados, com os múltiplos de 5 em destaque para o
+              olho ter onde se apoiar ao contar. */}
+          {dias.map((d, i) => {
+            const marco = d.dia === 1 || d.dia % 5 === 0;
+            return (
               <text
                 key={d.dia}
-                x={MARGEM.esquerda + (d.dia - 1) * passo + passo / 2}
-                y={ALTURA - 8}
+                x={MARGEM.esquerda + i * passo + passo / 2}
+                y={ALTURA - 9}
                 textAnchor="middle"
-                className="fill-muted-foreground text-[10px]"
+                className={
+                  marco
+                    ? "fill-foreground text-[11px] font-semibold"
+                    : "fill-muted-foreground text-[11px]"
+                }
                 pointerEvents="none"
               >
                 {d.dia}
               </text>
-            ))}
+            );
+          })}
         </svg>
       </div>
 
