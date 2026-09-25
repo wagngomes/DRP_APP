@@ -226,3 +226,34 @@
     scrollbar-gutter: stable;
   }
 }
+
+/**
+ * Barra lateral recolhida, comandada pelo atributo que o servidor carimba no
+ * `<html>`.
+ *
+ * Em CSS e não em estado do React de propósito: o React só sabe da preferência
+ * depois de hidratar, e até lá a barra já foi pintada aberta. Aqui a largura
+ * certa vem no primeiro quadro, sem piscar.
+ *
+ * Só a partir de `md`: no celular a barra é gaveta e recolher não faz sentido.
+ */
+@media (min-width: 48rem) {
+  html[data-menu="recolhido"] .menu-lateral {
+    /* 4,5rem é o mesmo que `w-18` do Tailwind rendia. Literal em vez de
+     * `calc(var(--spacing) * 18)` para não depender de um detalhe interno do
+     * framework numa regra que precisa valer no primeiro quadro. */
+    width: 4.5rem;
+  }
+
+  html[data-menu="recolhido"] .menu-rotulo {
+    display: none;
+  }
+
+  html[data-menu="recolhido"] .menu-seta-recolher {
+    display: none;
+  }
+
+  html:not([data-menu="recolhido"]) .menu-seta-expandir {
+    display: none;
+  }
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
@@ -50,48 +50,25 @@ type DashboardUser = {
  * de interface — não oferecer a porta que vai bater na cara de quem abrir.
  */
 /**
- * Onde a preferência de menu recolhido é guardada.
+ * Alterna o menu recolhido.
  *
- * Por navegador, e de propósito: é escolha de quem está olhando, não
- * configuração da equipe como a data de referência.
- */
-const CHAVE_MENU = "drp:menu-recolhido";
-
-/**
- * A preferência como fonte externa, no formato que `useSyncExternalStore` pede.
+ * O estado vive no atributo `data-menu` do `<html>` e num cookie, não no React.
+ * O motivo é o piscar: o servidor renderiza antes de qualquer estado de
+ * cliente existir, então uma preferência guardada no navegador chegava sempre
+ * tarde — a barra vinha aberta no HTML e fechava depois de hidratar. Com o
+ * cookie, o servidor já manda o atributo certo e o CSS pinta a largura certa
+ * no primeiro quadro.
  *
- * Tudo em try/catch: navegador com dados de site bloqueados lança ao ler e ao
- * escrever, e derrubar a barra lateral inteira por causa de uma preferência de
- * largura seria desproporcional — sem ela, o menu só volta a nascer expandido.
+ * `max-age` de um ano e `samesite=lax`: é preferência de interface, não sessão.
  */
-const ouvintes = new Set<() => void>();
+function alternarMenu(): void {
+  const raiz = document.documentElement;
+  const recolhido = raiz.dataset.menu !== "recolhido";
 
-function lerMenuRecolhido(): boolean {
-  try {
-    return window.localStorage.getItem(CHAVE_MENU) === "1";
-  } catch {
-    return false;
-  }
-}
+  if (recolhido) raiz.dataset.menu = "recolhido";
+  else delete raiz.dataset.menu;
 
-function gravarMenuRecolhido(valor: boolean): void {
-  try {
-    window.localStorage.setItem(CHAVE_MENU, valor ? "1" : "0");
-  } catch {
-    // A preferência não sobrevive ao recarregamento, mas a tela funciona.
-  }
-  for (const avisar of ouvintes) avisar();
-}
-
-function assinarMenu(avisar: () => void): () => void {
-  ouvintes.add(avisar);
-  // `storage` dispara em outras abas: recolher aqui recolhe lá também, que é o
-  // comportamento esperado de uma preferência do navegador.
-  window.addEventListener("storage", avisar);
-  return () => {
-    ouvintes.delete(avisar);
-    window.removeEventListener("storage", avisar);
-  };
+  document.cookie = `drp-menu=${recolhido ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
 }
 
 const NAV_ITEMS = [
@@ -132,39 +109,19 @@ export function DashboardShell({
   papel: "admin" | "user";
   children: React.ReactNode;
 }) {
+
   /**
-   * Menu recolhido, lido do `localStorage`.
+   * Gaveta do celular, separada do menu recolhido de propósito.
    *
-   * `useSyncExternalStore` em vez de estado com efeito: o servidor renderiza
-   * sempre expandido (não tem como saber a preferência), e este hook é o que
-   * concilia as duas fontes sem produzir HTML diferente do servidor. Ler dentro
-   * de um efeito daria o mesmo resultado visual, mas com um render a mais e um
-   * salto de largura depois da tela já pintada.
-   */
-  const collapsed = useSyncExternalStore(assinarMenu, lerMenuRecolhido, () => false);
-  /**
-   * Gaveta do celular, separada de `collapsed` de propósito.
-   *
-   * São duas perguntas diferentes: `collapsed` é "o menu está estreito?", que
-   * só existe no desktop; `aberto` é "a gaveta está por cima do conteúdo?", que
-   * só existe no celular. Um estado só para as duas faria recolher no desktop
-   * abrir a gaveta ao girar o telefone.
+   * São duas perguntas diferentes: recolhido é "o menu está estreito?", que só
+   * existe no desktop e vive em CSS; `aberto` é "a gaveta está por cima do
+   * conteúdo?", que só existe no celular e precisa de estado. Um estado só para
+   * as duas faria recolher no desktop abrir a gaveta ao girar o telefone.
    */
   const [aberto, setAberto] = useState(false);
   const [rolou, setRolou] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
-
-  // A animação de largura só é ligada depois do primeiro pintado. Sem isso,
-  // quem deixou o menu recolhido via ele nascer aberto (o HTML do servidor) e
-  // *deslizar* até fechado — pior que o salto que queríamos evitar.
-  const barra = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const quadro = requestAnimationFrame(() => {
-      barra.current?.classList.add("transition-[transform,width]", "duration-200");
-    });
-    return () => cancelAnimationFrame(quadro);
-  }, []);
 
   // Quem rola é o documento (a barra lateral é sticky, não um painel próprio),
   // então o estado do header vem do scroll da janela.
@@ -215,10 +172,9 @@ export function DashboardShell({
           `md` tudo volta ao que era — as classes com prefixo desfazem as de
           celular, e o desktop não muda em nada. */}
       <aside
-        ref={barra}
-        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:z-auto md:translate-x-0 ${
+        className={`menu-lateral fixed inset-y-0 left-0 z-50 flex h-screen w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[transform,width] duration-200 md:sticky md:top-0 md:z-auto md:w-64 md:translate-x-0 ${
           aberto ? "translate-x-0" : "-translate-x-full"
-        } ${collapsed ? "md:w-18" : "md:w-64"}`}
+        }`}
       >
         <div className="flex h-16 items-center justify-end px-4">
           {/* No celular o botão fecha a gaveta; no desktop, estreita o menu. */}
@@ -234,11 +190,15 @@ export function DashboardShell({
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => gravarMenuRecolhido(!collapsed)}
-            title={collapsed ? "Expandir menu" : "Recolher menu"}
+            onClick={alternarMenu}
+            title="Recolher ou expandir o menu"
             className="hidden text-sidebar-foreground hover:bg-white/10 hover:text-sidebar-foreground md:inline-flex"
           >
-            {collapsed ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
+            {/* As duas setas ficam no HTML e o CSS mostra a certa. Escolher no
+                React faria a seta piscar pelo mesmo motivo que a largura
+                piscava: o servidor não sabe a preferência. */}
+            <ChevronLeft className="menu-seta-recolher size-4" />
+            <ChevronRight className="menu-seta-expandir size-4" />
           </Button>
         </div>
 
@@ -259,9 +219,9 @@ export function DashboardShell({
               }`}
             >
               <item.icon className="size-4 shrink-0" />
-              {/* `collapsed` é estado de desktop: na gaveta do celular o rótulo
+              {/* O rótulo some só no desktop recolhido: na gaveta do celular
                   aparece sempre, senão sobrariam doze ícones sem legenda. */}
-              <span className={collapsed ? "md:hidden" : ""}>{item.label}</span>
+              <span className="menu-rotulo">{item.label}</span>
             </button>
           ))}
         </nav>
