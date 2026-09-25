@@ -188,7 +188,8 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
             }}
           />
           <div className="relative space-y-4">
-            <div>
+            <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+            <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
                 <ScanLine className="size-3.5" />
                 Raio-X do produto
@@ -232,6 +233,28 @@ export default async function RaioX({ searchParams }: { searchParams: Promise<Se
                   ) : null}
                 </div>
               ) : null}
+            </div>
+
+            {/* Política e rota por CD, encostadas à direita do cabeçalho.
+                
+                Aqui e não em card próprio: é contexto para ler o resto, não
+                assunto — em card grande competia com os números do mês. Uma
+                linha por CD, porque as duas variam entre centros e a média
+                entre elas não é a política de ninguém. */}
+            {dados && dados.politicas.length > 0 ? (
+              <div className="shrink-0">
+                <p className="mb-1 flex items-center gap-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  <Route className="size-3" />
+                  Abastecimento
+                  <span className="ml-1 font-normal normal-case">política / plano</span>
+                </p>
+                <div className="grid gap-0.5">
+                  {dados.politicas.map((p) => (
+                    <PoliticaDoCd key={p.filial} politica={p} rotulos={Object.fromEntries(rotulos)} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
             </div>
 
             {/* GET simples: o recorte vira URL e o link é compartilhável. */}
@@ -413,30 +436,6 @@ function Painel({
             </Card>
           </div>
         </section>
-      ) : null}
-
-      {/* Política e rota por CD.
-          
-          Por CD e não um número só porque as duas variam: cada centro tem a sua
-          régua de cobertura e a sua cadeia de abastecimento, e a média entre
-          elas não é a política de ninguém. Compacto como os cartões de m-1/m-2
-          da tela de produto — é contexto para ler o resto, não o assunto. */}
-      {dados.politicas.length > 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Route className="size-4 text-(--brand-turquoise)" />
-              Política e abastecimento por CD
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {dados.politicas.map((p) => (
-                <PoliticaDoCd key={p.filial} politica={p} rotulos={rotulos} />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       ) : null}
 
       <h2 className="flex items-center gap-1.5 pt-1 text-sm font-semibold tracking-wide text-muted-foreground uppercase">
@@ -1033,7 +1032,7 @@ function LinhaGrupo({ grupo: g }: { grupo: GrupoContrato }) {
   );
 }
 
-/** Política de cobertura e rota de compra de um CD. */
+/** Política e rota de um CD, em uma linha só. */
 function PoliticaDoCd({
   politica: p,
   rotulos,
@@ -1043,48 +1042,28 @@ function PoliticaDoCd({
 }) {
   const rotulo = (codigo: string) => rotulos[codigo] ?? codigo;
   const percurso = parseRotaCompra(p.rotaCompra);
+  // Plano diferente da política é o que se quer notar; iguais, não há nada a
+  // destacar e a cor só faria barulho.
+  const divergente =
+    p.politicaPlano !== null && p.politica !== null && p.politicaPlano !== p.politica;
 
   return (
-    <div className="rounded-md border bg-muted/20 p-2.5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="inline-flex shrink-0 items-center rounded-md bg-(--brand-petrol) px-2 py-0.5 font-mono text-xs leading-none font-bold text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
-          {rotulo(p.filial)}
+    <div className="flex items-center gap-2 text-[11px]">
+      <span className="inline-flex w-11 shrink-0 justify-center rounded bg-(--brand-petrol) px-1 py-0.5 font-mono leading-none font-bold text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
+        {rotulo(p.filial)}
+      </span>
+      {/* A rota em siglas: "1036->1039->1006" não diz nada a quem lê,
+          "DF2 › CTL2 › CAJ" diz o caminho. */}
+      <span className="flex-1 truncate font-mono text-muted-foreground">
+        {percurso.length > 0 ? percurso.map(rotulo).join(" › ") : "sem rota"}
+      </span>
+      <span className="shrink-0 font-mono tabular-nums">
+        {p.politica === null ? "—" : num(p.politica)}
+        <span className="text-muted-foreground"> / </span>
+        <span className={divergente ? "font-semibold text-amber-700 dark:text-amber-400" : ""}>
+          {p.politicaPlano === null ? "—" : num(p.politicaPlano)}
         </span>
-        <span className="font-mono text-xs text-muted-foreground tabular-nums">
-          {`forecast ${num(p.forecastM0)}`}
-        </span>
-        {/* Política e plano lado a lado: quando divergem, é a diferença que
-            interessa, e em linhas separadas ela some. */}
-        <span className="ml-auto flex items-baseline gap-2 text-xs">
-          <span>
-            <span className="text-muted-foreground">pol </span>
-            <span className="font-mono font-semibold tabular-nums">
-              {p.politica === null ? "—" : num(p.politica)}
-            </span>
-          </span>
-          <span>
-            <span className="text-muted-foreground">plano </span>
-            <span
-              className={`font-mono font-semibold tabular-nums ${
-                p.politicaPlano !== null &&
-                p.politica !== null &&
-                p.politicaPlano !== p.politica
-                  ? "text-amber-700 dark:text-amber-400"
-                  : ""
-              }`}
-            >
-              {p.politicaPlano === null ? "—" : num(p.politicaPlano)}
-            </span>
-          </span>
-        </span>
-      </div>
-
-      {/* A rota em siglas: "1036->1039->1006" não diz nada a quem lê, "DF2 > ES
-          > CAJ" diz o caminho. */}
-      <p className="mt-1 flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
-        <Route className="size-3 shrink-0" />
-        {percurso.length > 0 ? percurso.map(rotulo).join(" › ") : "sem rota de compra"}
-      </p>
+      </span>
     </div>
   );
 }
