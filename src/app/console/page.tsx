@@ -1,6 +1,7 @@
 import { Terminal } from "lucide-react";
 
 import { ConsoleSql } from "@/components/console/console-sql";
+import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { exigirAdmin } from "@/lib/autorizacao";
 import { prisma } from "@/lib/prisma";
 
@@ -21,7 +22,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Console SQL · DRP_AI" };
 
 export default async function Console() {
-  await exigirAdmin();
+  const sessao = await exigirAdmin();
 
   // A lista alimenta o atalho lateral. `pg_stat_user_tables` em vez de
   // `information_schema`: traz só as tabelas de dados, sem as internas.
@@ -30,22 +31,28 @@ export default async function Console() {
   );
 
   return (
-    <div className="space-y-4">
-      <div>
-        <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
-          <Terminal className="size-3.5" />
-          Administração
-        </p>
-        <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-(--brand-petrol) dark:text-foreground">
-          Console SQL
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Consultas somente leitura, direto no banco. Escrita é recusada pelo
-          próprio Postgres, e cada consulta fica registrada no log de auditoria.
-        </p>
-      </div>
+    <DashboardShell
+      user={{ name: sessao.usuario.name, email: sessao.usuario.email }}
+      papel={sessao.usuario.papel}
+    >
+      <div className="space-y-4">
+        <div>
+          <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
+            <Terminal className="size-3.5" />
+            Administração
+          </p>
+          <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-(--brand-petrol) dark:text-foreground">
+            Console SQL
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Consultas somente leitura, direto no banco. Escrita é recusada pelo
+            próprio Postgres, e cada consulta fica registrada no log de
+            auditoria.
+          </p>
+        </div>
 
-      <ConsoleSql tabelas={tabelas.map((t) => t.relname)} />
-    </div>
+        <ConsoleSql tabelas={tabelas.map((t) => t.relname)} />
+      </div>
+    </DashboardShell>
   );
 }
