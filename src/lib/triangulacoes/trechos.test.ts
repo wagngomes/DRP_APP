@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { LinhaTriangulacao, ProdutoTriangulando } from "./consultas";
-import { montarTrechos, posicaoNaRota, totaisAgora } from "./trechos";
+import {
+  conferirLinhas,
+  filtrarPorOrigem,
+  montarTrechos,
+  posicaoNaRota,
+  totaisAgora,
+} from "./trechos";
 
 function etapa(de: string, para: string, chegada?: string) {
   return {
@@ -50,6 +56,92 @@ function produto(
     destinos: [],
   };
 }
+
+describe("filtrarPorOrigem e conferirLinhas", () => {
+  const base = [
+    produto("A", [
+      linha({
+        codigo: "A",
+        origem: "transferencia",
+        valor: 300,
+        etapas: [etapa("1", "2")],
+      }),
+      linha({
+        codigo: "A",
+        origem: "compra",
+        valor: 700,
+        etapas: [etapa("1", "2")],
+      }),
+    ]),
+    produto("B", [
+      linha({
+        codigo: "B",
+        origem: "compra",
+        valor: 50,
+        etapas: [etapa("2", "3")],
+      }),
+    ]),
+  ];
+
+  it("'tudo' devolve a lista intacta", () => {
+    expect(filtrarPorOrigem(base, "tudo")).toBe(base);
+  });
+
+  it("recorta por origem e tira produto que ficou sem linha", () => {
+    // O produto B só tem compra: filtrando transferência ele sai da lista, em
+    // vez de ficar como produto com zero documentos na contagem.
+    const so = filtrarPorOrigem(base, "transferencia");
+    expect(so).toHaveLength(1);
+    expect(so[0].codigo).toBe("A");
+    expect(so[0].linhas).toHaveLength(1);
+  });
+
+  it("a conferência acompanha o filtro", () => {
+    // É o que mantém a diferença fechando: se o total viesse da consulta, com
+    // filtro aplicado ele mediria outra população que a dos trechos.
+    expect(conferirLinhas(base).valor).toBe(1050);
+    expect(conferirLinhas(filtrarPorOrigem(base, "compra")).valor).toBe(750);
+    expect(conferirLinhas(filtrarPorOrigem(base, "transferencia")).valor).toBe(
+      300,
+    );
+  });
+
+  it("conta notas, pedidos e linhas sem percurso", () => {
+    const comOrfa = [
+      ...base,
+      produto("C", [linha({ codigo: "C", valor: 9, etapas: [] })]),
+    ];
+    const r = conferirLinhas(comOrfa);
+    expect(r).toMatchObject({
+      documentos: 4,
+      notas: 2,
+      pedidos: 2,
+      semPercurso: 1,
+    });
+  });
+
+  it("a soma dos trechos mais o sem-percurso reproduz o total, com e sem filtro", () => {
+    // O invariante da tela: o que a conferência mostra como "fora do percurso"
+    // é exatamente a diferença entre as duas leituras.
+    for (const f of ["tudo", "compra", "transferencia"] as const) {
+      const p = filtrarPorOrigem(
+        [
+          ...base,
+          produto("C", [
+            linha({ codigo: "C", origem: "compra", valor: 9, etapas: [] }),
+          ]),
+        ],
+        f,
+      );
+      const emTrechos = totaisAgora(montarTrechos(p)).valor;
+      const orfas = p
+        .flatMap((x) => x.linhas)
+        .filter((l) => l.etapas.length === 0)
+        .reduce((a, l) => a + (l.valor ?? 0), 0);
+      expect(emTrechos + orfas, f).toBe(conferirLinhas(p).valor);
+    }
+  });
+});
 
 describe("posicaoNaRota", () => {
   it("acha a perna pelo par de paradas", () => {

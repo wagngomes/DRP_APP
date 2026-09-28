@@ -292,6 +292,66 @@ export function montarTrechos(
   );
 }
 
+/** Recorte por origem do documento. */
+export type FiltroOrigem = "tudo" | "transferencia" | "compra";
+
+/**
+ * Recorta os produtos por origem, preservando a forma do resultado.
+ *
+ * Aplicado aqui, e não na consulta, porque `carregarTriangulacoes` é
+ * compartilhada com a tela por produto — um parâmetro a mais nela mudaria as
+ * duas. Filtrar depois custa nada (as linhas já estão em memória) e mantém a
+ * fonte única, que é o que faz os números das telas baterem.
+ *
+ * Produto que fica sem linha nenhuma sai da lista: mantê-lo daria produto com
+ * zero documentos na contagem.
+ */
+export function filtrarPorOrigem(
+  produtos: ProdutoTriangulando[],
+  origem: FiltroOrigem,
+): ProdutoTriangulando[] {
+  if (origem === "tudo") return produtos;
+
+  return produtos
+    .map((p) => ({ ...p, linhas: p.linhas.filter((l) => l.origem === origem) }))
+    .filter((p) => p.linhas.length > 0);
+}
+
+/**
+ * O que existe nas linhas, antes de virarem trechos.
+ *
+ * Serve para a conferência da tela: a diferença entre este valor e a soma dos
+ * trechos é exatamente o que não pôde ser posicionado — documento cuja rota
+ * traz sigla fora do cadastro. Calculado a partir das mesmas linhas que
+ * alimentam os trechos, e não dos totais da consulta, para continuar fechando
+ * quando há filtro aplicado.
+ */
+export function conferirLinhas(produtos: ProdutoTriangulando[]): {
+  valor: number;
+  documentos: number;
+  notas: number;
+  pedidos: number;
+  semPercurso: number;
+} {
+  let valor = 0;
+  let documentos = 0;
+  let notas = 0;
+  let pedidos = 0;
+  let semPercurso = 0;
+
+  for (const p of produtos) {
+    for (const l of p.linhas) {
+      documentos += 1;
+      valor += l.valor ?? 0;
+      if (l.origem === "transferencia") notas += 1;
+      else pedidos += 1;
+      if (l.etapas.length === 0) semPercurso += 1;
+    }
+  }
+
+  return { valor, documentos, notas, pedidos, semPercurso };
+}
+
 /** Totais do que está em trânsito agora, para o topo da tela. */
 export function totaisAgora(trechos: Trecho[]): {
   valor: number;

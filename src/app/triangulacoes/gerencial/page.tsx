@@ -8,7 +8,14 @@ import { PainelTrechos } from "@/components/triangulacoes/painel-trechos";
 import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
 import { exigirSessao } from "@/lib/autorizacao";
 import { carregarTriangulacoes } from "@/lib/triangulacoes/consultas";
-import { montarTrechos, totaisAgora } from "@/lib/triangulacoes/trechos";
+import {
+  conferirLinhas,
+  filtrarPorOrigem,
+  montarTrechos,
+  totaisAgora,
+  type FiltroOrigem,
+} from "@/lib/triangulacoes/trechos";
+import { FiltroOrigemDocumento } from "@/components/triangulacoes/filtro-origem";
 import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { lerParametros } from "@/lib/parametros.server";
@@ -46,11 +53,18 @@ function primeiro(v: string | string[] | undefined): string | undefined {
 export default async function TriangulacoesGerenciais({
   searchParams,
 }: {
-  searchParams: Promise<{ fornecedor?: string | string[] }>;
+  searchParams: Promise<{
+    fornecedor?: string | string[];
+    origem?: string | string[];
+  }>;
 }) {
   const sessao = await exigirSessao();
   const params = await searchParams;
   const fornecedor = primeiro(params.fornecedor);
+
+  const pedida = primeiro(params.origem);
+  const origem: FiltroOrigem =
+    pedida === "transferencia" || pedida === "compra" ? pedida : "tudo";
 
   const [dataReferencia, parametros] = await Promise.all([
     lerDataReferencia(),
@@ -62,14 +76,16 @@ export default async function TriangulacoesGerenciais({
     carregarRotulosFiliais(),
   ]);
 
-  const trechos = montarTrechos(dados.produtos, rotulos);
+  const produtos = filtrarPorOrigem(dados.produtos, origem);
+  const trechos = montarTrechos(produtos, rotulos);
   const totais = totaisAgora(trechos);
 
-  // O que a tela por produto conta e esta não: documento sem percurso não tem
-  // trecho onde aparecer. Mostrar a diferença com o valor fecha a conta entre as
-  // duas telas — sem isso, quem comparasse acharia um furo sem explicação.
-  const foraDoPercurso =
-    dados.valorTransferencia + dados.valorCompra - totais.valor;
+  // A conferência sai das mesmas linhas que viraram trechos, e não dos totais da
+  // consulta: assim continua fechando com o filtro aplicado. A diferença entre
+  // as duas é exatamente o documento sem percurso — rota com sigla fora do
+  // cadastro, que não tem trecho onde aparecer.
+  const linhas = conferirLinhas(produtos);
+  const foraDoPercurso = linhas.valor - totais.valor;
 
   return (
     <DashboardShell
@@ -93,10 +109,16 @@ export default async function TriangulacoesGerenciais({
           </div>
 
           <div className="flex items-end gap-2">
+            <FiltroOrigemDocumento
+              atual={origem}
+              basePath="/triangulacoes/gerencial"
+              extras={{ fornecedor }}
+            />
             <FiltroFornecedor
               fornecedores={dados.fornecedores}
               atual={fornecedor}
               basePath="/triangulacoes/gerencial"
+              extras={{ origem: origem === "tudo" ? undefined : origem }}
             />
             {/* Ponte para a outra tela: esta aponta onde olhar, aquela resolve o
                 caso concreto por produto. */}
@@ -126,7 +148,11 @@ export default async function TriangulacoesGerenciais({
                 {moeda(totais.valor)}
               </p>
               <p className="mt-0.5 font-mono text-xs text-muted-foreground tabular-nums">
-                {`${moeda(totais.valorTransferencia)} transf · ${moeda(totais.valorCompra)} compra`}
+                {origem === "compra"
+                  ? `${moeda(totais.valorCompra)} a chegar`
+                  : origem === "transferencia"
+                    ? `${moeda(totais.valorTransferencia)} rodando`
+                    : `${moeda(totais.valorTransferencia)} transf · ${moeda(totais.valorCompra)} compra`}
               </p>
             </CardContent>
           </Card>
@@ -165,15 +191,15 @@ export default async function TriangulacoesGerenciais({
                 {totais.documentos.toLocaleString("pt-BR")}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {`${dados.linhasTransferencia} NF · ${dados.linhasCompra} pedidos`}
+                {`${linhas.notas} NF · ${linhas.pedidos} pedidos`}
               </p>
             </CardContent>
           </Card>
         </div>
 
-        {dados.semPercurso > 0 ? (
+        {linhas.semPercurso > 0 ? (
           <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            {`${dados.semPercurso} documento(s) — ${moeda(foraDoPercurso)} — ficaram de fora: a rota traz sigla que não está no cadastro de filiais, e sem percurso não há trecho onde mostrá-los. É a diferença entre o total desta tela e o da tela por produto.`}
+            {`${linhas.semPercurso} documento(s) — ${moeda(foraDoPercurso)} — ficaram de fora: a rota traz sigla que não está no cadastro de filiais, e sem percurso não há trecho onde mostrá-los. É a diferença entre o total desta tela e o da tela por produto.`}
           </p>
         ) : null}
 
