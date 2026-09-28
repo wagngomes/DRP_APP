@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import type {
   ItemNoTrecho,
   ResumoTrecho,
+  RotaNoTrecho,
   Trecho,
 } from "@/lib/triangulacoes/trechos";
 import { parseRota } from "@/utils/projecao-transferencias";
@@ -50,6 +51,54 @@ function dataBr(d: Date | string | null): string {
   if (!d) return "—";
   const data = typeof d === "string" ? new Date(d) : d;
   return data.toLocaleDateString("pt-BR", { timeZone: "UTC" });
+}
+
+/**
+ * Barra da divisão entre as duas origens.
+ *
+ * Teal para transferência, âmbar para compra — a mesma convenção da tela por
+ * produto, para quem passa de uma à outra não ter de reaprender a cor. Um
+ * pedido de compra ainda vai chegar de fora; uma transferência já está rodando
+ * entre CDs, e a diferença muda o que se pode fazer a respeito.
+ */
+function DivisaoOrigem({
+  transferencia,
+  compra,
+}: {
+  transferencia: number;
+  compra: number;
+}) {
+  const total = transferencia + compra;
+  if (total <= 0) return null;
+
+  return (
+    <div className="mt-1.5 space-y-1">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className="bg-teal-500"
+          style={{ width: `${(transferencia / total) * 100}%` }}
+        />
+        <div
+          className="bg-amber-500"
+          style={{ width: `${(compra / total) * 100}%` }}
+        />
+      </div>
+      <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 font-mono text-[10px] tabular-nums">
+        {transferencia > 0 ? (
+          <span className="flex items-center gap-1 text-teal-700 dark:text-teal-300">
+            <Truck className="size-2.5" />
+            {`${moeda(transferencia)} rodando`}
+          </span>
+        ) : null}
+        {compra > 0 ? (
+          <span className="flex items-center gap-1 text-amber-700 dark:text-amber-400">
+            <ShoppingCart className="size-2.5" />
+            {`${moeda(compra)} a chegar`}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 /** Bloco de números de um lado do trecho. */
@@ -122,12 +171,84 @@ function Resumo({
         ) : null}
       </div>
 
+      {/* Só no presente: no futuro a divisão entre as origens não muda nada que
+          se possa fazer hoje, e a barra viraria enfeite. */}
+      {futuro ? null : (
+        <DivisaoOrigem
+          transferencia={resumo.valorTransferencia}
+          compra={resumo.valorCompra}
+        />
+      )}
+
       {resumo.proximaChegada ? (
         <p className="mt-1.5 font-mono text-[11px]">
           {`próxima chegada ${dataBr(resumo.proximaChegada)}`}
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Uma rota inteira, com a perna deste trecho destacada nela.
+ *
+ * É o que responde "este trecho é o começo, o meio ou o fim do caminho" — que
+ * o par de CDs sozinho não diz. As paradas já cumpridas ficam sólidas em cinza,
+ * a perna atual em cor, e o que falta em cinza claro tracejado.
+ *
+ * A cor da perna atual vem da origem que mais pesa nela: teal quando é
+ * transferência já rodando, âmbar quando é compra a chegar.
+ */
+function TrilhaRota({ rota }: { rota: RotaNoTrecho }) {
+  const dominaCompra = rota.valorCompra > rota.valorTransferencia;
+  const corAtual = dominaCompra
+    ? "bg-amber-500 text-white"
+    : "bg-teal-600 text-white dark:bg-teal-500";
+
+  return (
+    <span className="flex flex-wrap items-center gap-0.5">
+      {rota.paradas.map((parada, i) => {
+        // `posicao` é o índice da parada de chegada da perna atual; a perna
+        // ocupa, portanto, as paradas i-1 e i.
+        const naPerna =
+          rota.posicao >= 0 && (i === rota.posicao || i === rota.posicao - 1);
+        const cumprida = rota.posicao >= 0 && i < rota.posicao - 1;
+
+        return (
+          <span key={`${parada}-${i}`} className="flex items-center gap-0.5">
+            {i > 0 ? (
+              <span
+                className={`text-[10px] ${
+                  i === rota.posicao
+                    ? dominaCompra
+                      ? "text-amber-600"
+                      : "text-teal-600"
+                    : cumprida
+                      ? "text-muted-foreground"
+                      : "text-muted-foreground/30"
+                }`}
+              >
+                ›
+              </span>
+            ) : null}
+            <span
+              className={`rounded px-1.5 py-0.5 font-mono text-[10px] leading-none ${
+                naPerna
+                  ? `${corAtual} font-bold`
+                  : cumprida
+                    ? "bg-muted text-muted-foreground"
+                    : "border border-dashed border-muted-foreground/25 text-muted-foreground/50"
+              }`}
+            >
+              {parada}
+            </span>
+          </span>
+        );
+      })}
+      <span className="ml-1 font-mono text-[10px] text-muted-foreground tabular-nums">
+        {`${rota.documentos} doc · ${moeda(rota.valor)}`}
+      </span>
+    </span>
   );
 }
 
@@ -361,6 +482,26 @@ export function PainelTrechos({
                 <Resumo resumo={t.depois} futuro />
               </div>
             </button>
+
+            {/* As rotas que passam por aqui, na capa e não só no detalhe: sem
+                elas o par de CDs não diz se a carga está saindo ou chegando.
+                Três é o corte — 19 dos 40 trechos têm uma rota só, mas o maior
+                tem doze, e listar todas viraria parede de texto. */}
+            {t.rotas.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t bg-muted/20 px-3 py-2">
+                <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+                  {t.rotas.length === 1 ? "Rota" : `Rotas · ${t.rotas.length}`}
+                </span>
+                {t.rotas.slice(0, 3).map((r) => (
+                  <TrilhaRota key={r.rota} rota={r} />
+                ))}
+                {t.rotas.length > 3 ? (
+                  <span className="text-[10px] text-muted-foreground">
+                    {`+${t.rotas.length - 3} outras`}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
 
             {estaAberto ? (
               <div className="border-t">

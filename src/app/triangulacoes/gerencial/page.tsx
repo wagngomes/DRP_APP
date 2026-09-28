@@ -62,7 +62,7 @@ export default async function TriangulacoesGerenciais({
     carregarRotulosFiliais(),
   ]);
 
-  const trechos = montarTrechos(dados.produtos);
+  const trechos = montarTrechos(dados.produtos, rotulos);
   const totais = totaisAgora(trechos);
 
   // O que a tela por produto conta e esta não: documento sem percurso não tem

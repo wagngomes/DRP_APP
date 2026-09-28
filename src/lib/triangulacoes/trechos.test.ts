@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { LinhaTriangulacao, ProdutoTriangulando } from "./consultas";
-import { montarTrechos, totaisAgora } from "./trechos";
+import { montarTrechos, posicaoNaRota, totaisAgora } from "./trechos";
 
 function etapa(de: string, para: string, chegada?: string) {
   return {
@@ -51,7 +51,96 @@ function produto(
   };
 }
 
+describe("posicaoNaRota", () => {
+  it("acha a perna pelo par de paradas", () => {
+    expect(posicaoNaRota(["DF2", "CAJ", "ES", "LDA"], "CAJ", "ES")).toBe(2);
+    expect(posicaoNaRota(["DF2", "CAJ", "ES", "LDA"], "DF2", "CAJ")).toBe(1);
+    expect(posicaoNaRota(["DF2", "CAJ", "ES", "LDA"], "ES", "LDA")).toBe(3);
+  });
+
+  it("não se perde em rota que passa duas vezes pelo mesmo CD", () => {
+    // "ES > CAJ > ES" existe na base. Procurar só o destino acharia a perna
+    // errada e a tela mostraria a carga no começo do caminho estando no fim.
+    expect(posicaoNaRota(["ES", "CAJ", "ES"], "CAJ", "ES")).toBe(2);
+    expect(posicaoNaRota(["ES", "CAJ", "ES"], "ES", "CAJ")).toBe(1);
+  });
+
+  it("devolve -1 quando o par não está na rota", () => {
+    // Sigla fora do cadastro: melhor dizer "não sei" do que fingir a primeira.
+    expect(posicaoNaRota(["DF2", "CAJ"], "ES", "LDA")).toBe(-1);
+    expect(posicaoNaRota([], "A", "B")).toBe(-1);
+    // Par existente, mas fora de ordem: não é uma perna daquela rota.
+    expect(posicaoNaRota(["DF2", "CAJ", "ES"], "ES", "CAJ")).toBe(-1);
+  });
+});
+
 describe("montarTrechos", () => {
+  it("junta as rotas que passam pelo trecho, com a posição de cada uma", () => {
+    const siglas = new Map([
+      ["1", "DF2"],
+      ["2", "CAJ"],
+      ["3", "ES"],
+    ]);
+    const trechos = montarTrechos(
+      [
+        produto("A", [
+          linha({
+            codigo: "A",
+            rota: "DF2 > CAJ > ES",
+            valor: 100,
+            etapas: [etapa("1", "2")],
+          }),
+        ]),
+        produto("B", [
+          linha({
+            codigo: "B",
+            rota: "DF2 > CAJ",
+            valor: 900,
+            etapas: [etapa("1", "2")],
+          }),
+        ]),
+      ],
+      siglas,
+    );
+
+    const t = trechos.find((x) => x.id === "1->2")!;
+    // Ordenadas por valor: a que pesa mais aparece primeiro na capa.
+    expect(t.rotas.map((r) => r.rota)).toEqual(["DF2 > CAJ", "DF2 > CAJ > ES"]);
+    // Em ambas, este trecho é a primeira perna — chega na parada de índice 1.
+    expect(t.rotas.every((r) => r.posicao === 1)).toBe(true);
+    expect(t.rotas[0].valor).toBe(900);
+    expect(t.rotas[0].documentos).toBe(1);
+  });
+
+  it("separa por origem dentro da rota, que é o que dá a cor da trilha", () => {
+    const trechos = montarTrechos(
+      [
+        produto("A", [
+          linha({
+            codigo: "A",
+            rota: "A > B",
+            origem: "compra",
+            valor: 700,
+            etapas: [etapa("1", "2")],
+          }),
+          linha({
+            codigo: "A",
+            rota: "A > B",
+            origem: "transferencia",
+            valor: 300,
+            etapas: [etapa("1", "2")],
+          }),
+        ]),
+      ],
+      new Map([
+        ["1", "A"],
+        ["2", "B"],
+      ]),
+    );
+    expect(trechos[0].rotas[0].valorCompra).toBe(700);
+    expect(trechos[0].rotas[0].valorTransferencia).toBe(300);
+  });
+
   it("põe o documento em 'agora' no trecho atual e em 'depois' nos seguintes", () => {
     const trechos = montarTrechos([
       produto("A", [

@@ -25,8 +25,30 @@ import type { LinhaTriangulacao, ProdutoTriangulando } from "./consultas";
  * cor, o futuro em cinza.
  */
 
-import type { Etapa } from "@/utils/projecao-transferencias";
+import { parseRota, type Etapa } from "@/utils/projecao-transferencias";
 import { interpretarAgendamento, type Agendamento } from "@/utils/agendamento";
+
+/**
+ * Onde, dentro da rota, fica a perna que vai de `de` a `para`.
+ *
+ * Casa o **par** de paradas, não só o destino: existe rota que passa duas vezes
+ * pelo mesmo CD ("ES > CAJ > ES"), e procurar só o destino acertaria a perna
+ * errada — a tela mostraria a carga no começo do caminho quando ela está no fim.
+ *
+ * Devolve o índice da parada de chegada, ou -1 quando o par não está na rota
+ * (sigla fora do cadastro). Quem chama trata -1 como "posição desconhecida" em
+ * vez de fingir a primeira.
+ */
+export function posicaoNaRota(
+  paradas: string[],
+  de: string,
+  para: string,
+): number {
+  for (let i = 1; i < paradas.length; i++) {
+    if (paradas[i - 1] === de && paradas[i] === para) return i;
+  }
+  return -1;
+}
 
 /** Um documento parado ou previsto num trecho. */
 export type ItemNoTrecho = {
@@ -76,6 +98,34 @@ export type ResumoTrecho = {
   itens: ItemNoTrecho[];
 };
 
+/**
+ * Uma rota que passa por este trecho, com a posição do trecho dentro dela.
+ *
+ * Existe porque o trecho sozinho não diz se é começo, meio ou fim do caminho —
+ * e essa é a diferença entre "a carga acabou de sair" e "está na última perna".
+ * Um trecho pode pertencer a várias rotas: 19 dos 40 têm uma só, mas o maior
+ * tem doze, e por isso elas vêm ordenadas por valor, para a tela mostrar as que
+ * pesam e resumir o resto.
+ */
+export type RotaNoTrecho = {
+  /** A rota como vem da base, em siglas. */
+  rota: string;
+  /** As paradas já separadas, na ordem. */
+  paradas: string[];
+  /**
+   * Índice da parada onde **este** trecho chega.
+   *
+   * Casa o par (origem, destino) e não só o destino: há rota que passa duas
+   * vezes pelo mesmo CD ("ES > CAJ > ES"), e procurar só o destino acertaria a
+   * perna errada.
+   */
+  posicao: number;
+  documentos: number;
+  valor: number;
+  valorTransferencia: number;
+  valorCompra: number;
+};
+
 export type Trecho = {
   de: string;
   para: string;
@@ -83,6 +133,8 @@ export type Trecho = {
   id: string;
   agora: ResumoTrecho;
   depois: ResumoTrecho;
+  /** Rotas que passam por aqui, da que mais pesa para a que menos pesa. */
+  rotas: RotaNoTrecho[];
 };
 
 function resumoVazio(): ResumoTrecho {
@@ -161,8 +213,13 @@ function montarItem(
  * isso que faz as duas telas baterem: qualquer mudança na regra de triangulação
  * chega às duas ao mesmo tempo, sem ninguém precisar lembrar de replicar.
  */
-export function montarTrechos(produtos: ProdutoTriangulando[]): Trecho[] {
+export function montarTrechos(
+  produtos: ProdutoTriangulando[],
+  /** Código do CD para sigla: a rota da base vem em siglas, as etapas em códigos. */
+  siglas: Map<string, string> = new Map(),
+): Trecho[] {
   const mapa = new Map<string, Trecho>();
+  const sigla = (codigo: string) => siglas.get(codigo) ?? codigo;
 
   const doTrecho = (etapa: Etapa): Trecho => {
     const id = `${etapa.de}->${etapa.para}`;
@@ -174,11 +231,15 @@ export function montarTrechos(produtos: ProdutoTriangulando[]): Trecho[] {
         id,
         agora: resumoVazio(),
         depois: resumoVazio(),
+        rotas: [],
       };
       mapa.set(id, t);
     }
     return t;
   };
+
+  /** Rotas por trecho, indexadas pelo texto da rota até virarem lista ordenada. */
+  const rotasPorTrecho = new Map<string, Map<string, RotaNoTrecho>>();
 
   for (const produto of produtos) {
     for (const linha of produto.linhas) {
@@ -186,6 +247,31 @@ export function montarTrechos(produtos: ProdutoTriangulando[]): Trecho[] {
         const trecho = doTrecho(etapa);
         const item = montarItem(linha, produto, etapa);
         acrescentar(indice === 0 ? trecho.agora : trecho.depois, item);
+
+        if (!linha.rota) return;
+        let rotas = rotasPorTrecho.get(trecho.id);
+        if (!rotas) {
+          rotas = new Map();
+          rotasPorTrecho.set(trecho.id, rotas);
+        }
+        let r = rotas.get(linha.rota);
+        if (!r) {
+          const paradas = parseRota(linha.rota);
+          r = {
+            rota: linha.rota,
+            paradas,
+            posicao: posicaoNaRota(paradas, sigla(etapa.de), sigla(etapa.para)),
+            documentos: 0,
+            valor: 0,
+            valorTransferencia: 0,
+            valorCompra: 0,
+          };
+          rotas.set(linha.rota, r);
+        }
+        r.documentos += 1;
+        r.valor += item.valor;
+        if (item.origem === "transferencia") r.valorTransferencia += item.valor;
+        else r.valorCompra += item.valor;
       });
     }
   }
@@ -194,6 +280,9 @@ export function montarTrechos(produtos: ProdutoTriangulando[]): Trecho[] {
   for (const t of trechos) {
     fechar(t.agora);
     fechar(t.depois);
+    t.rotas = [...(rotasPorTrecho.get(t.id)?.values() ?? [])].sort(
+      (a, b) => b.valor - a.valor,
+    );
   }
 
   // Ordem por valor presente: o trecho onde há mais capital parado agora é o
