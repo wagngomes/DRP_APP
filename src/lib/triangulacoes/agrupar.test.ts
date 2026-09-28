@@ -23,6 +23,8 @@ function linha(p: Partial<LinhaTriangulacao> = {}): LinhaTriangulacao {
     origemAtual: "1006",
     dataEmissao: null,
     inicio: "saída",
+    dataAgendada: null,
+    statusLogistica: null,
     etapas: [],
     cdFinal: "1036",
     chegadaFinal: null,

@@ -21,7 +21,11 @@ import {
   carregarSla,
   type LinhaTransferencia,
 } from "@/lib/transferencias/consultas";
-import { parseRota, projetar, type Etapa } from "@/utils/projecao-transferencias";
+import {
+  parseRota,
+  projetar,
+  type Etapa,
+} from "@/utils/projecao-transferencias";
 import { ehCompraDireta, projetarPedido } from "@/utils/projecao-pedidos";
 import { carregarChegadas, chaveChegada } from "@/lib/reposicoes/chegadas";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
@@ -66,6 +70,17 @@ export type LinhaTriangulacao = {
   dataEmissao: Date | null;
   /** Rótulo da primeira parada do workflow: "saída" ou a data pedra. */
   inicio: string;
+  /**
+   * `data_agendada` como vem da origem: texto, não data.
+   *
+   * A coluna mistura a data marcada ("14/09/2026") com estados do pedido
+   * ("Não faturado", "S/AGENDAMENTO"). Quem precisa da data usa
+   * `interpretarAgendamento`; guardar o cru aqui preserva o motivo de não
+   * haver agendamento, que some se só o nulo for mantido.
+   */
+  dataAgendada: string | null;
+  /** Situação logística do pedido; só existe em pedido de compra. */
+  statusLogistica: string | null;
   etapas: Etapa[];
   cdFinal: string | null;
   chegadaFinal: Date | null;
@@ -125,22 +140,23 @@ export async function carregarTriangulacoes(
   /** Nome normalizado, como vem do filtro da tela. */
   filtroFornecedor?: string,
   /** Código do CD onde a rota termina, ou `SEM_CD_FINAL`. */
-  filtroCdFinal?: string
+  filtroCdFinal?: string,
 ): Promise<DadosTriangulacoes> {
-  const [transferencias, pedidos, sla, siglaParaCodigo, chegadas] = await Promise.all([
-    prisma.$queryRawUnsafe<
-      (LinhaTransferencia & {
-        valor: number | null;
-        descricao: string | null;
-        fornecedor: string;
-      })[]
-    >(
-      // Só o snapshot do dia: a tabela é cumulativa e sem o filtro entrariam
-      // transferências de dias anteriores, já entregues.
-      //
-      // O fornecedor é atributo do item e vive no simulador, não na nota — por
-      // isso vem de subconsulta, com o nome normalizado que todas as telas usam.
-      `SELECT t.id, t.numero_nf_saida, t.codigo, t.descricao_produto,
+  const [transferencias, pedidos, sla, siglaParaCodigo, chegadas] =
+    await Promise.all([
+      prisma.$queryRawUnsafe<
+        (LinhaTransferencia & {
+          valor: number | null;
+          descricao: string | null;
+          fornecedor: string;
+        })[]
+      >(
+        // Só o snapshot do dia: a tabela é cumulativa e sem o filtro entrariam
+        // transferências de dias anteriores, já entregues.
+        //
+        // O fornecedor é atributo do item e vive no simulador, não na nota — por
+        // isso vem de subconsulta, com o nome normalizado que todas as telas usam.
+        `SELECT t.id, t.numero_nf_saida, t.codigo, t.descricao_produto,
               t.qtde::float8 AS qtde, t.valor::float8 AS valor,
               t.filial_codigo_saida, t.filial_codigo_entrada, t.rota,
               t.passo::int AS passo, t.qtde_passo::int AS qtde_passo,
@@ -158,24 +174,33 @@ export async function carregarTriangulacoes(
           AND t.codigo IS NOT NULL
           AND t.rota IS NOT NULL AND t.rota LIKE '%>%'
         ORDER BY t.codigo, t.data_emissao`,
-      data
-    ),
-    prisma.$queryRawUnsafe<
-      {
-        id: number; codigo: string; num_pedido: string | null;
-        quantidade_receber: number | null; saldo_ajustado: number | null;
-        filial: string | null; rota: string | null;
-        data_emissao: Date | null; data_pedra: Date | null;
-        descricao: string | null; fornecedor: string;
-      }[]
-    >(
-      // Pedidos com rota na `tp_ped_transf_descricao`. "N/A" e vazio são compra
-      // direta e não triangulam.
-      `SELECT pc.id, pc.codigo, pc.num_pedido,
+        data,
+      ),
+      prisma.$queryRawUnsafe<
+        {
+          id: number;
+          codigo: string;
+          num_pedido: string | null;
+          quantidade_receber: number | null;
+          saldo_ajustado: number | null;
+          filial: string | null;
+          rota: string | null;
+          data_emissao: Date | null;
+          data_pedra: Date | null;
+          data_agendada: string | null;
+          status_logistica: string | null;
+          descricao: string | null;
+          fornecedor: string;
+        }[]
+      >(
+        // Pedidos com rota na `tp_ped_transf_descricao`. "N/A" e vazio são compra
+        // direta e não triangulam.
+        `SELECT pc.id, pc.codigo, pc.num_pedido,
               pc.quantidade_receber::float8 AS quantidade_receber,
               pc.saldo_ajustado::float8 AS saldo_ajustado,
               pc.filial, pc.tp_ped_transf_descricao AS rota,
-              pc.data_emissao, pc.data_pedra, p.descricao,
+              pc.data_emissao, pc.data_pedra,
+              pc.data_agendada, pc.status_logistica, p.descricao,
               COALESCE((
                 SELECT ${nomeFornecedor("s2")}
                   FROM simulador s2 ${joinFornecedor("s2")}
@@ -190,18 +215,21 @@ export async function carregarTriangulacoes(
           AND pc.quantidade_receber > 0
           AND pc.tp_ped_transf_descricao LIKE '%>%'
         ORDER BY pc.codigo, pc.data_emissao`,
-      data
-    ),
-    carregarSla(),
-    carregarFiliais(),
-    carregarChegadas(data, parametros),
-  ]);
+        data,
+      ),
+      carregarSla(),
+      carregarFiliais(),
+      carregarChegadas(data, parametros),
+    ]);
 
   const dataReferencia = new Date(`${data}T00:00:00.000Z`);
   let semPercurso = 0;
 
   /** Descrição e fornecedor do produto, de qualquer uma das origens. */
-  const meta = new Map<string, { descricao: string | null; fornecedor: string }>();
+  const meta = new Map<
+    string,
+    { descricao: string | null; fornecedor: string }
+  >();
 
   const linhasTransf: LinhaTriangulacao[] = transferencias
     // `parseRota` exige dois pontos: uma rota de um elemento só não triangula.
@@ -233,6 +261,11 @@ export async function carregarTriangulacoes(
         origemAtual: l.filial_codigo_saida,
         dataEmissao: l.data_emissao,
         inicio: "saída",
+        // Transferência não tem agendamento nem status logístico: são campos do
+        // pedido de compra. Nulo explícito para o tipo ser o mesmo nas duas
+        // origens, e a tela não precisar perguntar de qual veio.
+        dataAgendada: null,
+        statusLogistica: null,
         etapas: p.etapas,
         cdFinal: p.cdFinal,
         chegadaFinal: p.chegadaFinal,
@@ -255,7 +288,10 @@ export async function carregarTriangulacoes(
       });
       if (!p.cdFinal) semPercurso += 1;
       if (!meta.has(l.codigo)) {
-        meta.set(l.codigo, { descricao: l.descricao, fornecedor: l.fornecedor });
+        meta.set(l.codigo, {
+          descricao: l.descricao,
+          fornecedor: l.fornecedor,
+        });
       }
       return {
         id: l.id,
@@ -270,6 +306,8 @@ export async function carregarTriangulacoes(
         dataEmissao: l.data_emissao,
         // Reprojetado: a data pedra está no passado; vale a recalculada.
         inicio: dataBr(p.chegadaPrimeiroPonto),
+        dataAgendada: l.data_agendada,
+        statusLogistica: l.status_logistica,
         etapas: p.etapas,
         cdFinal: p.cdFinal,
         chegadaFinal: p.chegadaFinal,
@@ -289,7 +327,9 @@ export async function carregarTriangulacoes(
   }
   const cdsFinais = [...contagemCd.entries()]
     .map(([filial, documentos]) => ({ filial, documentos }))
-    .sort((a, b) => b.documentos - a.documentos || a.filial.localeCompare(b.filial));
+    .sort(
+      (a, b) => b.documentos - a.documentos || a.filial.localeCompare(b.filial),
+    );
 
   // O corte é por linha, não por produto.
   //
@@ -297,7 +337,9 @@ export async function carregarTriangulacoes(
   // termina neste CD" — manter o produto inteiro traria junto o que vai para
   // outros destinos, e os totais do topo deixariam de bater com a tela.
   const todasLinhas = filtroCdFinal
-    ? linhasCompletas.filter((l) => (l.cdFinal ?? SEM_CD_FINAL) === filtroCdFinal)
+    ? linhasCompletas.filter(
+        (l) => (l.cdFinal ?? SEM_CD_FINAL) === filtroCdFinal,
+      )
     : linhasCompletas;
 
   // Estoque chão e forecast dos produtos envolvidos, para os cards de destino.
@@ -315,67 +357,80 @@ export async function carregarTriangulacoes(
             WHERE s.data_snapshot = $1::date
               AND s.codigo = ANY($2::text[]) AND s.filial IS NOT NULL`,
           data,
-          codigos
+          codigos,
         ),
-        prisma.$queryRawUnsafe<{ codigo: string; filial: string; fc: number }[]>(
+        prisma.$queryRawUnsafe<
+          { codigo: string; filial: string; fc: number }[]
+        >(
           `SELECT f.codigo, f.filial, f.forecast_m0::float8 AS fc
              FROM forecast f
             WHERE ${snapshotMensalSql("forecast", "f", "$1")}
               AND f.codigo = ANY($2::text[]) AND f.filial IS NOT NULL`,
           data,
-          codigos
+          codigos,
         ),
       ])
     : [[], []];
 
   const chaoPor = new Map(estoques.map((e) => [`${e.codigo}|${e.filial}`, e]));
-  const forecastPor = new Map(forecasts.map((f) => [`${f.codigo}|${f.filial}`, f.fc]));
+  const forecastPor = new Map(
+    forecasts.map((f) => [`${f.codigo}|${f.filial}`, f.fc]),
+  );
 
   const porProduto = new Map<string, typeof todasLinhas>();
   for (const l of todasLinhas) {
     porProduto.set(l.codigo, [...(porProduto.get(l.codigo) ?? []), l]);
   }
 
-  const produtos: ProdutoTriangulando[] = [...porProduto.entries()].map(([codigo, linhas]) => {
-    const finais = [...new Set(linhas.map((l) => l.cdFinal).filter(Boolean))] as string[];
-    const destinos = finais.map((filial): PosicaoDestino => {
-      const reposicoes = chegadas.get(chaveChegada(codigo, filial)) ?? [];
-      const somar = (origem: "compra" | "transferencia") =>
-        reposicoes.filter((r) => r.origem === origem).reduce((a, r) => a + r.quantidade, 0);
+  const produtos: ProdutoTriangulando[] = [...porProduto.entries()].map(
+    ([codigo, linhas]) => {
+      const finais = [
+        ...new Set(linhas.map((l) => l.cdFinal).filter(Boolean)),
+      ] as string[];
+      const destinos = finais.map((filial): PosicaoDestino => {
+        const reposicoes = chegadas.get(chaveChegada(codigo, filial)) ?? [];
+        const somar = (origem: "compra" | "transferencia") =>
+          reposicoes
+            .filter((r) => r.origem === origem)
+            .reduce((a, r) => a + r.quantidade, 0);
+        return {
+          filial,
+          estoqueChao: chaoPor.get(`${codigo}|${filial}`)?.chao ?? 0,
+          emTransferencia: somar("transferencia"),
+          emCompra: somar("compra"),
+          forecastM0: forecastPor.get(`${codigo}|${filial}`) ?? null,
+          vendido: chaoPor.get(`${codigo}|${filial}`)?.vendido ?? 0,
+        };
+      });
+
+      const soma = (origem: "compra" | "transferencia") =>
+        linhas
+          .filter((l) => l.origem === origem)
+          .reduce((a, l) => a + (l.valor ?? 0), 0);
+
       return {
-        filial,
-        estoqueChao: chaoPor.get(`${codigo}|${filial}`)?.chao ?? 0,
-        emTransferencia: somar("transferencia"),
-        emCompra: somar("compra"),
-        forecastM0: forecastPor.get(`${codigo}|${filial}`) ?? null,
-        vendido: chaoPor.get(`${codigo}|${filial}`)?.vendido ?? 0,
+        codigo,
+        descricao: meta.get(codigo)?.descricao ?? null,
+        fornecedor: meta.get(codigo)?.fornecedor ?? "Sem fornecedor",
+        // Sem data projetável vai para o fim: não dá para priorizar o que não se
+        // sabe quando chega.
+        linhas: [...linhas].sort(
+          (a, b) =>
+            (a.chegadaFinal?.getTime() ?? Infinity) -
+            (b.chegadaFinal?.getTime() ?? Infinity),
+        ),
+        quantidade: linhas.reduce((a, l) => a + l.quantidade, 0),
+        valorTransferencia: soma("transferencia"),
+        valorCompra: soma("compra"),
+        destinos: destinos.sort((a, b) => a.filial.localeCompare(b.filial)),
       };
-    });
-
-    const soma = (origem: "compra" | "transferencia") =>
-      linhas.filter((l) => l.origem === origem).reduce((a, l) => a + (l.valor ?? 0), 0);
-
-    return {
-      codigo,
-      descricao: meta.get(codigo)?.descricao ?? null,
-      fornecedor: meta.get(codigo)?.fornecedor ?? "Sem fornecedor",
-      // Sem data projetável vai para o fim: não dá para priorizar o que não se
-      // sabe quando chega.
-      linhas: [...linhas].sort(
-        (a, b) =>
-          (a.chegadaFinal?.getTime() ?? Infinity) - (b.chegadaFinal?.getTime() ?? Infinity)
-      ),
-      quantidade: linhas.reduce((a, l) => a + l.quantidade, 0),
-      valorTransferencia: soma("transferencia"),
-      valorCompra: soma("compra"),
-      destinos: destinos.sort((a, b) => a.filial.localeCompare(b.filial)),
-    };
-  });
+    },
+  );
 
   // A lista do filtro sai de todos os produtos, antes do recorte: senão filtrar
   // por um fornecedor esvaziaria o próprio seletor.
-  const fornecedores = [...new Set(produtos.map((p) => p.fornecedor))].sort((a, b) =>
-    a.localeCompare(b, "pt-BR")
+  const fornecedores = [...new Set(produtos.map((p) => p.fornecedor))].sort(
+    (a, b) => a.localeCompare(b, "pt-BR"),
   );
 
   const termo = filtroProduto?.trim().toLowerCase();
@@ -385,11 +440,14 @@ export async function carregarTriangulacoes(
         (!filtroFornecedor || p.fornecedor === filtroFornecedor) &&
         (!termo ||
           p.codigo.toLowerCase().includes(termo) ||
-          (p.descricao ?? "").toLowerCase().includes(termo))
+          (p.descricao ?? "").toLowerCase().includes(termo)),
     )
     // Maior valor primeiro: é o que mais pesa em capital parado em trânsito.
     .sort(
-      (a, b) => b.valorTransferencia + b.valorCompra - (a.valorTransferencia + a.valorCompra)
+      (a, b) =>
+        b.valorTransferencia +
+        b.valorCompra -
+        (a.valorTransferencia + a.valorCompra),
     );
 
   // Os totais do topo acompanham o recorte: mostrar o valor cheio com três
@@ -402,7 +460,10 @@ export async function carregarTriangulacoes(
     produtos: visiveis,
     fornecedores,
     cdsFinais,
-    valorTransferencia: totalDe("transferencia").reduce((a, l) => a + (l.valor ?? 0), 0),
+    valorTransferencia: totalDe("transferencia").reduce(
+      (a, l) => a + (l.valor ?? 0),
+      0,
+    ),
     valorCompra: totalDe("compra").reduce((a, l) => a + (l.valor ?? 0), 0),
     linhasTransferencia: totalDe("transferencia").length,
     linhasCompra: totalDe("compra").length,
@@ -450,7 +511,7 @@ function somarPorOrigem(linhas: LinhaTriangulacao[]): {
  * está indo a maior parte" — e não a ordem alfabética dos centros.
  */
 export function agruparPorDestino(
-  linhas: LinhaTriangulacao[]
+  linhas: LinhaTriangulacao[],
 ): DestinoTriangulando[] {
   const mapa = new Map<string, LinhaTriangulacao[]>();
   for (const l of linhas) {
@@ -460,6 +521,12 @@ export function agruparPorDestino(
     mapa.set(chave, [...(mapa.get(chave) ?? []), l]);
   }
   return [...mapa.entries()]
-    .map(([filial, lista]) => ({ filial, linhas: lista, ...somarPorOrigem(lista) }))
-    .sort((a, b) => b.quantidade - a.quantidade || a.filial.localeCompare(b.filial));
+    .map(([filial, lista]) => ({
+      filial,
+      linhas: lista,
+      ...somarPorOrigem(lista),
+    }))
+    .sort(
+      (a, b) => b.quantidade - a.quantidade || a.filial.localeCompare(b.filial),
+    );
 }
