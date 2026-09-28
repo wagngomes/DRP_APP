@@ -57,8 +57,11 @@ export function FiltroFornecedor({
   const conhecido = !valor || fornecedores.includes(valor);
 
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <div className="space-y-1.5">
+    // `relative` porque o aviso é posicionado fora do fluxo: no fluxo, ele
+    // crescia o bloco em 20px no instante em que o nome digitado deixava de ser
+    // conhecido, empurrando a tela inteira enquanto se digita.
+    <div className="relative flex w-full flex-wrap items-end gap-2 sm:w-auto">
+      <div className="w-full space-y-1.5 sm:w-auto">
         <Label htmlFor="filtro-lab" className="text-xs text-muted-foreground">
           Laboratório
         </Label>
@@ -73,7 +76,9 @@ export function FiltroFornecedor({
               if (e.key === "Enter" && conhecido) aplicar(valor);
             }}
             placeholder="Todos os laboratórios"
-            className="w-64 pl-8"
+            // Largura fixa só a partir de `sm`: 16rem num celular de 375px
+            // estoura a linha e empurra o botão para fora da tela.
+            className="w-full pl-8 sm:w-64"
             disabled={aplicando}
             aria-invalid={!conhecido}
           />
@@ -90,26 +95,34 @@ export function FiltroFornecedor({
         disabled={aplicando || !conhecido || valor === (atual ?? "")}
         className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
       >
-        {aplicando ? <Loader2 className="size-4 animate-spin" /> : null}
+        {/* O lugar do ícone existe sempre: trocar entre nada e um spinner muda
+            a largura do botão, e ele pula no clique — justo quando o olho está
+            nele. */}
+        <span className="inline-flex size-4 items-center justify-center">
+          {aplicando ? <Loader2 className="size-4 animate-spin" /> : null}
+        </span>
         Filtrar
       </Button>
 
-      {atual ? (
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setValor("");
-            aplicar("");
-          }}
-          disabled={aplicando}
-        >
-          <X className="size-4" />
-          Limpar
-        </Button>
-      ) : null}
+      {/* "Limpar" fica no layout mesmo sem filtro aplicado, apenas invisível:
+          aparecendo e sumindo, ele reposicionava tudo à direita a cada filtro. */}
+      <Button
+        variant="ghost"
+        onClick={() => {
+          setValor("");
+          aplicar("");
+        }}
+        disabled={aplicando || !atual}
+        className={atual ? "" : "invisible"}
+        aria-hidden={!atual}
+        tabIndex={atual ? undefined : -1}
+      >
+        <X className="size-4" />
+        Limpar
+      </Button>
 
       {!conhecido ? (
-        <p className="w-full text-xs text-destructive">
+        <p className="absolute top-full left-0 mt-0.5 text-xs text-destructive">
           Laboratório não encontrado na base desta data.
         </p>
       ) : null}

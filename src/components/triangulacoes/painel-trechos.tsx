@@ -338,7 +338,7 @@ function TabelaItens({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-xs">
+      <table className="w-full min-w-[46rem] border-collapse text-xs">
         <thead>
           <tr className="border-b bg-muted/50">
             <th className="px-2 py-1.5 text-left font-medium">Produto</th>
@@ -458,16 +458,20 @@ export function PainelTrechos({
             <button
               type="button"
               onClick={() => setAberto(estaAberto ? null : t.id)}
-              className="flex w-full items-center gap-3 p-3 text-left hover:bg-muted/40"
+              className="flex w-full flex-col items-stretch gap-3 p-3 text-left hover:bg-muted/40 sm:flex-row sm:items-center"
             >
-              {estaAberto ? (
-                <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-              )}
+              <span className="hidden sm:block">
+                {estaAberto ? (
+                  <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                )}
+              </span>
 
               {/* O trecho em si: par de CDs, que é o eixo desta tela. */}
-              <span className="flex shrink-0 items-center gap-1.5">
+              {/* Largura mínima, não fixa: alinha o par de CDs entre os
+                  cartões sem cortar sigla longa como "CAJ·11". */}
+              <span className="flex shrink-0 items-center gap-1.5 sm:min-w-28">
                 <span className="rounded-md bg-(--brand-petrol) px-2 py-1 font-mono text-xs leading-none font-bold text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)">
                   {sigla(t.de)}
                 </span>
@@ -477,7 +481,7 @@ export function PainelTrechos({
                 </span>
               </span>
 
-              <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+              <div className="grid min-w-0 flex-1 items-stretch gap-2 sm:grid-cols-2">
                 <Resumo resumo={t.agora} />
                 <Resumo resumo={t.depois} futuro />
               </div>

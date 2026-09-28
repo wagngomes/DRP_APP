@@ -63,23 +63,31 @@ export function FiltroOrigemDocumento({
   };
 
   return (
-    <div className="inline-flex rounded-md border p-0.5">
-      {OPCOES.map((o) => {
-        const selecionado = o.id === atual;
-        return (
-          <Link
-            key={o.id}
-            href={href(o.id)}
-            scroll={false}
-            className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
-              selecionado ? o.ativo : "text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            <o.icone className="size-3.5" />
-            {o.rotulo}
-          </Link>
-        );
-      })}
+    // Rótulo próprio, como o filtro de laboratório ao lado: sem ele os dois
+    // controles não alinham, porque um tem legenda em cima e o outro não.
+    <div className="space-y-1.5">
+      <span className="block text-xs text-muted-foreground">Origem</span>
+      <div className="inline-flex h-9 items-center rounded-md border p-0.5">
+        {OPCOES.map((o) => {
+          const selecionado = o.id === atual;
+          return (
+            <Link
+              key={o.id}
+              href={href(o.id)}
+              scroll={false}
+              className={`flex h-full items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors ${
+                selecionado ? o.ativo : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <o.icone className="size-3.5 shrink-0" />
+              {/* No celular ficam só os ícones: os três rótulos por extenso
+                  estouram a linha de 375px e empurram o filtro de laboratório
+                  para fora da tela. */}
+              <span className="hidden sm:inline">{o.rotulo}</span>
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }

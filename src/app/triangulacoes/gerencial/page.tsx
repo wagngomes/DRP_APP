@@ -93,8 +93,11 @@ export default async function TriangulacoesGerenciais({
       papel={sessao.usuario.papel}
     >
       <div className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+        {/* Empilhado no celular, lado a lado a partir de `lg`. Em telas médias
+            os dois filtros e o botão não cabem na mesma linha do título, e
+            deixá-los tentar produzia uma quebra diferente a cada largura. */}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
               <Network className="size-3.5" />
               Visão gerencial
@@ -108,7 +111,7 @@ export default async function TriangulacoesGerenciais({
             </p>
           </div>
 
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <FiltroOrigemDocumento
               atual={origem}
               basePath="/triangulacoes/gerencial"
