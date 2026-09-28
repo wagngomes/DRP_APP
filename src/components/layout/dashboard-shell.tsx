@@ -21,6 +21,7 @@ import {
   PackageCheck,
   Sparkles,
   UploadCloud,
+  Terminal,
   Users,
   X,
 } from "lucide-react";
@@ -85,6 +86,7 @@ const NAV_ITEMS = [
   { label: "Aceleração", icon: Flame, href: "/aceleracao" },
   { label: "Cenários", icon: FlaskConical, href: "/cenarios" },
   { label: "Importar CSV", icon: UploadCloud, href: "/uploads" },
+  { label: "Console SQL", icon: Terminal, href: "/console", admin: true },
   { label: "Usuários", icon: Users, href: "/usuarios", admin: true },
   { label: "Configurações", icon: Settings, href: null },
 ];

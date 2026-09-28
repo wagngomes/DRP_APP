@@ -32,7 +32,9 @@ export type EventoSeguranca =
   /** Teto de requisições atingido. */
   | "limite_excedido"
   /** Importação que substituiu o conteúdo de uma tabela. */
-  | "importacao";
+  | "importacao"
+  /** Consulta SQL executada no console administrativo. */
+  | "consulta_sql";
 
 type Detalhes = {
   /** Quem agiu, quando há sessão. */
