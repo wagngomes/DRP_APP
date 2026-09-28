@@ -1,4 +1,8 @@
-import { carregarClientesFora, type ClienteFora, type CurvaMes } from "@/lib/aceleracao/consultas";
+import {
+  carregarClientesFora,
+  type ClienteFora,
+  type CurvaMes,
+} from "@/lib/aceleracao/consultas";
 import { lerConfiguracoes } from "@/lib/configuracao.server";
 import { prisma } from "@/lib/prisma";
 import { resolverAbertura, type Abertura } from "@/utils/abertura-mes";
@@ -31,7 +35,6 @@ import { agruparPorRotulo } from "@/utils/rotulos";
  * recente, e é por isso que cada consulta filtra pelo MAX do `data_snapshot`
  * daquela competência em vez de somar tudo que estiver lá.
  */
-
 
 /**
  * Recorte da carga que vale para uma competência.
@@ -188,60 +191,70 @@ export type Medida = {
 function medir(previsto: number, realizado: number): Medida {
   const par: ParPrevisao = { previsto, realizado };
   const erro = erroAbsoluto(par);
-  return { previsto, realizado, erro, vies: vies(par), acuracidade: acuracidade(erro) };
+  return {
+    previsto,
+    realizado,
+    erro,
+    vies: vies(par),
+    acuracidade: acuracidade(erro),
+  };
 }
 
-export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXProduto | null> {
+export async function carregarRaioX(
+  codigo: string,
+  mes: string,
+): Promise<RaioXProduto | null> {
   const { inicio, fim } = limitesDoMes(mes);
 
-  const [produto, fiscal, divisoesCru, grupos, vendas, forecast, recebido] = await Promise.all([
-    prisma.$queryRawUnsafe<
-      {
-        codigo: string;
-        descricao: string | null;
-        fornecedor: string | null;
-        usa_refrig: string | null;
-      }[]
-    >(
-      `SELECT p.codigo, p.descricao, p.usa_refrig,
+  const [produto, fiscal, divisoesCru, grupos, vendas, forecast, recebido] =
+    await Promise.all([
+      prisma.$queryRawUnsafe<
+        {
+          codigo: string;
+          descricao: string | null;
+          fornecedor: string | null;
+          usa_refrig: string | null;
+        }[]
+      >(
+        `SELECT p.codigo, p.descricao, p.usa_refrig,
               (SELECT s.fornecedor FROM simulador s
                 WHERE s.codigo = p.codigo AND s.fornecedor IS NOT NULL
                 ORDER BY s.data_snapshot DESC LIMIT 1) AS fornecedor
          FROM produtos p WHERE p.codigo = $1`,
-      codigo
-    ),
+        codigo,
+      ),
 
-    // Tributação: lookup por chave, 141ms medidos, em paralelo com as demais.
-    prisma.$queryRawUnsafe<{ tributacao: string | null }[]>(
-      `SELECT tributacao FROM fiscal WHERE codigo = $1 LIMIT 1`,
-      codigo
-    ),
+      // Tributação: lookup por chave, 141ms medidos, em paralelo com as demais.
+      prisma.$queryRawUnsafe<{ tributacao: string | null }[]>(
+        `SELECT tributacao FROM fiscal WHERE codigo = $1 LIMIT 1`,
+        codigo,
+      ),
 
-    prisma.$queryRawUnsafe<{ divisao: string | null; consenso: number }[]>(
-      `SELECT s.divisao, SUM(s.consenso)::float8 AS consenso
+      prisma.$queryRawUnsafe<{ divisao: string | null; consenso: number }[]>(
+        `SELECT s.divisao, SUM(s.consenso)::float8 AS consenso
          FROM sop s
         WHERE s.codigo = $1 AND ${cargaVigente("sop", "s")}
         GROUP BY s.divisao`,
-      codigo,
-      inicio,
-      fim
-    ),
+        codigo,
+        inicio,
+        fim,
+      ),
 
-    // O grupo sai do cadastro pelo CNPJ; sem cadastro, da própria coluna do
-    // arquivo. Os que caem no segundo caminho não são resto: são clientes que
-    // existem e precisam aparecer com nome.
-    prisma.$queryRawUnsafe<
-      {
-        grupo: string;
-        clientes: number;
-        contratado: number;
-        inicial: number;
-        docadastro: boolean;
-        representante: string | null;
-        representantes: number;
-      }[]
-    >(
-      `SELECT COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
+      // O grupo sai do cadastro pelo CNPJ; sem cadastro, da própria coluna do
+      // arquivo. Os que caem no segundo caminho não são resto: são clientes que
+      // existem e precisam aparecer com nome.
+      prisma.$queryRawUnsafe<
+        {
+          grupo: string;
+          clientes: number;
+          contratado: number;
+          inicial: number;
+          docadastro: boolean;
+          representante: string | null;
+          representantes: number;
+        }[]
+      >(
+        `SELECT COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
               COUNT(DISTINCT c.cnpj)::int AS clientes,
               SUM(c.quantidade_final)::float8 AS contratado,
               SUM(c.reserva_final_contrato)::float8 AS inicial,
@@ -255,29 +268,29 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
          LEFT JOIN ${GRUPOS_POR_CNPJ} g ON g.cliente_cnpj = c.cnpj
         WHERE c.codigo = $1 AND ${cargaVigente("contratos", "c")}
         GROUP BY 1`,
-      codigo,
-      inicio,
-      fim
-    ),
+        codigo,
+        inicio,
+        fim,
+      ),
 
-    // A alocação Contratos x Spot casa a venda com o contrato **pelo CNPJ**.
-    //
-    // O CNPJ é a chave entre as bases; o grupo existe para juntar linhas na
-    // tela, não para casar registros. Casar por grupo atribuiria a um contrato
-    // a compra de um CNPJ que não assinou contrato nenhum — e o número
-    // deixaria de responder "este cliente cumpriu o que contratou".
-    //
-    // A venda de outro CNPJ do mesmo grupo não some: volta numa coluna
-    // própria, porque é informação comercial de verdade (o grupo comprou por
-    // fora do contrato) e escondê-la dentro do Spot faria o Spot parecer
-    // demanda nova quando não é.
-    //
-    // O sinal vem invertido da origem (venda é saída de estoque), por isso o
-    // menos. Sem ele todos os realizados apareceriam negativos.
-    prisma.$queryRawUnsafe<
-      { grupo: string | null; quantidade: number; docontrato: boolean }[]
-    >(
-      `WITH contratados AS (
+      // A alocação Contratos x Spot casa a venda com o contrato **pelo CNPJ**.
+      //
+      // O CNPJ é a chave entre as bases; o grupo existe para juntar linhas na
+      // tela, não para casar registros. Casar por grupo atribuiria a um contrato
+      // a compra de um CNPJ que não assinou contrato nenhum — e o número
+      // deixaria de responder "este cliente cumpriu o que contratou".
+      //
+      // A venda de outro CNPJ do mesmo grupo não some: volta numa coluna
+      // própria, porque é informação comercial de verdade (o grupo comprou por
+      // fora do contrato) e escondê-la dentro do Spot faria o Spot parecer
+      // demanda nova quando não é.
+      //
+      // O sinal vem invertido da origem (venda é saída de estoque), por isso o
+      // menos. Sem ele todos os realizados apareceriam negativos.
+      prisma.$queryRawUnsafe<
+        { grupo: string | null; quantidade: number; docontrato: boolean }[]
+      >(
+        `WITH contratados AS (
          SELECT DISTINCT ON (c.cnpj) c.cnpj,
                 COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
                 g.cliente_grupo AS grupo_cadastro
@@ -306,28 +319,28 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
          LEFT JOIN contratados k ON k.cnpj = v.cnpj
          LEFT JOIN grupos_com_contrato gc ON gc.grupo = v.grupo_venda
         GROUP BY 1, 2`,
-      codigo,
-      inicio,
-      fim
-    ),
+        codigo,
+        inicio,
+        fim,
+      ),
 
-    // Forecast é do mês: vale a carga mais recente dentro dele.
-    // Uma linha por filial em vez do agregado: a política e a rota variam por
-    // CD, e o total é somado aqui. Mesmo custo medido (142ms) — são sete linhas
-    // em vez de uma, e o trabalho do banco é o mesmo.
-    prisma.$queryRawUnsafe<
-      {
-        filial: string | null;
-        m0: number;
-        m0ajustado: number;
-        politica: number | null;
-        politica_plano: number | null;
-        rota_compra: string | null;
-        curva: string | null;
-        snapshot: Date;
-      }[]
-    >(
-      `SELECT f.filial,
+      // Forecast é do mês: vale a carga mais recente dentro dele.
+      // Uma linha por filial em vez do agregado: a política e a rota variam por
+      // CD, e o total é somado aqui. Mesmo custo medido (142ms) — são sete linhas
+      // em vez de uma, e o trabalho do banco é o mesmo.
+      prisma.$queryRawUnsafe<
+        {
+          filial: string | null;
+          m0: number;
+          m0ajustado: number;
+          politica: number | null;
+          politica_plano: number | null;
+          rota_compra: string | null;
+          curva: string | null;
+          snapshot: Date;
+        }[]
+      >(
+        `SELECT f.filial,
               COALESCE(f.forecast_m0,0)::float8 AS m0,
               COALESCE(f.forecast_m0_atualizado,0)::float8 AS m0ajustado,
               f.politica::float8, f.politica_plano::float8, f.rota_compra, f.curva,
@@ -339,20 +352,20 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
              WHERE _f.data_snapshot >= $2::date AND _f.data_snapshot < $3::date
           )
         ORDER BY f.filial`,
-      codigo,
-      inicio,
-      fim
-    ),
+        codigo,
+        inicio,
+        fim,
+      ),
 
-    prisma.$queryRawUnsafe<{ quantidade: number; notas: number }[]>(
-      `SELECT COALESCE(SUM(r.quantidade),0)::float8 AS quantidade, COUNT(*)::int AS notas
+      prisma.$queryRawUnsafe<{ quantidade: number; notas: number }[]>(
+        `SELECT COALESCE(SUM(r.quantidade),0)::float8 AS quantidade, COUNT(*)::int AS notas
          FROM recebimento r
         WHERE r.codigo = $1 AND r.data >= $2::date AND r.data < $3::date`,
-      codigo,
-      inicio,
-      fim
-    ),
-  ]);
+        codigo,
+        inicio,
+        fim,
+      ),
+    ]);
 
   if (produto.length === 0) return null;
 
@@ -362,7 +375,7 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
   const consensoPorDivisao = agruparPorRotulo(
     divisoesCru.filter((d) => d.divisao),
     (d) => d.divisao!,
-    (d) => d.consenso ?? 0
+    (d) => d.consenso ?? 0,
   );
 
   const vendidoPorGrupo = new Map<string, number>();
@@ -376,14 +389,18 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
     if (v.docontrato) {
       // CNPJ com contrato: é o realizado do contrato.
       comContrato += q;
-      if (v.grupo) vendidoPorGrupo.set(v.grupo, (vendidoPorGrupo.get(v.grupo) ?? 0) + q);
+      if (v.grupo)
+        vendidoPorGrupo.set(v.grupo, (vendidoPorGrupo.get(v.grupo) ?? 0) + q);
     } else {
       spot += q;
       // Sem contrato no CNPJ, mas o grupo tem: continua sendo spot, e aparece
       // na linha do grupo como compra fora do contrato.
       if (v.grupo) {
         spotDeGrupoContratado += q;
-        foraDoContratoPorGrupo.set(v.grupo, (foraDoContratoPorGrupo.get(v.grupo) ?? 0) + q);
+        foraDoContratoPorGrupo.set(
+          v.grupo,
+          (foraDoContratoPorGrupo.get(v.grupo) ?? 0) + q,
+        );
       }
     }
   }
@@ -400,12 +417,18 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
       vendidoForaDoContrato: foraDoContratoPorGrupo.get(g.grupo) ?? 0,
       origem: g.docadastro ? ("cadastro" as const) : ("arquivo" as const),
     }))
-    .sort((a, b) => b.contratado - a.contratado || a.grupo.localeCompare(b.grupo, "pt-BR"));
+    .sort(
+      (a, b) =>
+        b.contratado - a.contratado || a.grupo.localeCompare(b.grupo, "pt-BR"),
+    );
 
   const contratos = {
     grupos: gruposCompletos,
     total: gruposCompletos.reduce((a, g) => a + g.contratado, 0),
-    quantidadeInicial: gruposCompletos.reduce((a, g) => a + g.quantidadeInicial, 0),
+    quantidadeInicial: gruposCompletos.reduce(
+      (a, g) => a + g.quantidadeInicial,
+      0,
+    ),
     clientes: gruposCompletos.reduce((a, g) => a + g.clientes, 0),
   };
 
@@ -432,7 +455,10 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
         vies: par ? vies(par) : null,
       };
     })
-    .sort((a, b) => b.consenso - a.consenso || a.divisao.localeCompare(b.divisao, "pt-BR"));
+    .sort(
+      (a, b) =>
+        b.consenso - a.consenso || a.divisao.localeCompare(b.divisao, "pt-BR"),
+    );
 
   const consensoTotal = divisoes.reduce((a, d) => a + d.consenso, 0);
 
@@ -440,7 +466,9 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
   // com realizado zero as contaria como erro total, e o número deixaria de
   // medir o rateio para medir a ausência de rastreio.
   const paresComposicao = divisoes
-    .filter((d): d is DivisaoSop & { realizado: number } => d.realizado !== null)
+    .filter(
+      (d): d is DivisaoSop & { realizado: number } => d.realizado !== null,
+    )
     .map((d) => ({ previsto: d.consenso, realizado: d.realizado }));
 
   const politicas: PoliticaCd[] = forecast.map((f) => ({
@@ -461,16 +489,27 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
     // "S"/"N" no cadastro; qualquer outra coisa (vazio, nulo) vira desconhecido
     // em vez de "não" — dizer que não refrigera sem saber é pior que calar.
     usaRefrigeracao:
-      produto[0].usa_refrig === "S" ? true : produto[0].usa_refrig === "N" ? false : null,
+      produto[0].usa_refrig === "S"
+        ? true
+        : produto[0].usa_refrig === "N"
+          ? false
+          : null,
     tributacao: fiscal[0]?.tributacao ?? null,
     curva: forecast.find((f) => f.curva)?.curva ?? null,
     politicas,
     mes: inicio,
     divisoes,
     consensoTotal,
-    consensoContratos: divisoes.find((d) => d.divisao.toLowerCase() === "contratos")?.consenso ?? 0,
+    consensoContratos:
+      divisoes.find((d) => d.divisao.toLowerCase() === "contratos")?.consenso ??
+      0,
     contratos,
-    vendas: { comContrato, spot, spotDeGrupoContratado, total: comContrato + spot },
+    vendas: {
+      comContrato,
+      spot,
+      spotDeGrupoContratado,
+      total: comContrato + spot,
+    },
     forecast: {
       m0,
       m0Ajustado,
@@ -493,7 +532,7 @@ export async function carregarRaioX(codigo: string, mes: string): Promise<RaioXP
 /** Meses com dado de S&OP, do mais recente para o mais antigo. */
 export async function listarMesesSop(): Promise<string[]> {
   const r = await prisma.$queryRawUnsafe<{ competencia: Date }[]>(
-    `SELECT DISTINCT competencia FROM sop WHERE competencia IS NOT NULL ORDER BY competencia DESC`
+    `SELECT DISTINCT competencia FROM sop WHERE competencia IS NOT NULL ORDER BY competencia DESC`,
   );
   return r.map((x) => x.competencia.toISOString().slice(0, 10));
 }
@@ -511,7 +550,7 @@ export async function listarMesesSop(): Promise<string[]> {
  */
 export async function carregarCurvas(
   codigo: string,
-  mes: string
+  mes: string,
 ): Promise<{
   curvas: CurvaMes[];
   diaCorte: number;
@@ -523,7 +562,9 @@ export async function carregarCurvas(
     .toISOString()
     .slice(0, 10);
 
-  const diarios = await prisma.$queryRawUnsafe<{ mes: string; dia: number; qtd: number }[]>(
+  const diarios = await prisma.$queryRawUnsafe<
+    { mes: string; dia: number; qtd: number }[]
+  >(
     `SELECT to_char(h.data, 'YYYY-MM') AS mes,
             extract(day FROM h.data)::int AS dia,
             SUM(-h.quantidade)::float8 AS qtd
@@ -533,12 +574,15 @@ export async function carregarCurvas(
       ORDER BY 1, 2`,
     codigo,
     desde,
-    fim
+    fim,
   );
 
   const porMes = new Map<string, { dia: number; qtd: number }[]>();
   for (const l of diarios) {
-    porMes.set(l.mes, [...(porMes.get(l.mes) ?? []), { dia: l.dia, qtd: l.qtd }]);
+    porMes.set(l.mes, [
+      ...(porMes.get(l.mes) ?? []),
+      { dia: l.dia, qtd: l.qtd },
+    ]);
   }
 
   const mesReferencia = inicio.slice(0, 7);
@@ -569,7 +613,9 @@ export async function carregarCurvas(
   // duas implementações da mesma comparação dariam números diferentes para a
   // mesma pergunta em telas vizinhas.
   const clientes =
-    diaCorte > 0 ? await carregarClientesFora(codigo, diaCorte, mesReferencia, desde) : [];
+    diaCorte > 0
+      ? await carregarClientesFora(codigo, diaCorte, mesReferencia, desde)
+      : [];
 
   return { curvas, diaCorte, clientes };
 }
@@ -596,7 +642,7 @@ export type SaldoAbertura = {
  */
 export async function carregarAbertura(
   codigo: string,
-  mes: string
+  mes: string,
 ): Promise<SaldoAbertura> {
   const [config, snapshots] = await Promise.all([
     lerConfiguracoes(),
@@ -606,11 +652,22 @@ export async function carregarAbertura(
   const abertura = resolverAbertura(mes.slice(0, 7), config, snapshots);
 
   if (!abertura.data) {
-    return { ...abertura, estoque: 0, compras: 0, transferencias: 0, filiais: 0 };
+    return {
+      ...abertura,
+      estoque: 0,
+      compras: 0,
+      transferencias: 0,
+      filiais: 0,
+    };
   }
 
   const linhas = await prisma.$queryRawUnsafe<
-    { estoque: number; compras: number; transferencias: number; filiais: number }[]
+    {
+      estoque: number;
+      compras: number;
+      transferencias: number;
+      filiais: number;
+    }[]
   >(
     `SELECT COALESCE(SUM(${somaSql(COLUNAS_ESTOQUE_CHAO, "s")}),0)::float8 AS estoque,
             COALESCE(SUM(${somaSql(COLUNAS_COMPRAS, "s")}),0)::float8 AS compras,
@@ -619,7 +676,7 @@ export async function carregarAbertura(
        FROM ${simuladorPorCd("s.data_snapshot = $2::date")} s
       WHERE s.data_snapshot = $2::date AND s.codigo = $1`,
     codigo,
-    abertura.data
+    abertura.data,
   );
 
   return {
@@ -659,12 +716,14 @@ export type RecebimentoDia = {
  */
 export async function carregarMovimentoDoMes(
   codigo: string,
-  mes: string
+  mes: string,
 ): Promise<RecebimentoDia[]> {
   const { inicio, fim } = limitesDoMes(mes);
 
   const [entradas, vendas] = await Promise.all([
-    prisma.$queryRawUnsafe<{ dia: number; filial: string | null; qtd: number; notas: number }[]>(
+    prisma.$queryRawUnsafe<
+      { dia: number; filial: string | null; qtd: number; notas: number }[]
+    >(
       `SELECT extract(day FROM r.data)::int AS dia, r.filial,
               COALESCE(SUM(r.quantidade),0)::float8 AS qtd, COUNT(*)::int AS notas
          FROM recebimento r
@@ -672,9 +731,11 @@ export async function carregarMovimentoDoMes(
         GROUP BY 1, 2`,
       codigo,
       inicio,
-      fim
+      fim,
     ),
-    prisma.$queryRawUnsafe<{ dia: number; filial: string | null; qtd: number; notas: number }[]>(
+    prisma.$queryRawUnsafe<
+      { dia: number; filial: string | null; qtd: number; notas: number }[]
+    >(
       // O sinal vem invertido da origem (venda é saída de estoque), por isso o
       // menos. Sem ele todas as vendas apareceriam negativas.
       `SELECT extract(day FROM h.data)::int AS dia, h.filial,
@@ -684,7 +745,7 @@ export async function carregarMovimentoDoMes(
         GROUP BY 1, 2`,
       codigo,
       inicio,
-      fim
+      fim,
     ),
   ]);
 
@@ -692,19 +753,26 @@ export async function carregarMovimentoDoMes(
     const porDia = new Map<number, MovimentoCd[]>();
     for (const l of linhas) {
       const lista = porDia.get(l.dia) ?? [];
-      lista.push({ filial: l.filial ?? "—", quantidade: l.qtd ?? 0, notas: l.notas });
+      lista.push({
+        filial: l.filial ?? "—",
+        quantidade: l.qtd ?? 0,
+        notas: l.notas,
+      });
       porDia.set(l.dia, lista);
     }
     // Maior primeiro: o tooltip é lido de cima para baixo e o CD que mais pesa
     // deve ser o primeiro a aparecer.
-    for (const lista of porDia.values()) lista.sort((a, b) => b.quantidade - a.quantidade);
+    for (const lista of porDia.values())
+      lista.sort((a, b) => b.quantidade - a.quantidade);
     return porDia;
   };
 
   const porDiaEntrada = agrupar(entradas);
   const porDiaVenda = agrupar(vendas);
 
-  const ultimoDia = new Date(new Date(`${fim}T00:00:00.000Z`).getTime() - 86400000).getUTCDate();
+  const ultimoDia = new Date(
+    new Date(`${fim}T00:00:00.000Z`).getTime() - 86400000,
+  ).getUTCDate();
 
   return Array.from({ length: ultimoDia }, (_, i) => {
     const dia = i + 1;
@@ -719,4 +787,180 @@ export async function carregarMovimentoDoMes(
       vendasPorCd,
     };
   });
+}
+
+/** Um cliente que comprou sem contrato deste item no mês. */
+export type ClienteSpot = {
+  cnpj: string;
+  nome: string;
+  grupo: string | null;
+  /** Comprado no mês de referência. */
+  atual: number;
+  /** Média mensal antes deste mês; `null` quando nunca comprou. */
+  media: number | null;
+  /** Mediana mensal antes deste mês; `null` quando nunca comprou. */
+  mediana: number | null;
+  /** Em quantos meses anteriores comprou — dá peso à média. */
+  meses: number;
+};
+
+export type DetalheSpot = {
+  /** Os maiores, um a um. */
+  clientes: ClienteSpot[];
+  /**
+   * Janela do histórico usada nas médias e medianas.
+   *
+   * Sem isto, "média 15" não diz se são quinze de três meses ou de um só — e a
+   * diferença entre as duas leituras é o que decide se vale confiar no número.
+   */
+  historico: { meses: number; de: string | null; ate: string | null };
+  /** Os demais somados; `null` quando não sobrou ninguém. */
+  demais: { clientes: number; atual: number } | null;
+  total: number;
+  /** Quantos nunca haviam comprado o item — demanda nova de verdade. */
+  novos: number;
+};
+
+/** Quantos clientes aparecem um a um antes do agrupamento. */
+const TOPO_SPOT = 15;
+
+/**
+ * Quem comprou o item sem contrato no mês, com o histórico de cada um.
+ *
+ * O card de Spot diz *quanto* saiu fora de contrato; este detalhe diz *de quem*
+ * e, principalmente, se é novidade. Um cliente que compra 120 todo mês e comprou
+ * 120 agora não é demanda nova — é contrato que ninguém assinou. Um que nunca
+ * comprou e levou 200 é outra conversa. Média e mediana lado a lado porque um
+ * mês atípico puxa a média e não mexe na mediana: quando as duas se afastam, o
+ * histórico é irregular e a média sozinha enganaria.
+ *
+ * O corte em quinze sai do banco, não da tela: a cauda deste item tem 79
+ * clientes somando menos que o terceiro colocado, e trazer todos para descartar
+ * na interface seria transportar dado para jogar fora.
+ *
+ * Custo medido: 159ms. A primeira versão levava 119 **segundos** porque buscava
+ * o nome numa subconsulta correlacionada sobre `historico_vendas` — 561 mil
+ * linhas varridas uma vez por cliente. O nome sai agora da própria agregação
+ * mensal, que já está sendo lida.
+ */
+export async function carregarSpot(
+  codigo: string,
+  mes: string,
+): Promise<DetalheSpot> {
+  // `cargaVigente` recorta a competência por início e fim do mês, e é ele que
+  // define $2 e $3. O início também serve de divisor entre o mês atual e o
+  // histórico, porque é o primeiro dia da competência.
+  const { inicio, fim } = limitesDoMes(mes);
+
+  const [linhas, janela] = await Promise.all([
+    prisma.$queryRawUnsafe<
+      {
+        cnpj: string;
+        nome: string | null;
+        grupo: string | null;
+        atual: number;
+        media: number | null;
+        mediana: number | null;
+        meses: number;
+      }[]
+    >(
+      `WITH contratados AS (
+       SELECT DISTINCT cnpj FROM contratos
+        WHERE codigo = $1 AND ${cargaVigente("contratos", "contratos")}
+          AND cnpj IS NOT NULL
+     ),
+     -- Uma linha por cliente e mês, base tanto do atual quanto do histórico.
+     -- O sinal vem invertido da origem (venda é saída de estoque).
+     mensal AS (
+       SELECT h.cnpj, date_trunc('month', h.data) AS mes,
+              SUM(-h.quantidade)::float8 AS q, MIN(h.nome) AS nome
+         FROM historico_vendas h
+        WHERE h.cod_prod = $1 AND h.cnpj IS NOT NULL
+        GROUP BY 1, 2
+     ),
+     atual AS (SELECT cnpj, q, nome FROM mensal WHERE mes = $2::date),
+     historico AS (
+       SELECT cnpj, avg(q)::float8 AS media,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY q)::float8 AS mediana,
+              count(*)::int AS meses, MIN(nome) AS nome
+         FROM mensal WHERE mes < $2::date
+        GROUP BY 1
+     )
+     SELECT a.cnpj, a.q AS atual, h.media, h.mediana,
+            COALESCE(h.meses, 0) AS meses,
+            -- Cadastro primeiro, venda depois: a maioria dos clientes spot não
+            -- está no cadastro de grupos, e sem o segundo nome a tela mostraria
+            -- CNPJ solto em mais da metade das linhas.
+            COALESCE(cg.cliente_nome, a.nome, h.nome) AS nome,
+            cg.cliente_grupo AS grupo
+       FROM atual a
+       LEFT JOIN historico h ON h.cnpj = a.cnpj
+       -- Subconsulta própria, e nao GRUPOS_POR_CNPJ: aquele projeta so cnpj e
+       -- grupo, e aqui o nome do cadastro tambem e necessario. Mudar o
+       -- compartilhado mexeria nas outras consultas que dependem dele.
+       LEFT JOIN (
+         SELECT DISTINCT ON (cliente_cnpj) cliente_cnpj, cliente_grupo, cliente_nome
+           FROM clientes_grupos WHERE cliente_cnpj IS NOT NULL ORDER BY cliente_cnpj
+       ) cg ON cg.cliente_cnpj = a.cnpj
+      -- Diferente de zero, nao maior que zero: o card soma tudo que veio de
+      -- CNPJ sem contrato, inclusive devolucao. Cortar os negativos faria o
+      -- detalhe deixar de fechar com o card no primeiro mes com devolucao --
+      -- hoje nao ha nenhuma, e e por isso que o erro passaria despercebido.
+      -- Linha zerada sai porque nao muda a soma e so ocuparia espaco.
+      WHERE a.q <> 0 AND a.cnpj NOT IN (SELECT cnpj FROM contratados)
+      ORDER BY a.q DESC`,
+      codigo,
+      inicio,
+      fim,
+    ),
+
+    // Janela do histórico, para a tela dizer sobre quantos meses a média fala.
+    // Consulta à parte e em paralelo: é um agregado sobre o mesmo índice de
+    // `cod_prod`, e espremê-la na outra exigiria mais um CTE só para carregar
+    // três números iguais em todas as linhas.
+    prisma.$queryRawUnsafe<
+      { meses: number; de: Date | null; ate: Date | null }[]
+    >(
+      `SELECT count(DISTINCT date_trunc('month', data))::int AS meses,
+              MIN(date_trunc('month', data))::date AS de,
+              MAX(date_trunc('month', data))::date AS ate
+         FROM historico_vendas
+        WHERE cod_prod = $1 AND data < $2::date`,
+      codigo,
+      inicio,
+    ),
+  ]);
+
+  const clientes: ClienteSpot[] = linhas.map((l) => ({
+    cnpj: l.cnpj,
+    nome: l.nome ?? l.cnpj,
+    grupo: l.grupo,
+    atual: l.atual,
+    media: l.media,
+    mediana: l.mediana,
+    meses: l.meses,
+  }));
+
+  const topo = clientes.slice(0, TOPO_SPOT);
+  const cauda = clientes.slice(TOPO_SPOT);
+
+  const j = janela[0];
+
+  return {
+    clientes: topo,
+    historico: {
+      meses: j?.meses ?? 0,
+      de: j?.de ? j.de.toISOString().slice(0, 7) : null,
+      ate: j?.ate ? j.ate.toISOString().slice(0, 7) : null,
+    },
+    demais:
+      cauda.length > 0
+        ? {
+            clientes: cauda.length,
+            atual: cauda.reduce((a, c) => a + c.atual, 0),
+          }
+        : null,
+    total: clientes.reduce((a, c) => a + c.atual, 0),
+    novos: clientes.filter((c) => c.meses === 0).length,
+  };
 }

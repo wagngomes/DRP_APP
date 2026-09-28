@@ -3,12 +3,14 @@ import { ChevronDown, ChevronRight, Users } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type {
+  DetalheSpot,
   DivisaoSop,
   GrupoContrato,
   RaioXProduto,
 } from "@/lib/sop/consultas";
 import { faixaAcuracidade } from "@/utils/acuracidade";
 import { corDivisao, num, pct, TOM_FAIXA } from "./formato";
+import { TabelaSpot } from "./spot";
 
 /** A composição inteira numa barra: a proporção antes de qualquer número. */
 export function BarraComposicao({
@@ -39,21 +41,26 @@ export function LinhaDivisao({
   divisao: d,
   total,
   contratos,
+  spot,
   aberta,
   href,
   consensoContratos,
 }: {
   divisao: DivisaoSop;
   total: number;
-  /** Detalhe a abrir sob a linha; só "Contratos" tem um. */
+  /** Detalhe de contratos; preenchido só na linha "Contratos". */
   contratos: RaioXProduto["contratos"] | null;
+  /** Detalhe de spot; preenchido só na linha "Spot". */
+  spot: DetalheSpot | null;
   aberta: boolean;
   href: string;
   consensoContratos: number;
 }) {
   const cor = corDivisao(d.divisao);
   const parte = total > 0 ? d.consenso / total : 0;
-  const podeAbrir = contratos !== null && contratos.grupos.length > 0;
+  const podeAbrir =
+    (contratos !== null && contratos.grupos.length > 0) ||
+    (spot !== null && spot.clientes.length > 0);
   const confere =
     Math.abs(contratos ? contratos.total - consensoContratos : 0) < 0.5;
 
@@ -120,6 +127,8 @@ export function LinhaDivisao({
       {/* O detalhe dos contratos vive aqui, sob a divisão que ele explica.
           Solto no fim da página, obrigava a ligar duas coisas distantes: o
           número de cima e a lista de baixo. */}
+      {aberta && spot ? <TabelaSpot spot={spot} /> : null}
+
       {aberta && contratos ? (
         <div className="border-t bg-card px-3 py-3">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">

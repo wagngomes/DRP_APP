@@ -35,7 +35,9 @@ import {
   carregarCurvas,
   carregarMovimentoDoMes,
   carregarRaioX,
+  carregarSpot,
   listarMesesSop,
+  type DetalheSpot,
   type RaioXProduto,
   type RecebimentoDia,
   type SaldoAbertura,
@@ -85,11 +87,12 @@ export default async function RaioX({
   const codigo = primeiro(params.codigo);
 
   const abrir = primeiro(params.abrir);
-  const [dados, curva, abertura, entradas, rotulos] = await Promise.all([
+  const [dados, curva, abertura, entradas, spot, rotulos] = await Promise.all([
     codigo && mes ? carregarRaioX(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarCurvas(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarAbertura(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarMovimentoDoMes(codigo, mes) : Promise.resolve(null),
+    codigo && mes ? carregarSpot(codigo, mes) : Promise.resolve(null),
     carregarRotulosFiliais(),
   ]);
 
@@ -287,6 +290,7 @@ export default async function RaioX({
               abrir={abrir}
               abertura={abertura}
               entradas={entradas}
+              spot={spot}
               rotulos={Object.fromEntries(rotulos)}
             />
           )}
@@ -312,6 +316,7 @@ function Painel({
   abrir,
   abertura,
   entradas,
+  spot,
   rotulos,
 }: {
   dados: RaioXProduto;
@@ -323,6 +328,7 @@ function Painel({
   abrir?: string;
   abertura: SaldoAbertura | null;
   entradas: RecebimentoDia[] | null;
+  spot: DetalheSpot | null;
   rotulos: Record<string, string>;
 }) {
   const { acerto } = dados;
@@ -592,6 +598,7 @@ function Painel({
                       ? dados.contratos
                       : null
                   }
+                  spot={d.divisao.toLowerCase() === "spot" ? spot : null}
                   aberta={abrir === d.divisao}
                   href={hrefAbrir(dados, abrir, d.divisao)}
                   consensoContratos={dados.consensoContratos}
