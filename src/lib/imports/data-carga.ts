@@ -15,8 +15,7 @@ import type { ImportModelConfig } from "@/lib/imports/config";
  * confundi-los é o que obriga a escolher entre um e outro.
  */
 export type ResultadoDataCarga =
-  | { ok: true; data: Date; retroativa: boolean }
-  | { ok: false; erro: string };
+  { ok: true; data: Date; retroativa: boolean } | { ok: false; erro: string };
 
 /** Antes disto é erro de digitação, não carga retroativa. */
 const ANO_MINIMO = 2000;
@@ -26,7 +25,7 @@ export function resolverDataCarga(
   /** O que veio do formulário; vazio ou ausente = usar o dia de hoje. */
   pedida: string | null | undefined,
   /** Hoje no fuso da operação, no formato ISO. */
-  hoje: string
+  hoje: string,
 ): ResultadoDataCarga {
   const hojeData = new Date(`${hoje}T00:00:00.000Z`);
 
@@ -44,7 +43,10 @@ export function resolverDataCarga(
   const data = new Date(`${valor}T00:00:00.000Z`);
   // `new Date("2026-02-31")` não falha — rola para março. Comparar de volta é o
   // que pega o dia que não existe no mês.
-  if (Number.isNaN(data.getTime()) || data.toISOString().slice(0, 10) !== valor) {
+  if (
+    Number.isNaN(data.getTime()) ||
+    data.toISOString().slice(0, 10) !== valor
+  ) {
     return { ok: false, erro: `Data inválida: ${valor}` };
   }
 

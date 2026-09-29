@@ -9,7 +9,9 @@ type ReferenceLookupDelegate = {
 };
 
 function getLookupDelegate(delegateName: string): ReferenceLookupDelegate {
-  return (prisma as unknown as Record<string, ReferenceLookupDelegate>)[delegateName];
+  return (prisma as unknown as Record<string, ReferenceLookupDelegate>)[
+    delegateName
+  ];
 }
 
 /**
@@ -21,8 +23,11 @@ function getLookupDelegate(delegateName: string): ReferenceLookupDelegate {
 export async function filterByReferences(
   records: Record<string, unknown>[],
   recordRows: number[],
-  model: ImportModelConfig
-): Promise<{ valid: Record<string, unknown>[]; skipped: { row: number; reason: string }[] }> {
+  model: ImportModelConfig,
+): Promise<{
+  valid: Record<string, unknown>[];
+  skipped: { row: number; reason: string }[];
+}> {
   if (!model.references || model.references.length === 0) {
     return { valid: records, skipped: [] };
   }
@@ -36,8 +41,8 @@ export async function filterByReferences(
       new Set(
         valid
           .map((record) => record[ref.field])
-          .filter((value): value is string => typeof value === "string")
-      )
+          .filter((value): value is string => typeof value === "string"),
+      ),
     );
 
     if (values.length === 0) continue;
@@ -47,7 +52,9 @@ export async function filterByReferences(
       where: { [ref.targetField]: { in: values } },
       select: { [ref.targetField]: true },
     });
-    const foundSet = new Set(found.map((item) => String(item[ref.targetField])));
+    const foundSet = new Set(
+      found.map((item) => String(item[ref.targetField])),
+    );
 
     const nextValid: Record<string, unknown>[] = [];
     const nextRows: number[] = [];

@@ -29,7 +29,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -65,8 +71,18 @@ function formatarData(iso: string): string {
 }
 
 const MONTH_NAMES = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
 ];
 
 type ListResponse = {
@@ -96,7 +112,10 @@ type ResultadoImport = {
  * O aviso na tela mostra os motivos agregados, mas reconciliar cadastro exige a
  * lista completa — quais linhas e quais códigos foram recusados.
  */
-function baixarIgnoradas(modelo: string, linhas: { row: number; reason: string }[]) {
+function baixarIgnoradas(
+  modelo: string,
+  linhas: { row: number; reason: string }[],
+) {
   const escapar = (v: string) => `"${v.replace(/"/g, '""')}"`;
   const conteudo = [
     "linha;motivo",
@@ -199,7 +218,9 @@ export function ImportTabPanel({
   const [clearing, setClearing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** Datas marcadas para exclusão; vazio = apagar a tabela inteira. */
-  const [datasParaLimpar, setDatasParaLimpar] = useState<Set<string>>(new Set());
+  const [datasParaLimpar, setDatasParaLimpar] = useState<Set<string>>(
+    new Set(),
+  );
   const [resultado, setResultado] = useState<ResultadoImport | null>(null);
   const [snapshotDates, setSnapshotDates] = useState<string[]>([]);
   const [filters, setFilters] = useState<SnapshotFilters>({
@@ -236,7 +257,7 @@ export function ImportTabPanel({
         setLoading(false);
       }
     },
-    [modelKey, label, isCumulative, filters]
+    [modelKey, label, isCumulative, filters],
   );
 
   useEffect(() => {
@@ -297,7 +318,7 @@ export function ImportTabPanel({
       toast.success(
         data
           ? `${formatarData(data)} é a abertura de ${rotuloMesAbertura(mes)}`
-          : `Abertura de ${rotuloMesAbertura(mes)} desmarcada`
+          : `Abertura de ${rotuloMesAbertura(mes)} desmarcada`,
       );
     } catch {
       toast.error("Não foi possível marcar a abertura");
@@ -306,7 +327,9 @@ export function ImportTabPanel({
     }
   }
 
-  async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileSelected(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -328,15 +351,20 @@ export function ImportTabPanel({
         // procurar problema nas colunas mesmo quando o CSV está correto.
         const causes: string[] = [];
         if (data.missingColumns?.length) {
-          causes.push(`Colunas ausentes no CSV: ${data.missingColumns.join(", ")}.`);
+          causes.push(
+            `Colunas ausentes no CSV: ${data.missingColumns.join(", ")}.`,
+          );
         }
         // O resumo agrupado vem antes das linhas soltas: quando o arquivo
         // inteiro falha pelo mesmo motivo, a contagem é o que explica a causa.
         if (data.skippedSummary?.length) {
           causes.push(
             data.skippedSummary
-              .map((s: { count: number; reason: string }) => `${s.count} linha(s): ${s.reason}`)
-              .join(" | ")
+              .map(
+                (s: { count: number; reason: string }) =>
+                  `${s.count} linha(s): ${s.reason}`,
+              )
+              .join(" | "),
           );
         } else if (data.skippedRows?.length) {
           const [first] = data.skippedRows;
@@ -364,17 +392,38 @@ export function ImportTabPanel({
         resumo: data.skippedSummary ?? [],
         colunasAusentes: data.missingColumns ?? [],
       });
-      const skippedMsg = data.skippedCount > 0 ? ` (${data.skippedCount} linha(s) ignorada(s))` : "";
+      const skippedMsg =
+        data.skippedCount > 0
+          ? ` (${data.skippedCount} linha(s) ignorada(s))`
+          : "";
       // A data entra no texto só quando é retroativa: repeti-la em toda carga
       // normal treinaria o olho a ignorá-la justamente quando ela importa.
-      const dataMsg = data.retroativa ? ` com data ${dataBr(data.dataSnapshot)}` : "";
+      const dataMsg = data.retroativa
+        ? ` com data ${dataBr(data.dataSnapshot)}`
+        : "";
+
+      // Na carga incremental, dizer quais dias foram trocados. A operação é
+      // destrutiva dentro do período, e quem mandou o arquivo errado precisa
+      // ver o que foi substituído — não só quantas linhas entraram.
+      const dias: string[] = data.diasSubstituidos ?? [];
+      const diasMsg =
+        dias.length === 0
+          ? undefined
+          : dias.length === 1
+            ? `Substituído o movimento de ${dataBr(dias[0])}. O restante da base não foi tocado.`
+            : `Substituído o movimento de ${dias.length} dia(s), de ${dataBr(dias[0])} a ${dataBr(dias[dias.length - 1])}. O restante da base não foi tocado.`;
+
+      const colunasMsg = data.missingColumns?.length
+        ? `Colunas não encontradas no CSV, gravadas como vazias: ${data.missingColumns.join(", ")}`
+        : undefined;
+
       toast.success(
         `${data.insertedCount} registro(s) importado(s) em ${label}${dataMsg}${skippedMsg}`,
         {
-        description: data.missingColumns?.length
-          ? `Colunas não encontradas no CSV, gravadas como vazias: ${data.missingColumns.join(", ")}`
-          : undefined,
-      });
+          description:
+            [diasMsg, colunasMsg].filter(Boolean).join(" ") || undefined,
+        },
+      );
       await loadPage(1);
     } catch {
       toast.error("Falha ao importar o CSV");
@@ -391,7 +440,7 @@ export function ImportTabPanel({
       const qs = params.toString();
       const response = await fetch(
         qs ? `/api/imports/${modelKey}?${qs}` : `/api/imports/${modelKey}`,
-        { method: "DELETE" }
+        { method: "DELETE" },
       );
       if (!response.ok) throw new Error("Falha ao limpar a tabela");
       const data = await response.json();
@@ -401,7 +450,9 @@ export function ImportTabPanel({
           : datasParaLimpar.size === 1
             ? ` de ${formatarData([...datasParaLimpar][0])}`
             : ` em ${datasParaLimpar.size} cargas`;
-      toast.success(`${data.deletedCount} registro(s) removido(s) de ${label}${alvo}`);
+      toast.success(
+        `${data.deletedCount} registro(s) removido(s) de ${label}${alvo}`,
+      );
       setDatasParaLimpar(new Set());
       setConfirmOpen(false);
       await loadPage(1);
@@ -418,7 +469,8 @@ export function ImportTabPanel({
         <div>
           <CardTitle>{label}</CardTitle>
           <CardDescription>
-            {total} registro(s) {hasActiveFilter ? "no filtro atual" : "na tabela"}
+            {total} registro(s){" "}
+            {hasActiveFilter ? "no filtro atual" : "na tabela"}
           </CardDescription>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -437,7 +489,10 @@ export function ImportTabPanel({
             <div className="flex items-center gap-1.5">
               <CalendarClock
                 className={
-                  "size-4 " + (dataCarga ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")
+                  "size-4 " +
+                  (dataCarga
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-muted-foreground")
                 }
               />
               <Input
@@ -483,7 +538,11 @@ export function ImportTabPanel({
             title={podeEditar ? undefined : "Exige perfil de administrador"}
             className="bg-(--brand-turquoise) text-(--brand-petrol) hover:bg-(--brand-turquoise)/90"
           >
-            {uploading ? <Loader2 className="size-4 animate-spin" /> : <UploadCloud className="size-4" />}
+            {uploading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <UploadCloud className="size-4" />
+            )}
             {dataCarga ? `Importar para ${dataBr(dataCarga)}` : "Importar CSV"}
           </Button>
         </div>
@@ -495,11 +554,16 @@ export function ImportTabPanel({
               <div className="min-w-0">
                 <p className="text-sm font-medium text-amber-800 dark:text-amber-400">
                   {`${resultado.ignoradas} linha(s) ignorada(s) de ${resultado.totalLinhas}`}
-                  {resultado.inseridos > 0 ? ` · ${resultado.inseridos} gravada(s)` : ""}
+                  {resultado.inseridos > 0
+                    ? ` · ${resultado.inseridos} gravada(s)`
+                    : ""}
                 </p>
                 <ul className="mt-1 space-y-0.5">
                   {resultado.resumo.map((r) => (
-                    <li key={r.reason} className="text-xs text-muted-foreground">
+                    <li
+                      key={r.reason}
+                      className="text-xs text-muted-foreground"
+                    >
                       {`${r.count}× ${r.reason}`}
                     </li>
                   ))}
@@ -519,13 +583,20 @@ export function ImportTabPanel({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => baixarIgnoradas(modelKey, resultado.linhasIgnoradas)}
+                  onClick={() =>
+                    baixarIgnoradas(modelKey, resultado.linhasIgnoradas)
+                  }
                   disabled={resultado.linhasIgnoradas.length === 0}
                 >
                   <Download className="size-4" />
                   Baixar linhas ignoradas
                 </Button>
-                <Button variant="ghost" size="icon" onClick={() => setResultado(null)} aria-label="Fechar aviso">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setResultado(null)}
+                  aria-label="Fechar aviso"
+                >
                   <X className="size-4" />
                 </Button>
               </div>
@@ -542,7 +613,10 @@ export function ImportTabPanel({
               label="Dia"
               value={filters.dia}
               onChange={(dia) => setFilters((prev) => ({ ...prev, dia }))}
-              options={dias.map((d) => ({ value: String(d), label: String(d) }))}
+              options={dias.map((d) => ({
+                value: String(d),
+                label: String(d),
+              }))}
             />
             <FilterSelect
               label="Mês"
@@ -557,7 +631,10 @@ export function ImportTabPanel({
               label="Ano"
               value={filters.ano}
               onChange={(ano) => setFilters((prev) => ({ ...prev, ano }))}
-              options={anos.map((a) => ({ value: String(a), label: String(a) }))}
+              options={anos.map((a) => ({
+                value: String(a),
+                label: String(a),
+              }))}
             />
             {hasActiveFilter && (
               <Button
@@ -586,8 +663,8 @@ export function ImportTabPanel({
               Abertura do mês
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Qual carga vale como o saldo com que o mês começou. Sem marca, a tela usa a
-              primeira carga do próprio mês.
+              Qual carga vale como o saldo com que o mês começou. Sem marca, a
+              tela usa a primeira carga do próprio mês.
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {snapshotDates.slice(0, 20).map((data) => {
@@ -611,7 +688,9 @@ export function ImportTabPanel({
                         </span>
                         <button
                           type="button"
-                          onClick={() => abertos.forEach((m) => marcarAbertura(m, null))}
+                          onClick={() =>
+                            abertos.forEach((m) => marcarAbertura(m, null))
+                          }
                           disabled={marcando || !podeEditar}
                           aria-label={`Desmarcar abertura de ${data}`}
                           className="text-muted-foreground hover:text-foreground"
@@ -649,20 +728,28 @@ export function ImportTabPanel({
             <TableHeader>
               <TableRow>
                 {columns.map((column) => (
-                  <TableHead key={column.field}>{humanizeColumn(column.field)}</TableHead>
+                  <TableHead key={column.field}>
+                    {humanizeColumn(column.field)}
+                  </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length} className="py-8 text-center text-muted-foreground">
+                  <TableCell
+                    colSpan={columns.length}
+                    className="py-8 text-center text-muted-foreground"
+                  >
                     Carregando...
                   </TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length} className="py-8 text-center text-muted-foreground">
+                  <TableCell
+                    colSpan={columns.length}
+                    className="py-8 text-center text-muted-foreground"
+                  >
                     {hasActiveFilter
                       ? "Nenhum registro para a data selecionada."
                       : "Nenhum dado importado ainda."}
@@ -736,11 +823,15 @@ export function ImportTabPanel({
                   size="sm"
                   onClick={() =>
                     setDatasParaLimpar((atual) =>
-                      atual.size === snapshotDates.length ? new Set() : new Set(snapshotDates)
+                      atual.size === snapshotDates.length
+                        ? new Set()
+                        : new Set(snapshotDates),
                     )
                   }
                 >
-                  {datasParaLimpar.size === snapshotDates.length ? "Desmarcar todas" : "Marcar todas"}
+                  {datasParaLimpar.size === snapshotDates.length
+                    ? "Desmarcar todas"
+                    : "Marcar todas"}
                 </Button>
               </div>
 

@@ -25,7 +25,7 @@ describe("import de contratos", () => {
   it("lê o arquivo com os cabeçalhos em maiúsculas", () => {
     const r = csv(
       "2026-09-01,VIGENTE,HOSPITAL SAO LUCAS LTDA,12420164000580,UNIMED,SP,SUDESTE," +
-        "MARIA S.,1500.5,000998645,S,1006,320"
+        "MARIA S.,1500.5,000998645,S,1006,320",
     );
 
     expect(r.missingColumns).toEqual([]);
@@ -42,7 +42,9 @@ describe("import de contratos", () => {
     // inteira era recusada linha a linha.
     for (const valor of ["2026-09-01", "01/09/2026", "09/2026", "2026-09"]) {
       const r = csv(`${valor},VIGENTE,X,1,G,SP,SE,M,1,1,S,1006,1`);
-      expect(r.records[0].competencia, valor).toEqual(new Date(Date.UTC(2026, 8, 1)));
+      expect(r.records[0].competencia, valor).toEqual(
+        new Date(Date.UTC(2026, 8, 1)),
+      );
     }
   });
 

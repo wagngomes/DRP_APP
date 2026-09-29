@@ -81,6 +81,26 @@ export type ImportModelConfig = {
    * dia, mantendo o histórico). Exige `snapshotField`.
    */
   cumulative?: boolean;
+  /**
+   * Carga incremental: só as datas presentes no arquivo são substituídas.
+   *
+   * Para bases de transação que crescem todo dia — histórico de vendas e
+   * recebimento — e cujo arquivo diário traz o movimento de um dia só. Reenviar
+   * a base inteira funcionava, mas eram 561 mil linhas por dia para acrescentar
+   * cinco mil, e o `DELETE FROM` deixava a tabela vazia no meio da transação.
+   *
+   * Substituir por data, e não simplesmente acrescentar, porque estas tabelas
+   * **não têm chave natural**: há 2.221 linhas legitimamente repetidas no
+   * histórico (mesmo produto duas vezes na mesma nota). Sem chave não há como
+   * deduplicar depois, então reenviar o mesmo arquivo dobraria o dia em
+   * silêncio. Apagando o dia antes de inserir, a carga vira idempotente: rodar
+   * duas vezes dá o mesmo resultado que rodar uma.
+   *
+   * Exige `dateField`.
+   */
+  incremental?: boolean;
+  /** Coluna de data que delimita o período substituído por `incremental`. */
+  dateField?: string;
   /** Campo (DateTime @db.Date) preenchido pelo servidor com a data do upload — não vem do CSV. */
   snapshotField?: string;
   /**
@@ -161,7 +181,12 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
     label: "Fiscal",
     delegate: "fiscal",
     references: [
-      { field: "codigo", targetDelegate: "produtos", targetField: "codigo", label: "Produtos" },
+      {
+        field: "codigo",
+        targetDelegate: "produtos",
+        targetField: "codigo",
+        label: "Produtos",
+      },
     ],
     columns: [
       col("codigo", "codigo"),
@@ -217,7 +242,12 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
     snapshotField: "data_snapshot",
     snapshotScope: "day",
     references: [
-      { field: "codigo", targetDelegate: "produtos", targetField: "codigo", label: "Produtos" },
+      {
+        field: "codigo",
+        targetDelegate: "produtos",
+        targetField: "codigo",
+        label: "Produtos",
+      },
     ],
     columns: [
       col("codigo", "codigo"),
@@ -307,7 +337,12 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
     // Forecast é do mês: a carga do dia 3 vale para agosto inteiro.
     snapshotScope: "month",
     references: [
-      { field: "codigo", targetDelegate: "produtos", targetField: "codigo", label: "Produtos" },
+      {
+        field: "codigo",
+        targetDelegate: "produtos",
+        targetField: "codigo",
+        label: "Produtos",
+      },
     ],
     columns: [
       col("codigo", "codigo"),
@@ -338,9 +373,18 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
     // dia do mês, então o recorte é pelo mês da data de referência.
     snapshotScope: "month",
     references: [
-      { field: "codigo", targetDelegate: "produtos", targetField: "codigo", label: "Produtos" },
+      {
+        field: "codigo",
+        targetDelegate: "produtos",
+        targetField: "codigo",
+        label: "Produtos",
+      },
     ],
-    columns: [col("codigo", "codigo"), col("empresa"), col("plano_de_compra", "decimal")],
+    columns: [
+      col("codigo", "codigo"),
+      col("empresa"),
+      col("plano_de_compra", "decimal"),
+    ],
   },
   {
     key: "transferencias_abertas",
@@ -350,7 +394,12 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
     snapshotField: "data_snapshot",
     snapshotScope: "day",
     references: [
-      { field: "codigo", targetDelegate: "produtos", targetField: "codigo", label: "Produtos" },
+      {
+        field: "codigo",
+        targetDelegate: "produtos",
+        targetField: "codigo",
+        label: "Produtos",
+      },
     ],
     columns: [
       col("tipo_nf_saida"),
@@ -396,6 +445,8 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
     key: "recebimento",
     label: "Recebimento",
     delegate: "recebimento",
+    incremental: true,
+    dateField: "data",
     columns: [
       col("armazem"),
       col("arq"),
@@ -471,6 +522,8 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
     key: "historico_vendas",
     label: "Histórico de Vendas",
     delegate: "historicoVendas",
+    incremental: true,
+    dateField: "data",
     columns: [
       col("unidade_negocio_mov"),
       col("data", "date"),
@@ -547,9 +600,7 @@ export function getImportModel(key: string): ImportModelConfig | undefined {
 }
 
 export function humanizeColumn(field: string): string {
-  return field
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return field.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export type { Prisma };

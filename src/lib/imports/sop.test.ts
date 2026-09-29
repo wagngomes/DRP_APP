@@ -20,7 +20,9 @@ function csv(linha: string): ReturnType<typeof parseCsvForModel> {
 
 describe("import de SOP", () => {
   it("lê o arquivo com os cabeçalhos em maiúsculas", () => {
-    const r = csv("2026-09-01,000998645,DALINVI 1800MG FA 15ML,ONCOLOGIA,1450.75");
+    const r = csv(
+      "2026-09-01,000998645,DALINVI 1800MG FA 15ML,ONCOLOGIA,1450.75",
+    );
 
     expect(r.missingColumns).toEqual([]);
     expect(r.records).toHaveLength(1);
@@ -32,7 +34,9 @@ describe("import de SOP", () => {
   it("aceita a competência como mês, não só como data completa", () => {
     for (const valor of ["2026-09-01", "01/09/2026", "09/2026", "2026-09"]) {
       const r = csv(`${valor},1,X,Y,1`);
-      expect(r.records[0].competencia, valor).toEqual(new Date(Date.UTC(2026, 8, 1)));
+      expect(r.records[0].competencia, valor).toEqual(
+        new Date(Date.UTC(2026, 8, 1)),
+      );
     }
   });
 
@@ -44,7 +48,9 @@ describe("import de SOP", () => {
 
   it("lê o consenso como número, inteiro ou fracionado", () => {
     expect(Number(csv("2026-09,1,X,Y,320").records[0].consenso)).toBe(320);
-    expect(Number(csv("2026-09,1,X,Y,1450.75").records[0].consenso)).toBe(1450.75);
+    expect(Number(csv("2026-09,1,X,Y,1450.75").records[0].consenso)).toBe(
+      1450.75,
+    );
   });
 
   it("recorta pela competência do arquivo, não pelo dia do upload", () => {

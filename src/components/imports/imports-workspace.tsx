@@ -31,8 +31,7 @@ function cadenciaDe(model: ImportModelConfig): Cadencia {
  * mudarem de tamanho e animarem o layout a cada clique. Aqui a largura passa a
  * ser a do conteúdo, a altura fica fixa e só a cor transiciona.
  */
-const BASE_TAB =
-  "flex-none h-8 px-3 transition-colors";
+const BASE_TAB = "flex-none h-8 px-3 transition-colors";
 
 const ESTILO: Record<Cadencia, string> = {
   diaria:
@@ -43,8 +42,16 @@ const ESTILO: Record<Cadencia, string> = {
 };
 
 const LEGENDA: { cadencia: Cadencia; rotulo: string; amostra: string }[] = [
-  { cadencia: "diaria", rotulo: "Atualização diária", amostra: "bg-(--brand-petrol)" },
-  { cadencia: "mensal", rotulo: "Atualização mensal", amostra: "bg-(--brand-turquoise)" },
+  {
+    cadencia: "diaria",
+    rotulo: "Atualização diária",
+    amostra: "bg-(--brand-petrol)",
+  },
+  {
+    cadencia: "mensal",
+    rotulo: "Atualização mensal",
+    amostra: "bg-(--brand-turquoise)",
+  },
   { cadencia: "cadastro", rotulo: "Cadastro", amostra: "border bg-muted" },
 ];
 
@@ -73,8 +80,13 @@ export function ImportsWorkspace({ podeEditar }: { podeEditar: boolean }) {
 
         <ul className="flex flex-wrap gap-x-4 gap-y-1">
           {LEGENDA.map((item) => (
-            <li key={item.cadencia} className="flex items-center gap-1.5 text-xs">
-              <span className={`size-2.5 shrink-0 rounded-[2px] ${item.amostra}`} />
+            <li
+              key={item.cadencia}
+              className="flex items-center gap-1.5 text-xs"
+            >
+              <span
+                className={`size-2.5 shrink-0 rounded-[2px] ${item.amostra}`}
+              />
               <span className="text-muted-foreground">{item.rotulo}</span>
             </li>
           ))}

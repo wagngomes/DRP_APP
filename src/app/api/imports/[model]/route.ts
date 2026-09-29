@@ -7,16 +7,29 @@ import { auth } from "@/lib/auth";
 import { exigirAdminOuErro } from "@/lib/autorizacao";
 import { hojeNaOperacao } from "@/lib/data-referencia";
 import { prisma } from "@/lib/prisma";
-import { getIdField, getImportModel, getTableName, IMPORT_MODEL_KEYS } from "@/lib/imports/config";
+import {
+  getIdField,
+  getImportModel,
+  getTableName,
+  IMPORT_MODEL_KEYS,
+} from "@/lib/imports/config";
 import { bulkLoadRecords } from "@/lib/imports/bulk-copy";
-import { decodificarCsv, parseCsvForModel, SkipTracker } from "@/lib/imports/csv";
+import {
+  decodificarCsv,
+  parseCsvForModel,
+  SkipTracker,
+} from "@/lib/imports/csv";
 import { resolverDataCarga } from "@/lib/imports/data-carga";
 import { filterByReferences } from "@/lib/imports/references";
 import { limparCacheReferencia } from "@/lib/cache-referencia";
 import { listarSnapshots } from "@/lib/snapshots";
 import { metricas } from "@/lib/observabilidade/metricas";
 import { IMPORTACAO, IMPORTACAO_SIMULTANEA } from "@/lib/seguranca/limites";
-import { sair, tentarEntrar, verificarCamadas } from "@/lib/seguranca/rate-limit";
+import {
+  sair,
+  tentarEntrar,
+  verificarCamadas,
+} from "@/lib/seguranca/rate-limit";
 
 // Arquivos de 45k+ linhas levam mais que o limite padrão de execução.
 export const maxDuration = 300;
@@ -29,7 +42,7 @@ const modelParamSchema = z.enum(IMPORT_MODEL_KEYS);
 const optionalInt = (min: number, max: number) =>
   z.preprocess(
     (value) => (value === "" || value === null ? undefined : value),
-    z.coerce.number().int().min(min).max(max).optional()
+    z.coerce.number().int().min(min).max(max).optional(),
   );
 
 const listQuerySchema = z.object({
@@ -46,9 +59,13 @@ const listQuerySchema = z.object({
 // estruturalmente tipado em vez de por model — evita 12 rotas quase idênticas.
 // A gravação em massa não passa por aqui: fica no COPY de @/lib/imports/bulk-copy.
 type ImportDelegate = {
-  findMany: (args: Record<string, unknown>) => Promise<Record<string, unknown>[]>;
+  findMany: (
+    args: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>[]>;
   count: (args?: { where?: Record<string, unknown> }) => Promise<number>;
-  deleteMany: (args?: { where?: Record<string, unknown> }) => Promise<{ count: number }>;
+  deleteMany: (args?: {
+    where?: Record<string, unknown>;
+  }) => Promise<{ count: number }>;
 };
 
 function getDelegate(delegateName: string): ImportDelegate {
@@ -71,7 +88,10 @@ async function requireSession() {
 async function exigirAdminApi(): Promise<NextResponse | null> {
   const autorizado = await exigirAdminOuErro();
   if (autorizado.ok) return null;
-  return NextResponse.json({ error: autorizado.erro }, { status: autorizado.status });
+  return NextResponse.json(
+    { error: autorizado.erro },
+    { status: autorizado.status },
+  );
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -88,12 +108,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const model = getImportModel(parsedModel.data)!;
 
   const query = listQuerySchema.safeParse(
-    Object.fromEntries(request.nextUrl.searchParams)
+    Object.fromEntries(request.nextUrl.searchParams),
   );
   if (!query.success) {
     return NextResponse.json(
-      { error: "Parâmetros de paginação inválidos", issues: query.error.flatten().fieldErrors },
-      { status: 400 }
+      {
+        error: "Parâmetros de paginação inválidos",
+        issues: query.error.flatten().fieldErrors,
+      },
+      { status: 400 },
     );
   }
   const { page, pageSize, dia, mes, ano } = query.data;
@@ -110,9 +133,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // inteiro para descobrir treze datas — 262ms no simulador. `listarSnapshots`
     // pergunta ao índice qual é a próxima maior, um salto por data, e faz o
     // mesmo em 1,5ms.
-    snapshotDates = (await listarSnapshots(getTableName(model), model.snapshotField)).map(
-      (d) => new Date(`${d}T00:00:00.000Z`)
-    );
+    snapshotDates = (
+      await listarSnapshots(getTableName(model), model.snapshotField)
+    ).map((d) => new Date(`${d}T00:00:00.000Z`));
 
     if (dia !== undefined || mes !== undefined || ano !== undefined) {
       // Filtrar a lista de datas (poucas, uma por upload) e usar `in` evita
@@ -121,7 +144,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         (date) =>
           (dia === undefined || date.getUTCDate() === dia) &&
           (mes === undefined || date.getUTCMonth() + 1 === mes) &&
-          (ano === undefined || date.getUTCFullYear() === ano)
+          (ano === undefined || date.getUTCFullYear() === ano),
       );
       where = { [model.snapshotField]: { in: matching } };
     }
@@ -164,7 +187,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
   const model = getImportModel(parsedModel.data)!;
 
-
   // Teto por hora, verificado antes de ler o corpo: requisição recusada não
   // carrega o arquivo na memória, o que ajuda justamente nos CSV grandes.
   const veredito = verificarCamadas(`import:${session.user.id}`, IMPORTACAO);
@@ -174,7 +196,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         error: "Muitas importações seguidas. Aguarde antes de enviar outra.",
         retryAfterSegundos: veredito.esperarSegundos,
       },
-      { status: 429, headers: { "Retry-After": String(veredito.esperarSegundos) } }
+      {
+        status: 429,
+        headers: { "Retry-After": String(veredito.esperarSegundos) },
+      },
     );
   }
 
@@ -185,7 +210,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (!tentarEntrar(chaveConcorrencia, IMPORTACAO_SIMULTANEA)) {
     return NextResponse.json(
       { error: "Já existe uma importação em andamento. Aguarde ela terminar." },
-      { status: 429 }
+      { status: 429 },
     );
   }
 
@@ -229,7 +254,7 @@ async function executarImportacao(
   request: NextRequest,
   model: NonNullable<ReturnType<typeof getImportModel>>,
   /** Só para registrar quem fez uma carga retroativa. */
-  autor: string
+  autor: string,
 ) {
   // Recusa pelo cabeçalho antes de ler o corpo: com `formData()` o arquivo
   // inteiro já entrou na memória, e aí o dano de um envio grande demais está
@@ -237,31 +262,42 @@ async function executarImportacao(
   // conferido de novo logo abaixo — este teste barato evita o caso comum.
   const anunciado = Number(request.headers.get("content-length") ?? 0);
   if (anunciado > TAMANHO_MAXIMO_BYTES) {
-    return NextResponse.json({ error: erroDeTamanho(anunciado) }, { status: 413 });
+    return NextResponse.json(
+      { error: erroDeTamanho(anunciado) },
+      { status: 413 },
+    );
   }
 
   const formData = await request.formData().catch(() => null);
   const file = formData?.get("file");
   if (!file || typeof file === "string") {
-    return NextResponse.json({ error: "Envie um arquivo CSV" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Envie um arquivo CSV" },
+      { status: 400 },
+    );
   }
 
   if (file.size > TAMANHO_MAXIMO_BYTES) {
-    return NextResponse.json({ error: erroDeTamanho(file.size) }, { status: 413 });
+    return NextResponse.json(
+      { error: erroDeTamanho(file.size) },
+      { status: 413 },
+    );
   }
 
   // A data vem antes do trabalho pesado: recusar uma data inválida depois de
   // parsear 160 MB de CSV seria desperdiçar o upload inteiro do usuário.
-  const dataCarga = resolverDataCarga(model, formData?.get("data_snapshot") as string | null, hojeNaOperacao());
+  const dataCarga = resolverDataCarga(
+    model,
+    formData?.get("data_snapshot") as string | null,
+    hojeNaOperacao(),
+  );
   if (!dataCarga.ok) {
     return NextResponse.json({ error: dataCarga.erro }, { status: 400 });
   }
 
   const csvText = decodificarCsv(await file.arrayBuffer());
-  const { records, recordRows, totalRows, skippedRows, missingColumns } = parseCsvForModel(
-    csvText,
-    model
-  );
+  const { records, recordRows, totalRows, skippedRows, missingColumns } =
+    parseCsvForModel(csvText, model);
 
   // Agrega os motivos: num arquivo grande um erro sistemático produz milhares
   // de linhas ignoradas idênticas, e é a contagem que explica a causa.
@@ -277,17 +313,14 @@ async function executarImportacao(
         skippedSummary: tracker.summary(),
         missingColumns,
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   // Valida FKs (ex: fiscal.codigo -> produtos.codigo) antes de tentar gravar —
   // uma linha com código inexistente derrubaria a transação inteira no banco.
-  const { valid: validRecords, skipped: referenceSkips } = await filterByReferences(
-    records,
-    recordRows,
-    model
-  );
+  const { valid: validRecords, skipped: referenceSkips } =
+    await filterByReferences(records, recordRows, model);
   for (const item of referenceSkips) tracker.add(item.row, item.reason);
 
   if (validRecords.length === 0) {
@@ -300,7 +333,7 @@ async function executarImportacao(
         skippedSummary: tracker.summary(),
         missingColumns,
       },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -320,33 +353,46 @@ async function executarImportacao(
 
   let insertedCount: number;
   let duplicatesInBatch: number;
+  let diasSubstituidos: string[];
   try {
-    ({ insertedCount, duplicatesInBatch } = await bulkLoadRecords(validRecords, model));
+    ({ insertedCount, duplicatesInBatch, diasSubstituidos } =
+      await bulkLoadRecords(validRecords, model));
   } catch (error) {
-    const details = error instanceof Error ? error.message : "erro desconhecido";
-    console.error(`[import:${model.key}] falha ao gravar ${validRecords.length} linha(s):`, error);
+    const details =
+      error instanceof Error ? error.message : "erro desconhecido";
+    console.error(
+      `[import:${model.key}] falha ao gravar ${validRecords.length} linha(s):`,
+      error,
+    );
     return NextResponse.json(
       { error: `Falha ao gravar os dados no banco: ${details}`, details },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   if (dataCarga.retroativa) {
     console.info(
       `[import:${model.key}] carga retroativa para ${dataCarga.data.toISOString().slice(0, 10)}` +
-        ` por ${autor}: ${insertedCount} linha(s)`
+        ` por ${autor}: ${insertedCount} linha(s)`,
     );
   }
 
   return NextResponse.json({
     insertedCount,
-    dataSnapshot: model.cumulative ? dataCarga.data.toISOString().slice(0, 10) : undefined,
+    dataSnapshot: model.cumulative
+      ? dataCarga.data.toISOString().slice(0, 10)
+      : undefined,
     retroativa: dataCarga.retroativa,
     totalRows,
     skippedRows: tracker.sample,
     skippedSummary: tracker.summary(),
     skippedCount: tracker.total + duplicatesInBatch,
     duplicatesInBatch,
+    // Quais dias a carga incremental trocou. A tela mostra isso porque a
+    // operação é destrutiva dentro do período: quem manda o arquivo errado
+    // precisa ver o que foi substituído, não só quantas linhas entraram.
+    diasSubstituidos:
+      diasSubstituidos.length > 0 ? diasSubstituidos : undefined,
     missingColumns,
   });
 }
@@ -377,12 +423,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (!model.cumulative || !model.snapshotField) {
       return NextResponse.json(
         { error: "Esta tabela não guarda histórico por data" },
-        { status: 400 }
+        { status: 400 },
       );
     }
     const invalida = datas.find((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d));
     if (invalida) {
-      return NextResponse.json({ error: `Data inválida: ${invalida}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `Data inválida: ${invalida}` },
+        { status: 400 },
+      );
     }
     where = {
       [model.snapshotField]: {

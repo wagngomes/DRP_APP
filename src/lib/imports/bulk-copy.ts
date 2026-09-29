@@ -1,7 +1,11 @@
 import { Pool } from "pg";
 import { from as copyFrom } from "pg-copy-streams";
 
-import { getIdField, getTableName, type ImportModelConfig } from "@/lib/imports/config";
+import {
+  getIdField,
+  getTableName,
+  type ImportModelConfig,
+} from "@/lib/imports/config";
 
 /**
  * Pool dedicado para o bulk load. O `COPY FROM STDIN` do Postgres é a única
@@ -11,7 +15,9 @@ import { getIdField, getTableName, type ImportModelConfig } from "@/lib/imports/
  * do Prisma não expõe a conexão crua necessária para o protocolo de COPY, então
  * o `pg` é usado direto aqui — o resto do app continua no Prisma.
  */
-const globalForCopyPool = globalThis as unknown as { copyPool: Pool | undefined };
+const globalForCopyPool = globalThis as unknown as {
+  copyPool: Pool | undefined;
+};
 
 /**
  * Criado sob demanda: o Next carrega o módulo da rota durante a análise de
@@ -50,7 +56,35 @@ export type BulkLoadResult = {
   insertedCount: number;
   /** Linhas descartadas por repetirem a chave natural dentro do próprio CSV. */
   duplicatesInBatch: number;
+  /** Dias substituídos na carga incremental, em ordem. Vazio nas demais. */
+  diasSubstituidos: string[];
 };
+
+/**
+ * Os dias distintos presentes no lote, em ISO.
+ *
+ * Exportada por ser a regra que decide o que será apagado: um erro aqui apaga
+ * dia de menos (sobra duplicata) ou de mais (some venda que ninguém pediu para
+ * remover). Linha sem data não entra — o dia dela é desconhecido, e apagar
+ * "nulo" não faria sentido.
+ */
+export function diasNoLote(
+  linhas: Record<string, unknown>[],
+  campo: string,
+): string[] {
+  const dias = new Set<string>();
+
+  for (const linha of linhas) {
+    const valor = linha[campo];
+    if (valor instanceof Date && !Number.isNaN(valor.getTime())) {
+      dias.add(valor.toISOString().slice(0, 10));
+    } else if (typeof valor === "string" && /^\d{4}-\d{2}-\d{2}/.test(valor)) {
+      dias.add(valor.slice(0, 10));
+    }
+  }
+
+  return [...dias].sort();
+}
 
 /**
  * Cadastros com chave natural são atualizados, nunca apagados.
@@ -75,7 +109,7 @@ function usaUpsert(model: ImportModelConfig): boolean {
  */
 export async function bulkLoadRecords(
   records: Record<string, unknown>[],
-  model: ImportModelConfig
+  model: ImportModelConfig,
 ): Promise<BulkLoadResult> {
   const fields = model.columns.map((column) => column.field);
   if (model.cumulative && model.snapshotField) {
@@ -102,6 +136,9 @@ export async function bulkLoadRecords(
   const table = quoteIdent(getTableName(model));
   const columnList = fields.map(quoteIdent).join(", ");
 
+  /** Preenchido só na carga incremental; entra no retorno para a tela dizer o que trocou. */
+  let dias: string[] = [];
+
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
@@ -112,7 +149,20 @@ export async function bulkLoadRecords(
 
     const upsert = usaUpsert(model);
 
-    if (!model.cumulative && !upsert) {
+    if (model.incremental && model.dateField) {
+      // Só os dias que vieram no arquivo saem. O que está no banco fora desse
+      // período fica intacto, que é o ponto da carga incremental.
+      //
+      // Dentro da mesma transação do COPY: se a gravação falhar, o DELETE volta
+      // atrás junto e o dia não fica faltando.
+      dias = diasNoLote(rows, model.dateField);
+      if (dias.length > 0) {
+        await client.query(
+          `DELETE FROM ${table} WHERE ${quoteIdent(model.dateField)}::date = ANY($1::date[])`,
+          [dias],
+        );
+      }
+    } else if (!model.cumulative && !upsert) {
       await client.query(`DELETE FROM ${table}`);
     }
 
@@ -122,12 +172,12 @@ export async function bulkLoadRecords(
     const destino = upsert ? `tmp_import` : table;
     if (upsert) {
       await client.query(
-        `CREATE TEMP TABLE tmp_import (LIKE ${table} INCLUDING DEFAULTS) ON COMMIT DROP`
+        `CREATE TEMP TABLE tmp_import (LIKE ${table} INCLUDING DEFAULTS) ON COMMIT DROP`,
       );
     }
 
     const stream = client.query(
-      copyFrom(`COPY ${destino} (${columnList}) FROM STDIN WITH (FORMAT csv)`)
+      copyFrom(`COPY ${destino} (${columnList}) FROM STDIN WITH (FORMAT csv)`),
     );
 
     await new Promise<void>((resolve, reject) => {
@@ -138,7 +188,8 @@ export async function bulkLoadRecords(
       const writeChunk = () => {
         while (index < rows.length) {
           const record = rows[index++];
-          const line = fields.map((field) => toCopyField(record[field])).join(",") + "\n";
+          const line =
+            fields.map((field) => toCopyField(record[field])).join(",") + "\n";
           // write() retorna false quando o buffer encheu — esperar o "drain"
           // evita estourar a memória do processo em arquivos grandes.
           if (!stream.write(line)) {
@@ -161,7 +212,7 @@ export async function bulkLoadRecords(
       await client.query(
         `INSERT INTO ${table} (${columnList})
          SELECT ${columnList} FROM tmp_import
-         ON CONFLICT (${chave}) DO UPDATE SET ${atualizacoes}`
+         ON CONFLICT (${chave}) DO UPDATE SET ${atualizacoes}`,
       );
     }
 
@@ -187,7 +238,11 @@ export async function bulkLoadRecords(
       console.warn(`[import] ANALYZE de ${table} falhou:`, erro);
     }
 
-    return { insertedCount: rows.length, duplicatesInBatch };
+    return {
+      insertedCount: rows.length,
+      duplicatesInBatch,
+      diasSubstituidos: dias,
+    };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     throw error;

@@ -184,7 +184,8 @@ function parseDocumento(raw: string): string | null {
   // Exports variam entre "12420164000580" e "12.420.164/0005-80".
   const digitos = valor.replace(/\D/g, "");
   if (digitos.length === 0) return null;
-  if (digitos.length >= 12 && digitos.length <= 14) return digitos.padStart(14, "0");
+  if (digitos.length >= 12 && digitos.length <= 14)
+    return digitos.padStart(14, "0");
   return digitos;
 }
 
@@ -220,13 +221,17 @@ export class SkipTracker {
    */
   static readonly LIMITE_AMOSTRA = 5000;
 
-  private readonly counts = new Map<string, { count: number; exemplo: string }>();
+  private readonly counts = new Map<
+    string,
+    { count: number; exemplo: string }
+  >();
   private readonly samples: { row: number; reason: string }[] = [];
   total = 0;
 
   add(row: number, reason: string) {
     this.total += 1;
-    if (this.samples.length < SkipTracker.LIMITE_AMOSTRA) this.samples.push({ row, reason });
+    if (this.samples.length < SkipTracker.LIMITE_AMOSTRA)
+      this.samples.push({ row, reason });
     const chave = reason.replace(/"[^"]*"/g, '"…"');
     const atual = this.counts.get(chave);
     if (atual) atual.count += 1;
@@ -255,7 +260,10 @@ export type ParsedCsvResult = {
   missingColumns: string[];
 };
 
-export function parseCsvForModel(csvText: string, model: ImportModelConfig): ParsedCsvResult {
+export function parseCsvForModel(
+  csvText: string,
+  model: ImportModelConfig,
+): ParsedCsvResult {
   const parsed = Papa.parse<Record<string, string>>(csvText, {
     header: true,
     skipEmptyLines: "greedy",
@@ -291,8 +299,13 @@ export function parseCsvForModel(csvText: string, model: ImportModelConfig): Par
       // Quando o model usa uma chave natural (ex: Produtos.codigo,
       // Rotas.codigo_rota) como @id, uma linha sem valor nesse campo não pode
       // ser gravada — o banco rejeitaria o lote inteiro.
-      if (model.idField && (record[model.idField] === null || record[model.idField] === undefined)) {
-        throw new Error(`${model.idField} ausente (obrigatório como chave primária)`);
+      if (
+        model.idField &&
+        (record[model.idField] === null || record[model.idField] === undefined)
+      ) {
+        throw new Error(
+          `${model.idField} ausente (obrigatório como chave primária)`,
+        );
       }
 
       records.push(record);
