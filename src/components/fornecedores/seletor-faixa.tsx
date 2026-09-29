@@ -14,13 +14,17 @@ import { FAIXAS, type FaixaId } from "@/utils/dias-estoque";
 export function SeletorFaixa({ atual }: { atual: FaixaId }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="mr-1 text-sm font-medium text-muted-foreground">Faixa</span>
+      <span className="mr-1 text-sm font-medium text-muted-foreground">
+        Faixa
+      </span>
       {FAIXAS.map((f) => {
         const ativo = f.id === atual;
         return (
           <Link
             key={f.id}
-            href={f.id === "zero" ? "/fornecedores" : `/fornecedores?faixa=${f.id}`}
+            href={
+              f.id === "zero" ? "/fornecedores" : `/fornecedores?faixa=${f.id}`
+            }
             /* Sem isto o App Router rola para o topo a cada troca de faixa —
                o "salto" que o usuário sente ao comparar cores. */
             scroll={false}

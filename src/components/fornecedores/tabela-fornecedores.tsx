@@ -45,7 +45,13 @@ import {
  */
 const CATEGORIAS: Record<
   Categoria,
-  { rotulo: string; curto: string; icone: typeof ShoppingCart; fundo: string; borda: string }
+  {
+    rotulo: string;
+    curto: string;
+    icone: typeof ShoppingCart;
+    fundo: string;
+    borda: string;
+  }
 > = {
   compra: {
     rotulo: "Pedido de compra a caminho",
@@ -78,7 +84,12 @@ const CATEGORIAS: Record<
 };
 
 /** Da mais resolvida para a mais crítica — vale para colunas e ordenação. */
-const ORDEM: Categoria[] = ["compra", "transferencia", "a_comprar", "sem_cobertura"];
+const ORDEM: Categoria[] = [
+  "compra",
+  "transferencia",
+  "a_comprar",
+  "sem_cobertura",
+];
 
 const POR_PAGINA = 25;
 const POR_PAGINA_DETALHE = 12;
@@ -133,8 +144,9 @@ export function TabelaFornecedores({
    */
   const analistas = useMemo(() => listarAnalistas(posicoes), [posicoes]);
   const porAnalista = useMemo(
-    () => (analista ? posicoes.filter((p) => p.analista === analista) : posicoes),
-    [posicoes, analista]
+    () =>
+      analista ? posicoes.filter((p) => p.analista === analista) : posicoes,
+    [posicoes, analista],
   );
 
   const bus = useMemo(() => listarBus(porAnalista), [porAnalista]);
@@ -144,42 +156,52 @@ export function TabelaFornecedores({
    * as BUs são sempre as mesmas, para o filtro de cima não "sumir" ao filtrar.
    */
   const curvas = useMemo(
-    () => listarCurvas(bu ? porAnalista.filter((p) => p.bu === bu) : porAnalista),
-    [porAnalista, bu]
+    () =>
+      listarCurvas(bu ? porAnalista.filter((p) => p.bu === bu) : porAnalista),
+    [porAnalista, bu],
   );
 
   /** Recorte ativo: alimenta os totais, a tabela e o detalhamento de uma vez. */
   const doRecorte = useMemo(
     () =>
-      porAnalista.filter((p) => (bu ? p.bu === bu : true) && (curva ? p.curva === curva : true)),
-    [porAnalista, bu, curva]
+      porAnalista.filter(
+        (p) => (bu ? p.bu === bu : true) && (curva ? p.curva === curva : true),
+      ),
+    [porAnalista, bu, curva],
   );
 
   const resumo = useMemo(() => agregarPorFornecedor(doRecorte), [doRecorte]);
 
   const filtrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return termo ? resumo.filter((r) => r.fornecedor.toLowerCase().includes(termo)) : resumo;
+    return termo
+      ? resumo.filter((r) => r.fornecedor.toLowerCase().includes(termo))
+      : resumo;
   }, [resumo, busca]);
 
   const paginas = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA));
   const atual = Math.min(pagina, paginas);
-  const visiveis = filtrados.slice((atual - 1) * POR_PAGINA, atual * POR_PAGINA);
+  const visiveis = filtrados.slice(
+    (atual - 1) * POR_PAGINA,
+    atual * POR_PAGINA,
+  );
 
   const detalhe = useMemo(() => {
     if (!aberto) return [];
-    return doRecorte
-      .filter(
-        (p) =>
-          p.fornecedor === aberto.fornecedor &&
-          (aberto.categoria === null || p.categoria === aberto.categoria)
-      )
-      // Sem plano de compras primeiro: é o que exige decisão hoje.
-      .sort(
-        (a, b) =>
-          ORDEM.indexOf(b.categoria) - ORDEM.indexOf(a.categoria) ||
-          a.codigo.localeCompare(b.codigo)
-      );
+    return (
+      doRecorte
+        .filter(
+          (p) =>
+            p.fornecedor === aberto.fornecedor &&
+            (aberto.categoria === null || p.categoria === aberto.categoria),
+        )
+        // Sem plano de compras primeiro: é o que exige decisão hoje.
+        .sort(
+          (a, b) =>
+            ORDEM.indexOf(b.categoria) - ORDEM.indexOf(a.categoria) ||
+            a.codigo.localeCompare(b.codigo),
+        )
+    );
   }, [aberto, doRecorte]);
 
   /**
@@ -204,7 +226,10 @@ export function TabelaFornecedores({
         descricao: itens[0].descricao,
         itens: [...itens].sort((a, b) => a.filial.localeCompare(b.filial)),
       }))
-      .sort((a, b) => b.itens.length - a.itens.length || a.codigo.localeCompare(b.codigo));
+      .sort(
+        (a, b) =>
+          b.itens.length - a.itens.length || a.codigo.localeCompare(b.codigo),
+      );
   }, [detalhe]);
 
   /**
@@ -213,19 +238,24 @@ export function TabelaFornecedores({
    * fornecedor, que é a lista longa. Os CDs de um produto não passam de
    * algumas linhas e cabem sem paginar.
    */
-  const paginasDetalhe = Math.max(1, Math.ceil(porProduto.length / POR_PAGINA_DETALHE));
+  const paginasDetalhe = Math.max(
+    1,
+    Math.ceil(porProduto.length / POR_PAGINA_DETALHE),
+  );
   const atualDetalhe = Math.min(paginaDetalhe, paginasDetalhe);
   const produtosVisiveis = porProduto.slice(
     (atualDetalhe - 1) * POR_PAGINA_DETALHE,
-    atualDetalhe * POR_PAGINA_DETALHE
+    atualDetalhe * POR_PAGINA_DETALHE,
   );
 
   /** Clicar de novo no mesmo recorte fecha; em outro, troca sem fechar. */
   function selecionar(fornecedor: string, categoria: Categoria | null) {
     setAberto((anterior) =>
-      anterior && anterior.fornecedor === fornecedor && anterior.categoria === categoria
+      anterior &&
+      anterior.fornecedor === fornecedor &&
+      anterior.categoria === categoria
         ? null
-        : { fornecedor, categoria }
+        : { fornecedor, categoria },
     );
     // O produto aberto pertence ao recorte anterior — recomeça no nível dele.
     setProdutoAberto(null);
@@ -237,7 +267,7 @@ export function TabelaFornecedores({
   }
 
   const rotulo = (codigo: string | null) =>
-    codigo ? rotulosFiliais[codigo] ?? codigo : "—";
+    codigo ? (rotulosFiliais[codigo] ?? codigo) : "—";
 
   /**
    * Trocar de analista limpa BU e curva junto: o recorte anterior pode não
@@ -354,7 +384,10 @@ export function TabelaFornecedores({
           <TableBody>
             {visiveis.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={6}
+                  className="py-8 text-center text-muted-foreground"
+                >
                   Nenhum fornecedor com ruptura neste recorte.
                 </TableCell>
               </TableRow>
@@ -375,6 +408,17 @@ export function TabelaFornecedores({
                           <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
                         )}
                         {r.fornecedor}
+                        {/* Quem responde pelos itens rompidos, ao lado do nome
+                            e em tom apagado: é apoio para saber com quem falar,
+                            não um dado que disputa atenção com as contagens. */}
+                        {r.analista !== VAZIO ? (
+                          <span className="truncate text-xs font-normal text-muted-foreground/70">
+                            {r.analista}
+                            {r.outrosAnalistas > 0
+                              ? ` +${r.outrosAnalistas}`
+                              : ""}
+                          </span>
+                        ) : null}
                       </span>
                     </TableCell>
                     <TableCell className="text-right font-mono text-base font-semibold tabular-nums">
@@ -415,7 +459,10 @@ export function TabelaFornecedores({
 
                   /* Faixa de contexto do recorte aberto. */
                   ativo ? (
-                    <TableRow key={`${r.fornecedor}-contexto`} className="hover:bg-transparent">
+                    <TableRow
+                      key={`${r.fornecedor}-contexto`}
+                      className="hover:bg-transparent"
+                    >
                       <TableCell colSpan={6} className="bg-muted/40 py-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="flex flex-wrap items-center gap-2">
@@ -449,88 +496,98 @@ export function TabelaFornecedores({
                      com as mesmas colunas — é o que mantém os números alinhados
                      com o cabeçalho em vez de empilhados à direita. */
                   ...(ativo
-                    ? produtosVisiveis.flatMap(({ codigo, descricao, itens }) => {
-                        const abertoEste = produtoAberto === codigo;
-                        return [
-                          <TableRow
-                            key={`${r.fornecedor}-${codigo}`}
-                            onClick={() => selecionarProduto(codigo)}
-                            className={`cursor-pointer bg-muted/40 ${abertoEste ? "bg-muted" : ""}`}
-                          >
-                            <TableCell className="pl-6">
-                              <span className="flex min-w-0 items-center gap-2">
-                                {abertoEste ? (
-                                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-                                ) : (
-                                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-                                )}
-                                {/* O código leva à tela do produto; `stopPropagation`
-                                    para o clique no link não abrir e fechar a linha. */}
-                                <Link
-                                  href={`/produto/${encodeURIComponent(codigo)}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="shrink-0 font-mono text-sm font-semibold text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
-                                >
-                                  {codigo}
-                                </Link>
-                                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                                  {descricao ?? "—"}
-                                </span>
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-sm font-semibold tabular-nums">
-                              {numero(itens.length)}
-                            </TableCell>
-                            {ORDEM.map((c) => {
-                              const n = itens.filter((i) => i.categoria === c).length;
-                              const info = CATEGORIAS[c];
-                              return (
-                                <TableCell key={c} className="text-right">
-                                  {n === 0 ? (
-                                    <span className="font-mono text-xs tabular-nums text-muted-foreground/40">
-                                      0
-                                    </span>
-                                  ) : (
-                                    <span
-                                      title={info.rotulo}
-                                      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${info.fundo}`}
-                                    >
-                                      <info.icone className="size-3.5 shrink-0" />
-                                      {numero(n)}
-                                    </span>
-                                  )}
-                                </TableCell>
-                              );
-                            })}
-                          </TableRow>,
-
-                          /* Terceiro nível: os CDs onde este produto está rompido. */
-                          abertoEste ? (
+                    ? produtosVisiveis.flatMap(
+                        ({ codigo, descricao, itens }) => {
+                          const abertoEste = produtoAberto === codigo;
+                          return [
                             <TableRow
-                              key={`${r.fornecedor}-${codigo}-cds`}
-                              className="hover:bg-transparent"
+                              key={`${r.fornecedor}-${codigo}`}
+                              onClick={() => selecionarProduto(codigo)}
+                              className={`cursor-pointer bg-muted/40 ${abertoEste ? "bg-muted" : ""}`}
                             >
-                              <TableCell colSpan={6} className="bg-muted/25 p-0">
-                                <div className="grid gap-2 p-3 pl-8">
-                                  {itens.map((p) => (
-                                    <CardPosicao
-                                      key={`${p.codigo}-${p.filial}`}
-                                      posicao={p}
-                                      rotulo={rotulo}
-                                    />
-                                  ))}
-                                </div>
+                              <TableCell className="pl-6">
+                                <span className="flex min-w-0 items-center gap-2">
+                                  {abertoEste ? (
+                                    <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                                  ) : (
+                                    <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                                  )}
+                                  {/* O código leva à tela do produto; `stopPropagation`
+                                    para o clique no link não abrir e fechar a linha. */}
+                                  <Link
+                                    href={`/produto/${encodeURIComponent(codigo)}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="shrink-0 font-mono text-sm font-semibold text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
+                                  >
+                                    {codigo}
+                                  </Link>
+                                  <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                                    {descricao ?? "—"}
+                                  </span>
+                                </span>
                               </TableCell>
-                            </TableRow>
-                          ) : null,
-                        ];
-                      })
+                              <TableCell className="text-right font-mono text-sm font-semibold tabular-nums">
+                                {numero(itens.length)}
+                              </TableCell>
+                              {ORDEM.map((c) => {
+                                const n = itens.filter(
+                                  (i) => i.categoria === c,
+                                ).length;
+                                const info = CATEGORIAS[c];
+                                return (
+                                  <TableCell key={c} className="text-right">
+                                    {n === 0 ? (
+                                      <span className="font-mono text-xs tabular-nums text-muted-foreground/40">
+                                        0
+                                      </span>
+                                    ) : (
+                                      <span
+                                        title={info.rotulo}
+                                        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-xs font-semibold tabular-nums ${info.fundo}`}
+                                      >
+                                        <info.icone className="size-3.5 shrink-0" />
+                                        {numero(n)}
+                                      </span>
+                                    )}
+                                  </TableCell>
+                                );
+                              })}
+                            </TableRow>,
+
+                            /* Terceiro nível: os CDs onde este produto está rompido. */
+                            abertoEste ? (
+                              <TableRow
+                                key={`${r.fornecedor}-${codigo}-cds`}
+                                className="hover:bg-transparent"
+                              >
+                                <TableCell
+                                  colSpan={6}
+                                  className="bg-muted/25 p-0"
+                                >
+                                  <div className="grid gap-2 p-3 pl-8">
+                                    {itens.map((p) => (
+                                      <CardPosicao
+                                        key={`${p.codigo}-${p.filial}`}
+                                        posicao={p}
+                                        rotulo={rotulo}
+                                      />
+                                    ))}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ) : null,
+                          ];
+                        },
+                      )
                     : []),
 
                   /* Paginação dos produtos, quando há mais de uma página. */
                   ...(ativo && paginasDetalhe > 1
                     ? [
-                        <TableRow key={`${r.fornecedor}-paginacao`} className="hover:bg-transparent">
+                        <TableRow
+                          key={`${r.fornecedor}-paginacao`}
+                          className="hover:bg-transparent"
+                        >
                           <TableCell colSpan={6} className="bg-muted/40 py-2">
                             <Paginacao
                               pagina={atualDetalhe}
@@ -569,7 +626,11 @@ function GrupoFiltro({
 }) {
   const chips = (
     <>
-      <Chip ativo={ativo === null} total={totalGeral} onClick={() => aoTrocar(null)}>
+      <Chip
+        ativo={ativo === null}
+        total={totalGeral}
+        onClick={() => aoTrocar(null)}
+      >
         Todas
       </Chip>
       {opcoes.map((o) => (
@@ -585,7 +646,9 @@ function GrupoFiltro({
     </>
   );
 
-  const selecionada = ativo ? opcoes.find((o) => o.valor === ativo)?.rotulo : undefined;
+  const selecionada = ativo
+    ? opcoes.find((o) => o.valor === ativo)?.rotulo
+    : undefined;
 
   return (
     <>
@@ -599,7 +662,9 @@ function GrupoFiltro({
           funcionando mesmo antes de o script carregar. */}
       <details className="group md:hidden">
         <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm">
-          <span className="shrink-0 font-medium text-muted-foreground">{titulo}</span>
+          <span className="shrink-0 font-medium text-muted-foreground">
+            {titulo}
+          </span>
           <span className="min-w-0 flex-1 truncate font-medium text-(--brand-petrol) dark:text-(--brand-turquoise)">
             {selecionada ?? "Todas"}
           </span>
@@ -641,7 +706,9 @@ function Chip({
       }`}
     >
       {children}
-      <span className={`ml-1.5 font-mono text-xs tabular-nums ${ativo ? "opacity-80" : "opacity-70"}`}>
+      <span
+        className={`ml-1.5 font-mono text-xs tabular-nums ${ativo ? "opacity-80" : "opacity-70"}`}
+      >
         {numero(total)}
       </span>
     </button>
@@ -666,12 +733,19 @@ function TotaisPorCategoria({ posicoes }: { posicoes: PosicaoRompida[] }) {
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-xs text-muted-foreground">{info.curto}</p>
-                <p className="font-mono text-2xl font-semibold tabular-nums">{numero(valor)}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {info.curto}
+                </p>
+                <p className="font-mono text-2xl font-semibold tabular-nums">
+                  {numero(valor)}
+                </p>
               </div>
               <info.icone className="size-5 shrink-0 text-muted-foreground" />
             </div>
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={info.rotulo}>
+            <p
+              className="mt-0.5 truncate text-[11px] text-muted-foreground"
+              title={info.rotulo}
+            >
               {info.rotulo}
             </p>
           </div>
@@ -692,7 +766,9 @@ function CardPosicao({
   const info = CATEGORIAS[posicao.categoria];
 
   return (
-    <div className={`rounded-lg border-l-4 bg-card p-3 ring-1 ring-foreground/5 ${info.borda}`}>
+    <div
+      className={`rounded-lg border-l-4 bg-card p-3 ring-1 ring-foreground/5 ${info.borda}`}
+    >
       {/* O CD é o que identifica o card agora.
           
           Antes ele era omitido de propósito: o cabeçalho do grupo acima dizia a
@@ -710,7 +786,10 @@ function CardPosicao({
           </span>
         </span>
         <span className="min-w-0 flex-1" />
-        <Badge className={`gap-1 whitespace-nowrap ${info.fundo}`} title={info.rotulo}>
+        <Badge
+          className={`gap-1 whitespace-nowrap ${info.fundo}`}
+          title={info.rotulo}
+        >
           <info.icone className="size-3.5 shrink-0" />
           {info.curto}
         </Badge>
@@ -738,7 +817,11 @@ function CardPosicao({
       {posicao.reposicoes.length > 0 ? (
         <div className="mt-2 space-y-2">
           {posicao.reposicoes.map((rep, i) => (
-            <LinhaReposicao key={`${rep.origem}-${rep.documento}-${i}`} rep={rep} rotulo={rotulo} />
+            <LinhaReposicao
+              key={`${rep.origem}-${rep.documento}-${i}`}
+              rep={rep}
+              rotulo={rotulo}
+            />
           ))}
         </div>
       ) : null}
@@ -769,10 +852,14 @@ function LinhaReposicao({
         <Icone className={`size-3.5 shrink-0 ${cor}`} />
         <span className={`font-mono text-lg font-semibold tabular-nums ${cor}`}>
           {numero(rep.quantidade)}
-          <span className="ml-1 text-xs font-normal text-muted-foreground">un</span>
+          <span className="ml-1 text-xs font-normal text-muted-foreground">
+            un
+          </span>
         </span>
         <span className="font-mono text-xs font-medium">
-          {compra ? `Pedido ${rep.documento ?? "—"}` : `NF ${rep.documento ?? "—"}`}
+          {compra
+            ? `Pedido ${rep.documento ?? "—"}`
+            : `NF ${rep.documento ?? "—"}`}
         </span>
         <span className="text-xs text-muted-foreground">
           {`${compra ? "emitido" : "emitida"} ${dataBr(rep.emissao)}`}
@@ -780,9 +867,13 @@ function LinhaReposicao({
         {rep.direto ? (
           <span className="text-xs text-muted-foreground">compra direta</span>
         ) : rep.rota ? (
-          <span className="font-mono text-xs text-muted-foreground">{rep.rota}</span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {rep.rota}
+          </span>
         ) : (
-          <span className="text-xs text-muted-foreground">transferência simples</span>
+          <span className="text-xs text-muted-foreground">
+            transferência simples
+          </span>
         )}
         {rep.reprojetada ? (
           <Badge variant="secondary" className="text-[10px]">

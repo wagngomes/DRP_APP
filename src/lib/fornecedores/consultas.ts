@@ -34,7 +34,6 @@ export type DadosFornecedores = {
   linhasIgnoradas: { pedidos: number; transferencias: number };
 };
 
-
 export async function carregarFornecedores(
   data: string,
   parametros: { diasTransferencias: number; diasPedidos: number },
@@ -43,31 +42,36 @@ export async function carregarFornecedores(
    * comportamento original da tela. As faixas são as mesmas da Disponibilidade,
    * via `faixaSql`, para "vermelho" significar a mesma coisa nas duas telas.
    */
-  faixa: FaixaId = "zero"
+  faixa: FaixaId = "zero",
 ): Promise<DadosFornecedores> {
   const { inicio: inicioMes, fim: proximoMes } = limitesDoMes(data);
 
-  const [rompidas, chegadas, ignoradas, saldos] =
-    await Promise.all([
-      // Posições da faixa escolhida: itens válidos (torre "considerar") com
-      // forecast no mês, classificados pela mesma régua da Disponibilidade.
-      // O filtro de torre importa: sem ele a tela mostrava 1.582 posições, das
-      // quais 1.105 são itens que o negócio manda desconsiderar.
-      //
-      // LEFT JOIN de propósito: item com forecast que nem aparece no simulador
-      // do CD conta como estoque zero — é o caso mais comum da ruptura.
-      //
-      // O fornecedor vem de qualquer linha do produto no simulador: é atributo
-      // do item, não da filial — sem isso, a maioria das posições ficaria
-      // órfã, já que o item rompido costuma nem aparecer no CD.
-      prisma.$queryRawUnsafe<
-        {
-          codigo: string; descricao: string | null; filial: string;
-          fornecedor: string; forecast: number; vendido: number;
-          bu: string; curva: string; analista: string;
-        }[]
-      >(
-        `SELECT f.codigo,
+  const [rompidas, chegadas, ignoradas, saldos] = await Promise.all([
+    // Posições da faixa escolhida: itens válidos (torre "considerar") com
+    // forecast no mês, classificados pela mesma régua da Disponibilidade.
+    // O filtro de torre importa: sem ele a tela mostrava 1.582 posições, das
+    // quais 1.105 são itens que o negócio manda desconsiderar.
+    //
+    // LEFT JOIN de propósito: item com forecast que nem aparece no simulador
+    // do CD conta como estoque zero — é o caso mais comum da ruptura.
+    //
+    // O fornecedor vem de qualquer linha do produto no simulador: é atributo
+    // do item, não da filial — sem isso, a maioria das posições ficaria
+    // órfã, já que o item rompido costuma nem aparecer no CD.
+    prisma.$queryRawUnsafe<
+      {
+        codigo: string;
+        descricao: string | null;
+        filial: string;
+        fornecedor: string;
+        forecast: number;
+        vendido: number;
+        bu: string;
+        curva: string;
+        analista: string;
+      }[]
+    >(
+      `SELECT f.codigo,
                 pr.descricao,
                 f.filial,
                 COALESCE(NULLIF(trim(f.b_u), ''), '${VAZIO}') AS bu,
@@ -92,29 +96,29 @@ export async function carregarFornecedores(
             AND ${torreValidaSql("f")}
             AND f.filial IS NOT NULL
             AND ${faixaSql(DIAS_CHAO)} = $4`,
-        data,
-        inicioMes,
-        proximoMes,
-        faixa
-      ),
-      // Projeção das chegadas: mesma fonte usada pelos motores de risco.
-      carregarChegadas(data, parametros),
-      // Restrito ao snapshot em uso, e não à tabela inteira, por dois motivos.
-      // O aviso diz "ficaram de fora desta análise", e linha de snapshot antigo
-      // não entra nela — contar tudo apontava 27 mil linhas quando o dia tinha
-      // zero. E varrer as duas tabelas completas custava ~460 ms por abertura
-      // da tela, contra ~10 ms com o índice de `data_snapshot`.
-      prisma.$queryRawUnsafe<{ pedidos: bigint; transferencias: bigint }[]>(
-        `SELECT (SELECT COUNT(*) FROM pedidos_de_compra
+      data,
+      inicioMes,
+      proximoMes,
+      faixa,
+    ),
+    // Projeção das chegadas: mesma fonte usada pelos motores de risco.
+    carregarChegadas(data, parametros),
+    // Restrito ao snapshot em uso, e não à tabela inteira, por dois motivos.
+    // O aviso diz "ficaram de fora desta análise", e linha de snapshot antigo
+    // não entra nela — contar tudo apontava 27 mil linhas quando o dia tinha
+    // zero. E varrer as duas tabelas completas custava ~460 ms por abertura
+    // da tela, contra ~10 ms com o índice de `data_snapshot`.
+    prisma.$queryRawUnsafe<{ pedidos: bigint; transferencias: bigint }[]>(
+      `SELECT (SELECT COUNT(*) FROM pedidos_de_compra
                   WHERE codigo IS NULL AND data_snapshot = $1::date)::bigint AS pedidos,
                 (SELECT COUNT(*) FROM transferencias_abertas
                   WHERE codigo IS NULL AND data_snapshot = $1::date)::bigint AS transferencias`,
-        data
-      ),
-      // Saldo do plano de compra do mês — fonte única em `lib/compras`, também
-      // usada pelo cockpit. Duas cópias da mesma conta já divergiram aqui antes.
-      carregarSaldoPlano(data),
-    ]);
+      data,
+    ),
+    // Saldo do plano de compra do mês — fonte única em `lib/compras`, também
+    // usada pelo cockpit. Duas cópias da mesma conta já divergiram aqui antes.
+    carregarSaldoPlano(data),
+  ]);
 
   const posicoes: PosicaoRompida[] = rompidas.map((r) => {
     // Já vem ordenada por data de chegada de `carregarChegadas`.

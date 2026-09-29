@@ -14,7 +14,8 @@ import type { Etapa } from "@/utils/projecao-transferencias";
  * transferência a caminho, vale a que chega primeiro — o objetivo é saber
  * quando a ruptura acaba, não quantas reposições existem.
  */
-export type Categoria = "compra" | "transferencia" | "a_comprar" | "sem_cobertura";
+export type Categoria =
+  "compra" | "transferencia" | "a_comprar" | "sem_cobertura";
 
 /**
  * Uma reposição a caminho de um CD, com o percurso completo já projetado — o
@@ -78,6 +79,17 @@ export type PosicaoRompida = {
 
 export type ResumoFornecedor = {
   fornecedor: string;
+  /**
+   * Quem responde pelas posições rompidas deste fornecedor.
+   *
+   * Sai das próprias posições da tela, não de um cadastro à parte: o que
+   * interessa é quem cuida **dos itens que estão rompidos**, e não quem cuida
+   * do fornecedor em geral. Nos poucos casos com mais de um, vem o que tem mais
+   * posições — é com ele que a conversa começa.
+   */
+  analista: string;
+  /** Quantos outros analistas aparecem além do principal. */
+  outrosAnalistas: number;
   total: number;
   compra: number;
   transferencia: number;
@@ -86,11 +98,17 @@ export type ResumoFornecedor = {
 };
 
 /** Conta as posições por fornecedor e categoria, do maior total para o menor. */
-export function agregarPorFornecedor(posicoes: PosicaoRompida[]): ResumoFornecedor[] {
+export function agregarPorFornecedor(
+  posicoes: PosicaoRompida[],
+): ResumoFornecedor[] {
   const mapa = new Map<string, ResumoFornecedor>();
+  /** Posições por analista dentro de cada fornecedor, para achar o principal. */
+  const analistas = new Map<string, Map<string, number>>();
   for (const p of posicoes) {
     const atual = mapa.get(p.fornecedor) ?? {
       fornecedor: p.fornecedor,
+      analista: VAZIO,
+      outrosAnalistas: 0,
       total: 0,
       compra: 0,
       transferencia: 0,
@@ -102,10 +120,32 @@ export function agregarPorFornecedor(posicoes: PosicaoRompida[]): ResumoForneced
     else if (p.categoria === "transferencia") atual.transferencia += 1;
     else if (p.categoria === "a_comprar") atual.aComprar += 1;
     else atual.semCobertura += 1;
+
+    const porAnalista =
+      analistas.get(p.fornecedor) ?? new Map<string, number>();
+    porAnalista.set(p.analista, (porAnalista.get(p.analista) ?? 0) + 1);
+    analistas.set(p.fornecedor, porAnalista);
+
     mapa.set(p.fornecedor, atual);
   }
+
+  // O principal é decidido no fim, com todas as posições contadas: escolher a
+  // cada linha faria o vencedor depender da ordem de chegada.
+  for (const [fornecedor, contagem] of analistas) {
+    const resumo = mapa.get(fornecedor);
+    if (!resumo) continue;
+    const ordenado = [...contagem.entries()].sort(
+      // Desempate por nome, para a tela não trocar de analista entre um
+      // carregamento e outro quando dois têm o mesmo número de posições.
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"),
+    );
+    resumo.analista = ordenado[0][0];
+    resumo.outrosAnalistas = ordenado.length - 1;
+  }
+
   return [...mapa.values()].sort(
-    (a, b) => b.total - a.total || a.fornecedor.localeCompare(b.fornecedor, "pt-BR")
+    (a, b) =>
+      b.total - a.total || a.fornecedor.localeCompare(b.fornecedor, "pt-BR"),
   );
 }
 
@@ -113,13 +153,13 @@ export function agregarPorFornecedor(posicoes: PosicaoRompida[]): ResumoForneced
 /** Analistas presentes, com "sem analista" sempre por último. */
 export function listarAnalistas(posicoes: PosicaoRompida[]): string[] {
   return [...new Set(posicoes.map((p) => p.analista))].sort((a, b) =>
-    a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR")
+    a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR"),
   );
 }
 
 export function listarBus(posicoes: PosicaoRompida[]): string[] {
   return [...new Set(posicoes.map((p) => p.bu))].sort((a, b) =>
-    a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR")
+    a === VAZIO ? 1 : b === VAZIO ? -1 : a.localeCompare(b, "pt-BR"),
   );
 }
 
