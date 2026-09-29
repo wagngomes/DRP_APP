@@ -129,7 +129,6 @@
   --faixa-adequado-sombra: 0 1px 1px rgba(0, 0, 0, 0.45);
   --faixa-alto-sombra: 0 1px 1px rgba(0, 0, 0, 0.45);
   --faixa-excesso-sombra: 0 1px 1px rgba(0, 0, 0, 0.45);
-
 }
 
 .dark {
@@ -187,7 +186,6 @@
      escura — no claro esse mesmo segmento é quase preto e vai em branco. */
   --faixa-zero-ink: #2b2b2b;
   --faixa-zero-sombra: 0 1px 1px rgba(255, 255, 255, 0.55);
-
 }
 
 @layer base {
@@ -255,5 +253,24 @@
 
   html:not([data-menu="recolhido"]) .menu-seta-expandir {
     display: none;
+  }
+
+  /*
+   * Menu recolhido: a hierarquia não cabe em 4,5rem, então ela some.
+   *
+   * O cabeçalho do grupo sai (sem rótulo ele seria um ícone que não leva a
+   * lugar nenhum) e os filhos aparecem todos, como ícones soltos — inclusive os
+   * de grupo fechado, que é o que o `display: block` desfaz do atributo
+   * `hidden`. Sem isto, recolher o menu esconderia nove das dezessete telas.
+   */
+  html[data-menu="recolhido"] .menu-grupo-titulo {
+    display: none;
+  }
+
+  html[data-menu="recolhido"] .menu-filhos {
+    display: block;
+    margin-top: 0;
+    border-left: 0;
+    padding-left: 0;
   }
 }

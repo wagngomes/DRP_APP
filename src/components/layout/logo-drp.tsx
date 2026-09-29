@@ -23,7 +23,12 @@ export function LogoDrp({ compacto = false }: { compacto?: boolean }) {
         </defs>
         <rect width="32" height="32" rx="9" fill="url(#logo-drp-fundo)" />
         {/* Linhas de velocidade: diminuem de baixo para cima, dando arranque. */}
-        <g stroke="white" strokeWidth="2.2" strokeLinecap="round" opacity="0.75">
+        <g
+          stroke="white"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          opacity="0.75"
+        >
           <line x1="6.5" y1="11" x2="11.5" y2="11" />
           <line x1="4.5" y1="16" x2="10.5" y2="16" />
           <line x1="6.5" y1="21" x2="11.5" y2="21" />
@@ -42,7 +47,9 @@ export function LogoDrp({ compacto = false }: { compacto?: boolean }) {
            sufixo vai no verde da paleta, e só no escuro assume o turquesa. */
         <span className="text-lg leading-none font-bold tracking-tight text-(--brand-petrol) dark:text-foreground">
           DRP
-          <span className="text-(--brand-green) dark:text-(--brand-turquoise)">_AI</span>
+          <span className="text-(--brand-green) dark:text-(--brand-turquoise)">
+            _AI
+          </span>
         </span>
       )}
     </span>
