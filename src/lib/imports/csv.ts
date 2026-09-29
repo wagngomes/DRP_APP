@@ -88,6 +88,30 @@ function parseInteger(raw: string): number | null {
   return normalized === null ? null : Math.round(Number(normalized));
 }
 
+/**
+ * Data de calendário, ou nulo quando o dia não existe.
+ *
+ * `Date.UTC(2026, 1, 31)` não reclama de 31 de fevereiro: devolve 3 de março.
+ * Isso sempre foi ruim, e virou perigoso quando a carga incremental passou a
+ * apagar os dias presentes no arquivo — uma data impossível apagaria o
+ * movimento de um dia que ninguém pediu para remover.
+ *
+ * Conferir os três componentes de volta é o jeito barato de pegar o
+ * transbordo: se o dia lido não é o dia escrito, a data não existe.
+ */
+function dataExata(ano: number, mes: number, dia: number): Date | null {
+  const data = new Date(Date.UTC(ano, mes - 1, dia));
+  if (Number.isNaN(data.getTime())) return null;
+  if (
+    data.getUTCFullYear() !== ano ||
+    data.getUTCMonth() !== mes - 1 ||
+    data.getUTCDate() !== dia
+  ) {
+    return null;
+  }
+  return data;
+}
+
 function parseDate(raw: string): Date | null {
   const trimmed = raw.trim();
   if (EMPTY_VALUES.has(trimmed.toLowerCase())) return null;
@@ -96,24 +120,24 @@ function parseDate(raw: string): Date | null {
   const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) {
     const [, y, m, d] = isoMatch;
-    const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
-    if (!Number.isNaN(date.getTime())) return date;
+    const date = dataExata(Number(y), Number(m), Number(d));
+    if (date) return date;
   }
 
   // dd/mm/yyyy
   const brMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (brMatch) {
     const [, d, m, y] = brMatch;
-    const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
-    if (!Number.isNaN(date.getTime())) return date;
+    const date = dataExata(Number(y), Number(m), Number(d));
+    if (date) return date;
   }
 
   // yyyymmdd compacto
   const compactMatch = trimmed.match(/^(\d{4})(\d{2})(\d{2})$/);
   if (compactMatch) {
     const [, y, m, d] = compactMatch;
-    const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
-    if (!Number.isNaN(date.getTime())) return date;
+    const date = dataExata(Number(y), Number(m), Number(d));
+    if (date) return date;
   }
 
   // Só o mês: "09/2026" e "2026-09" viram o dia 1º daquele mês.
