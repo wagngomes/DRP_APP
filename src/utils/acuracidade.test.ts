@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { acuracidade, erroAbsoluto, faixaAcuracidade, vies, wmape } from "./acuracidade";
+import {
+  acuracidade,
+  atingimento,
+  erroAbsoluto,
+  faixaAcuracidade,
+  vies,
+  wmape,
+} from "./acuracidade";
 
 describe("erroAbsoluto", () => {
   it("mede o erro sobre o realizado, não sobre o previsto", () => {
@@ -17,6 +24,42 @@ describe("erroAbsoluto", () => {
 
   it("acerto exato é erro zero", () => {
     expect(erroAbsoluto({ previsto: 100, realizado: 100 })).toBe(0);
+  });
+});
+
+describe("atingimento", () => {
+  it("é o realizado dividido pelo previsto", () => {
+    // A leitura direta: vendeu 120 do que previu 100.
+    expect(atingimento({ previsto: 100, realizado: 120 })).toBeCloseTo(1.2);
+    expect(atingimento({ previsto: 100, realizado: 70 })).toBeCloseTo(0.7);
+    expect(atingimento({ previsto: 100, realizado: 100 })).toBe(1);
+  });
+
+  it("diz o lado, que a acuracidade não diz", () => {
+    // Vender acima ou abaixo do previsto são problemas opostos — um é ruptura a
+    // caminho, o outro é estoque parado. A acuracidade é sempre um tamanho, sem
+    // sinal: os dois casos vêm positivos e indistinguíveis por ela. É a razão
+    // de o atingimento existir **ao lado** dela, e não no lugar dela.
+    const acima = { previsto: 100, realizado: 130 };
+    const abaixo = { previsto: 100, realizado: 70 };
+
+    expect(atingimento(acima)!).toBeGreaterThan(1);
+    expect(atingimento(abaixo)!).toBeLessThan(1);
+
+    expect(acuracidade(erroAbsoluto(acima))!).toBeGreaterThanOrEqual(0);
+    expect(acuracidade(erroAbsoluto(abaixo))!).toBeGreaterThanOrEqual(0);
+  });
+
+  it("previsão zerada não vira acerto nem erro, vira nulo", () => {
+    // Dividir por zero aqui não é "acertou tudo" nem "errou tudo": é pergunta
+    // sem sentido. Item sem consenso cai neste caso.
+    expect(atingimento({ previsto: 0, realizado: 50 })).toBeNull();
+    expect(atingimento({ previsto: 0, realizado: 0 })).toBeNull();
+  });
+
+  it("não vendeu nada do que previu é zero, não nulo", () => {
+    // Zero aqui é informação: houve previsão e não houve venda.
+    expect(atingimento({ previsto: 100, realizado: 0 })).toBe(0);
   });
 });
 

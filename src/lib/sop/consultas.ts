@@ -17,6 +17,7 @@ import {
 } from "@/utils/dias-estoque";
 import {
   acuracidade,
+  atingimento,
   erroAbsoluto,
   vies,
   wmape,
@@ -161,6 +162,13 @@ export type RaioXProduto = {
     filiais: number;
     snapshot: Date | null;
   };
+  /**
+   * Plano de compra do mês, quando existe.
+   *
+   * `null` quando o item não tem plano na competência — diferente de zero, que
+   * é plano definido como nada. A tela só mostra o cartão quando há plano.
+   */
+  planoCompra: number | null;
   recebido: { quantidade: number; notas: number };
   /** Como cada previsão se saiu contra o que aconteceu. */
   acerto: {
@@ -183,6 +191,8 @@ export type RaioXProduto = {
 export type Medida = {
   previsto: number;
   realizado: number;
+  /** Realizado ÷ previsto: a leitura direta de "vendeu o que previu?". */
+  atingimento: number | null;
   erro: number | null;
   vies: number | null;
   acuracidade: number | null;
@@ -194,6 +204,7 @@ function medir(previsto: number, realizado: number): Medida {
   return {
     previsto,
     realizado,
+    atingimento: atingimento(par),
     erro,
     vies: vies(par),
     acuracidade: acuracidade(erro),
@@ -206,55 +217,63 @@ export async function carregarRaioX(
 ): Promise<RaioXProduto | null> {
   const { inicio, fim } = limitesDoMes(mes);
 
-  const [produto, fiscal, divisoesCru, grupos, vendas, forecast, recebido] =
-    await Promise.all([
-      prisma.$queryRawUnsafe<
-        {
-          codigo: string;
-          descricao: string | null;
-          fornecedor: string | null;
-          usa_refrig: string | null;
-        }[]
-      >(
-        `SELECT p.codigo, p.descricao, p.usa_refrig,
+  const [
+    produto,
+    fiscal,
+    divisoesCru,
+    grupos,
+    vendas,
+    forecast,
+    plano,
+    recebido,
+  ] = await Promise.all([
+    prisma.$queryRawUnsafe<
+      {
+        codigo: string;
+        descricao: string | null;
+        fornecedor: string | null;
+        usa_refrig: string | null;
+      }[]
+    >(
+      `SELECT p.codigo, p.descricao, p.usa_refrig,
               (SELECT s.fornecedor FROM simulador s
                 WHERE s.codigo = p.codigo AND s.fornecedor IS NOT NULL
                 ORDER BY s.data_snapshot DESC LIMIT 1) AS fornecedor
          FROM produtos p WHERE p.codigo = $1`,
-        codigo,
-      ),
+      codigo,
+    ),
 
-      // Tributação: lookup por chave, 141ms medidos, em paralelo com as demais.
-      prisma.$queryRawUnsafe<{ tributacao: string | null }[]>(
-        `SELECT tributacao FROM fiscal WHERE codigo = $1 LIMIT 1`,
-        codigo,
-      ),
+    // Tributação: lookup por chave, 141ms medidos, em paralelo com as demais.
+    prisma.$queryRawUnsafe<{ tributacao: string | null }[]>(
+      `SELECT tributacao FROM fiscal WHERE codigo = $1 LIMIT 1`,
+      codigo,
+    ),
 
-      prisma.$queryRawUnsafe<{ divisao: string | null; consenso: number }[]>(
-        `SELECT s.divisao, SUM(s.consenso)::float8 AS consenso
+    prisma.$queryRawUnsafe<{ divisao: string | null; consenso: number }[]>(
+      `SELECT s.divisao, SUM(s.consenso)::float8 AS consenso
          FROM sop s
         WHERE s.codigo = $1 AND ${cargaVigente("sop", "s")}
         GROUP BY s.divisao`,
-        codigo,
-        inicio,
-        fim,
-      ),
+      codigo,
+      inicio,
+      fim,
+    ),
 
-      // O grupo sai do cadastro pelo CNPJ; sem cadastro, da própria coluna do
-      // arquivo. Os que caem no segundo caminho não são resto: são clientes que
-      // existem e precisam aparecer com nome.
-      prisma.$queryRawUnsafe<
-        {
-          grupo: string;
-          clientes: number;
-          contratado: number;
-          inicial: number;
-          docadastro: boolean;
-          representante: string | null;
-          representantes: number;
-        }[]
-      >(
-        `SELECT COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
+    // O grupo sai do cadastro pelo CNPJ; sem cadastro, da própria coluna do
+    // arquivo. Os que caem no segundo caminho não são resto: são clientes que
+    // existem e precisam aparecer com nome.
+    prisma.$queryRawUnsafe<
+      {
+        grupo: string;
+        clientes: number;
+        contratado: number;
+        inicial: number;
+        docadastro: boolean;
+        representante: string | null;
+        representantes: number;
+      }[]
+    >(
+      `SELECT COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
               COUNT(DISTINCT c.cnpj)::int AS clientes,
               SUM(c.quantidade_final)::float8 AS contratado,
               SUM(c.reserva_final_contrato)::float8 AS inicial,
@@ -268,29 +287,29 @@ export async function carregarRaioX(
          LEFT JOIN ${GRUPOS_POR_CNPJ} g ON g.cliente_cnpj = c.cnpj
         WHERE c.codigo = $1 AND ${cargaVigente("contratos", "c")}
         GROUP BY 1`,
-        codigo,
-        inicio,
-        fim,
-      ),
+      codigo,
+      inicio,
+      fim,
+    ),
 
-      // A alocação Contratos x Spot casa a venda com o contrato **pelo CNPJ**.
-      //
-      // O CNPJ é a chave entre as bases; o grupo existe para juntar linhas na
-      // tela, não para casar registros. Casar por grupo atribuiria a um contrato
-      // a compra de um CNPJ que não assinou contrato nenhum — e o número
-      // deixaria de responder "este cliente cumpriu o que contratou".
-      //
-      // A venda de outro CNPJ do mesmo grupo não some: volta numa coluna
-      // própria, porque é informação comercial de verdade (o grupo comprou por
-      // fora do contrato) e escondê-la dentro do Spot faria o Spot parecer
-      // demanda nova quando não é.
-      //
-      // O sinal vem invertido da origem (venda é saída de estoque), por isso o
-      // menos. Sem ele todos os realizados apareceriam negativos.
-      prisma.$queryRawUnsafe<
-        { grupo: string | null; quantidade: number; docontrato: boolean }[]
-      >(
-        `WITH contratados AS (
+    // A alocação Contratos x Spot casa a venda com o contrato **pelo CNPJ**.
+    //
+    // O CNPJ é a chave entre as bases; o grupo existe para juntar linhas na
+    // tela, não para casar registros. Casar por grupo atribuiria a um contrato
+    // a compra de um CNPJ que não assinou contrato nenhum — e o número
+    // deixaria de responder "este cliente cumpriu o que contratou".
+    //
+    // A venda de outro CNPJ do mesmo grupo não some: volta numa coluna
+    // própria, porque é informação comercial de verdade (o grupo comprou por
+    // fora do contrato) e escondê-la dentro do Spot faria o Spot parecer
+    // demanda nova quando não é.
+    //
+    // O sinal vem invertido da origem (venda é saída de estoque), por isso o
+    // menos. Sem ele todos os realizados apareceriam negativos.
+    prisma.$queryRawUnsafe<
+      { grupo: string | null; quantidade: number; docontrato: boolean }[]
+    >(
+      `WITH contratados AS (
          SELECT DISTINCT ON (c.cnpj) c.cnpj,
                 COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
                 g.cliente_grupo AS grupo_cadastro
@@ -319,28 +338,28 @@ export async function carregarRaioX(
          LEFT JOIN contratados k ON k.cnpj = v.cnpj
          LEFT JOIN grupos_com_contrato gc ON gc.grupo = v.grupo_venda
         GROUP BY 1, 2`,
-        codigo,
-        inicio,
-        fim,
-      ),
+      codigo,
+      inicio,
+      fim,
+    ),
 
-      // Forecast é do mês: vale a carga mais recente dentro dele.
-      // Uma linha por filial em vez do agregado: a política e a rota variam por
-      // CD, e o total é somado aqui. Mesmo custo medido (142ms) — são sete linhas
-      // em vez de uma, e o trabalho do banco é o mesmo.
-      prisma.$queryRawUnsafe<
-        {
-          filial: string | null;
-          m0: number;
-          m0ajustado: number;
-          politica: number | null;
-          politica_plano: number | null;
-          rota_compra: string | null;
-          curva: string | null;
-          snapshot: Date;
-        }[]
-      >(
-        `SELECT f.filial,
+    // Forecast é do mês: vale a carga mais recente dentro dele.
+    // Uma linha por filial em vez do agregado: a política e a rota variam por
+    // CD, e o total é somado aqui. Mesmo custo medido (142ms) — são sete linhas
+    // em vez de uma, e o trabalho do banco é o mesmo.
+    prisma.$queryRawUnsafe<
+      {
+        filial: string | null;
+        m0: number;
+        m0ajustado: number;
+        politica: number | null;
+        politica_plano: number | null;
+        rota_compra: string | null;
+        curva: string | null;
+        snapshot: Date;
+      }[]
+    >(
+      `SELECT f.filial,
               COALESCE(f.forecast_m0,0)::float8 AS m0,
               COALESCE(f.forecast_m0_atualizado,0)::float8 AS m0ajustado,
               f.politica::float8, f.politica_plano::float8, f.rota_compra, f.curva,
@@ -352,20 +371,38 @@ export async function carregarRaioX(
              WHERE _f.data_snapshot >= $2::date AND _f.data_snapshot < $3::date
           )
         ORDER BY f.filial`,
-        codigo,
-        inicio,
-        fim,
-      ),
+      codigo,
+      inicio,
+      fim,
+    ),
 
-      prisma.$queryRawUnsafe<{ quantidade: number; notas: number }[]>(
-        `SELECT COALESCE(SUM(r.quantidade),0)::float8 AS quantidade, COUNT(*)::int AS notas
+    // Plano de compra da competência. Um snapshot por mês, escolhido pelo mais
+    // recente dentro do próprio mês — e não pela data de referência do sistema,
+    // porque esta tela é por competência: consultar agosto em outubro tem de
+    // devolver o plano de agosto.
+    prisma.$queryRawUnsafe<{ plano: number | null }[]>(
+      `SELECT SUM(plano_de_compra)::float8 AS plano
+         FROM plano_compra
+        WHERE codigo = $1
+          AND data_snapshot >= $2::date AND data_snapshot < $3::date
+          AND data_snapshot = (
+            SELECT MAX(_p.data_snapshot) FROM plano_compra _p
+             WHERE _p.data_snapshot >= $2::date AND _p.data_snapshot < $3::date
+          )`,
+      codigo,
+      inicio,
+      fim,
+    ),
+
+    prisma.$queryRawUnsafe<{ quantidade: number; notas: number }[]>(
+      `SELECT COALESCE(SUM(r.quantidade),0)::float8 AS quantidade, COUNT(*)::int AS notas
          FROM recebimento r
         WHERE r.codigo = $1 AND r.data >= $2::date AND r.data < $3::date`,
-        codigo,
-        inicio,
-        fim,
-      ),
-    ]);
+      codigo,
+      inicio,
+      fim,
+    ),
+  ]);
 
   if (produto.length === 0) return null;
 
@@ -516,6 +553,7 @@ export async function carregarRaioX(
       filiais: forecast.length,
       snapshot: forecast[0]?.snapshot ?? null,
     },
+    planoCompra: plano[0]?.plano ?? null,
     recebido: {
       quantidade: recebido[0]?.quantidade ?? 0,
       notas: recebido[0]?.notas ?? 0,

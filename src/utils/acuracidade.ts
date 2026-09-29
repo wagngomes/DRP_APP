@@ -60,6 +60,23 @@ export function wmape(pares: ParPrevisao[]): number | null {
 }
 
 /**
+ * Quanto do previsto foi realizado: realizado ÷ previsto.
+ *
+ * Responde "vendeu o que previu?" na forma direta — 100% é em cima, 120% é
+ * vendeu mais do que previu, 70% é vendeu menos. Não é o mesmo que
+ * acuracidade: esta diz o **tamanho** do erro sem dizer para que lado, e uma
+ * previsão de 130% e outra de 70% têm a mesma acuracidade e significados
+ * opostos.
+ *
+ * `null` quando não houve previsão: dividir por zero não é "acertou tudo" nem
+ * "errou tudo", é pergunta sem sentido.
+ */
+export function atingimento(par: ParPrevisao): number | null {
+  if (par.previsto === 0) return null;
+  return par.realizado / par.previsto;
+}
+
+/**
  * Acuracidade como complemento do erro, nunca negativa.
  *
  * Um erro de 150% viraria "-50% de acerto", que não quer dizer nada para quem

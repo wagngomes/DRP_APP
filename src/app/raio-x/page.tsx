@@ -3,6 +3,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Boxes,
+  ClipboardList,
   Flag,
   Handshake,
   Info,
@@ -439,7 +440,14 @@ function Painel({
         Consenso e realizado
       </h2>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Cinco colunas quando há plano de compra, quatro quando não há: o plano
+          não existe para todo item, e uma coluna vazia ficaria pior que a
+          ausência. */}
+      <div
+        className={`grid gap-4 sm:grid-cols-2 ${
+          dados.planoCompra !== null ? "xl:grid-cols-5" : "xl:grid-cols-4"
+        }`}
+      >
         <Kpi
           icone={Target}
           rotulo="Consenso S&OP"
@@ -458,6 +466,22 @@ function Painel({
           }
           tom="turquesa"
         />
+        {/* Só aparece quando o item tem plano na competência. Plano ausente é
+            diferente de plano zerado, e mostrar "0" onde não há plano sugeriria
+            uma decisão que ninguém tomou. */}
+        {dados.planoCompra !== null ? (
+          <Kpi
+            icone={ClipboardList}
+            rotulo="Plano de compra"
+            valor={num(dados.planoCompra)}
+            apoio={
+              dados.planoCompra > 0
+                ? `${pct(dados.vendas.total / dados.planoCompra, 0)} do plano vendido`
+                : "plano zerado no mês"
+            }
+          />
+        ) : null}
+
         {/* Os dois forecasts num card só, partido ao meio por uma linha
             pontilhada: são a mesma previsão antes e depois do ajuste, e o que
             interessa é a diferença entre elas. Em cards separados o leitor
@@ -542,13 +566,13 @@ function Painel({
           {/* Sem linha de S&OP, "0% de acerto" seria uma acusação falsa: não
               houve previsão errada, houve ausência de previsão. */}
           <Acerto
-            rotulo="Consenso × vendido"
+            rotulo="Vendido ÷ consenso"
             medida={acerto.consenso}
             ausente={!temConsenso ? "sem consenso no mês" : undefined}
           />
-          <Acerto rotulo="Forecast M0 × vendido" medida={acerto.forecastM0} />
+          <Acerto rotulo="Vendido ÷ forecast M0" medida={acerto.forecastM0} />
           <Acerto
-            rotulo="Forecast ajustado × vendido"
+            rotulo="Vendido ÷ forecast ajustado"
             medida={acerto.forecastAjustado}
           />
           <div className="rounded-lg border p-3">

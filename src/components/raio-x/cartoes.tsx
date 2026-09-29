@@ -3,7 +3,7 @@ import { ArrowDownRight, ArrowUpRight, type LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { faixaAcuracidade } from "@/utils/acuracidade";
 import type { Medida } from "@/lib/sop/consultas";
-import { pct, TOM_FAIXA } from "./formato";
+import { num, pct, TOM_FAIXA } from "./formato";
 
 /**
  * Cartão de número grande e cartão de acuracidade.
@@ -98,27 +98,31 @@ export function Acerto({
       </div>
     );
   }
+  // A cor continua vindo da acuracidade, que mede o tamanho do erro. O número
+  // exibido é o atingimento, que diz para que lado ele foi: 130% e 70% têm a
+  // mesma acuracidade e significados opostos, e é o lado que decide o que fazer.
   const faixa = faixaAcuracidade(medida.acuracidade);
-  const sobra = medida.vies !== null && medida.vies > 0;
+  const acima = medida.atingimento !== null && medida.atingimento > 1;
+
   return (
     <div className="rounded-lg border p-3">
       <p className="text-xs text-muted-foreground">{rotulo}</p>
       <p
         className={`mt-1 inline-flex rounded-md px-2 py-0.5 font-mono text-2xl font-semibold tabular-nums ${TOM_FAIXA[faixa]}`}
       >
-        {pct(medida.acuracidade)}
+        {pct(medida.atingimento, 0)}
       </p>
       <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-        {medida.vies === null ? (
-          "sem realizado para comparar"
+        {medida.atingimento === null ? (
+          "sem previsão para comparar"
         ) : (
           <>
-            {sobra ? (
+            {acima ? (
               <ArrowUpRight className="size-3 text-amber-600" />
             ) : (
               <ArrowDownRight className="size-3 text-sky-600" />
             )}
-            {`previu ${sobra ? "a mais" : "a menos"}: ${pct(Math.abs(medida.vies))}`}
+            {`vendeu ${acima ? "acima" : "abaixo"} · ${num(medida.realizado)} de ${num(medida.previsto)}`}
           </>
         )}
       </p>
