@@ -51,7 +51,10 @@ type Detalhes = {
  * `SEGURANCA` no início da linha para o filtro ser trivial em qualquer
  * ferramenta: `docker compose logs app | grep SEGURANCA`.
  */
-export function registrar(evento: EventoSeguranca, detalhes: Detalhes = {}): void {
+export function registrar(
+  evento: EventoSeguranca,
+  detalhes: Detalhes = {},
+): void {
   const linha = {
     tipo: "SEGURANCA",
     evento,

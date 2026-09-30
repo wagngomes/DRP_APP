@@ -25,11 +25,20 @@ import { envelopar } from "./envelope";
  * historico_vendas` são 512 mil linhas viajando para a memória da aplicação, e
  * a importação já matou este processo por falta de heap uma vez.
  *
- * **O que isto NÃO protege:** a tela alcança qualquer tabela que o usuário do
- * banco alcança, inclusive `account`, que guarda os hashes de senha. Bloquear
- * por nome de tabela teria o mesmo buraco da lista de palavras proibidas, e por
- * isso não está aqui. A proteção correta seria um papel Postgres próprio, sem
- * SELECT nessas tabelas; enquanto não houver, o acesso é o do administrador.
+ * A quarta trava é o papel. `SET LOCAL ROLE console_leitura` tira do alcance as
+ * três tabelas que guardam credencial — `session`, `account` e `verification` —
+ * e o bloqueio é do motor (`42501`), não de uma lista de nomes proibidos, que
+ * teria o mesmo buraco da lista de palavras. `user` fica legível de propósito:
+ * nome, e-mail e papel são informação administrativa e não servem para se
+ * passar por ninguém.
+ *
+ * Por que o papel e não um simples REVOKE: o usuário da aplicação é dono das
+ * tabelas, e dono passa por cima de REVOKE. Assumir outro papel dentro da
+ * transação é o que faz a restrição valer.
+ *
+ * Se o papel não existir — banco onde a migração não rodou —, o `SET LOCAL
+ * ROLE` lança e a consulta inteira falha. É o comportamento desejado: o console
+ * para de funcionar, em vez de voltar silenciosamente a enxergar tudo.
  */
 
 /** Linhas devolvidas à tela. Acima disso, o resto é cortado e avisado. */
@@ -39,6 +48,14 @@ export const LIMITE_TELA = 1_000;
 export const LIMITE_EXPORTACAO = 20_000;
 
 const TIMEOUT_CONSULTA_MS = 10_000;
+
+/**
+ * Papel que o console assume. Criado pela migração `papel_console_leitura`.
+ *
+ * Constante, nunca vinda de entrada: é um identificador SQL, e identificador
+ * não se parametriza.
+ */
+const PAPEL_CONSOLE = "console_leitura";
 
 export type ResultadoConsulta = {
   colunas: string[];
@@ -79,6 +96,16 @@ export async function executarConsulta(
   const brutas = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
+      // Papel restrito: tira do alcance as tabelas que guardam credencial.
+      //
+      // Somente-leitura impede escrita, não leitura — e `SELECT token FROM
+      // session` devolvia token de sessão ativo, que é login imediato para quem
+      // o copiar. Sem isto, comprometer uma conta de administrador comprometia
+      // todas as outras.
+      //
+      // `SET LOCAL` vale só nesta transação: fora daqui a aplicação continua
+      // lendo essas tabelas normalmente, que é como a autenticação funciona.
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE ${PAPEL_CONSOLE}`);
       await tx.$executeRawUnsafe(
         `SET LOCAL statement_timeout = '${TIMEOUT_CONSULTA_MS}ms'`,
       );

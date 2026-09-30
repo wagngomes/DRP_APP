@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { sair, tentarEntrar, verificar, verificarCamadas, zerar } from "./rate-limit";
+import {
+  sair,
+  tentarEntrar,
+  verificar,
+  verificarCamadas,
+  zerar,
+} from "./rate-limit";
 
 /**
  * Armazém isolado por teste: o de produção vive no `globalThis`, e testes que
@@ -67,7 +73,8 @@ describe("verificarCamadas", () => {
 
   it("aplica a camada mais restritiva", () => {
     const a = armazemDeTeste();
-    for (let i = 0; i < 3; i++) expect(verificarCamadas("x", camadas, a).permitido).toBe(true);
+    for (let i = 0; i < 3; i++)
+      expect(verificarCamadas("x", camadas, a).permitido).toBe(true);
     // A de hora ainda tem folga, mas a de minuto estourou.
     expect(verificarCamadas("x", camadas, a).permitido).toBe(false);
   });
@@ -75,7 +82,10 @@ describe("verificarCamadas", () => {
   it("a camada longa segura quem espera a curta liberar", () => {
     const a = armazemDeTeste();
     // Cinco na janela de hora, distribuídas fora da janela de minuto.
-    a.gravar("x|3600", Array.from({ length: 5 }, (_, i) => Date.now() - (i + 2) * 60_000));
+    a.gravar(
+      "x|3600",
+      Array.from({ length: 5 }, (_, i) => Date.now() - (i + 2) * 60_000),
+    );
     const r = verificarCamadas("x", camadas, a);
     expect(r.permitido).toBe(false);
     // É a barreira de moagem lenta: sem ela, bastaria esperar um minuto entre

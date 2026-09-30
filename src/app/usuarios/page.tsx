@@ -1,8 +1,21 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Search, ShieldCheck, Users } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  Users,
+} from "lucide-react";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +36,7 @@ import {
   lerPapel,
   type Papel,
 } from "@/lib/autorizacao";
+import { dominiosPermitidos } from "@/utils/email-permitido";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +76,13 @@ export default async function Usuarios({
     prisma.user.count({ where: { role: "admin" } }),
     prisma.user.findMany({
       where,
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
       orderBy: [{ role: "asc" }, { name: "asc" }],
       skip: (pagina - 1) * POR_PAGINA,
       take: POR_PAGINA,
@@ -84,6 +104,33 @@ export default async function Usuarios({
       papel={sessao.usuario.papel}
     >
       <div className="space-y-6">
+        {/* O aviso mora aqui porque esta é a tela de quem controla acesso, e
+            porque log de contêiner ninguém lê por hábito. O cadastro ficou
+            aberto semanas sem que houvesse onde perceber. */}
+        {dominiosPermitidos().length === 0 ? (
+          <div className="flex gap-3 rounded-lg border-2 border-destructive/40 bg-destructive/5 p-4">
+            <ShieldAlert className="mt-0.5 size-5 shrink-0 text-destructive" />
+            <div className="space-y-1 text-sm">
+              <p className="font-semibold text-destructive">
+                Cadastro aberto a qualquer e-mail
+              </p>
+              <p className="text-muted-foreground">
+                Sem a lista de domínios, qualquer pessoa que alcance a tela de
+                entrada cria conta e passa a ver estoque, vendas, fornecedores e
+                clientes.
+              </p>
+              <p className="text-muted-foreground">
+                Defina{" "}
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+                  EMAIL_DOMINIOS_PERMITIDOS
+                </code>{" "}
+                no <code className="font-mono text-xs">.env</code> do servidor e
+                recrie o contêiner.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-(--brand-petrol) dark:text-foreground">
@@ -109,7 +156,9 @@ export default async function Usuarios({
                 )}
                 {ROTULO_PAPEL[p]}
               </p>
-              <p className="mt-1 text-sm text-muted-foreground">{DESCRICAO_PAPEL[p]}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {DESCRICAO_PAPEL[p]}
+              </p>
             </div>
           ))}
         </div>
@@ -118,7 +167,8 @@ export default async function Usuarios({
           <CardHeader>
             <CardTitle className="text-base">Contas</CardTitle>
             <CardDescription>
-              Conta nova entra como consulta. Promover é sempre um ato explícito.
+              Conta nova entra como consulta. Promover é sempre um ato
+              explícito.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
@@ -148,7 +198,10 @@ export default async function Usuarios({
                 <TableBody>
                   {usuarios.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={4}
+                        className="text-center text-muted-foreground"
+                      >
                         {busca
                           ? `Nenhuma conta encontrada para "${busca}".`
                           : "Nenhuma conta cadastrada."}
@@ -167,7 +220,9 @@ export default async function Usuarios({
                               </span>
                             ) : null}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">{u.email}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {u.email}
+                          </TableCell>
                           <TableCell className="font-mono text-sm tabular-nums text-muted-foreground">
                             {u.createdAt.toLocaleDateString("pt-BR")}
                           </TableCell>

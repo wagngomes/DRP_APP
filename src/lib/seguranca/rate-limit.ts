@@ -66,7 +66,10 @@ let verificacoes = 0;
 
 function limparVencidas(agora: number, janelaMaxMs: number): void {
   for (const [chave, marcas] of mapa()) {
-    if (marcas.length === 0 || agora - marcas[marcas.length - 1] > janelaMaxMs) {
+    if (
+      marcas.length === 0 ||
+      agora - marcas[marcas.length - 1] > janelaMaxMs
+    ) {
       mapa().delete(chave);
     }
   }
@@ -79,7 +82,11 @@ function limparVencidas(agora: number, janelaMaxMs: number): void {
  * dezenas de segundos, e contar só ao terminar deixaria várias cargas
  * simultâneas passarem juntas pelo teto enquanto nenhuma tivesse concluído.
  */
-export function verificar(chave: string, regra: Regra, armazem: Armazem = memoria): Veredito {
+export function verificar(
+  chave: string,
+  regra: Regra,
+  armazem: Armazem = memoria,
+): Veredito {
   const agora = Date.now();
   const janelaMs = regra.janelaSegundos * 1000;
 
@@ -95,7 +102,10 @@ export function verificar(chave: string, regra: Regra, armazem: Armazem = memori
     return {
       permitido: false,
       restantes: 0,
-      esperarSegundos: Math.max(1, Math.ceil((maisAntiga + janelaMs - agora) / 1000)),
+      esperarSegundos: Math.max(
+        1,
+        Math.ceil((maisAntiga + janelaMs - agora) / 1000),
+      ),
     };
   }
 
@@ -119,9 +129,13 @@ export function verificar(chave: string, regra: Regra, armazem: Armazem = memori
 export function verificarCamadas(
   chave: string,
   regras: Regra[],
-  armazem: Armazem = memoria
+  armazem: Armazem = memoria,
 ): Veredito {
-  let pior: Veredito = { permitido: true, restantes: Number.MAX_SAFE_INTEGER, esperarSegundos: 0 };
+  let pior: Veredito = {
+    permitido: true,
+    restantes: Number.MAX_SAFE_INTEGER,
+    esperarSegundos: 0,
+  };
 
   for (const regra of regras) {
     const r = verificar(`${chave}|${regra.janelaSegundos}`, regra, armazem);
@@ -133,8 +147,13 @@ export function verificarCamadas(
 }
 
 /** Zera as camadas de uma chave. Usado quando o login dá certo. */
-export function zerar(chave: string, regras: Regra[], armazem: Armazem = memoria): void {
-  for (const regra of regras) armazem.apagar(`${chave}|${regra.janelaSegundos}`);
+export function zerar(
+  chave: string,
+  regras: Regra[],
+  armazem: Armazem = memoria,
+): void {
+  for (const regra of regras)
+    armazem.apagar(`${chave}|${regra.janelaSegundos}`);
 }
 
 /**

@@ -9,6 +9,12 @@ import {
   LIMITE_TELA,
 } from "@/lib/console/executar";
 import { registrar } from "@/lib/seguranca/auditoria";
+import { CONSOLE_SIMULTANEO, CONSOLE_SQL } from "@/lib/seguranca/limites";
+import {
+  sair,
+  tentarEntrar,
+  verificarCamadas,
+} from "@/lib/seguranca/rate-limit";
 
 /**
  * Execução de SQL pelo console administrativo.
@@ -44,6 +50,27 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const ator = autorizado.sessao.usuario;
+
+  // Teto por minuto. Folgado para quem investiga — a pessoa lê o resultado antes
+  // de escrever a próxima consulta — e existe para o caso de laço acidental.
+  //
+  // As rotas de API não passam pelo proxy (o matcher exclui `/api`), então sem
+  // isto aqui não havia teto nenhum.
+  const veredito = verificarCamadas(`console:${ator.id}`, CONSOLE_SQL);
+  if (!veredito.permitido) {
+    return NextResponse.json(
+      {
+        erro: "Muitas consultas seguidas. Aguarde alguns instantes.",
+        retryAfterSegundos: veredito.esperarSegundos,
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(veredito.esperarSegundos) },
+      },
+    );
+  }
+
   const { sql, formato } = corpo.data;
   const limite = formato === "xlsx" ? LIMITE_EXPORTACAO : LIMITE_TELA;
 
@@ -51,9 +78,21 @@ export async function POST(req: NextRequest) {
   // comando **é** a ação. Guardar só "executou uma consulta" não serviria para
   // nada na hora de entender o que aconteceu.
   registrar("consulta_sql", {
-    ator: autorizado.sessao.usuario.email,
+    ator: ator.email,
     detalhe: `${formato} · ${sql.replace(/\s+/g, " ").slice(0, 500)}`,
   });
+
+  // Duas por vez. É a concorrência que derruba: cada consulta pode durar dez
+  // segundos, a máquina tem dois núcleos e o pool do Prisma abre cinco conexões.
+  // Meia dúzia de consultas pesadas ao mesmo tempo esgota o pool e a aplicação
+  // inteira para de responder — inclusive para quem não está no console.
+  const chaveConcorrencia = `console:${ator.id}`;
+  if (!tentarEntrar(chaveConcorrencia, CONSOLE_SIMULTANEO)) {
+    return NextResponse.json(
+      { erro: "Já há consultas em andamento. Espere elas terminarem." },
+      { status: 429 },
+    );
+  }
 
   let resultado;
   try {
@@ -71,6 +110,10 @@ export async function POST(req: NextRequest) {
       },
       { status: 400 },
     );
+  } finally {
+    // `finally` para o contador voltar mesmo quando a consulta falha — senão o
+    // primeiro erro de sintaxe bloquearia a pessoa até o processo reiniciar.
+    sair(chaveConcorrencia);
   }
 
   if (formato === "json") return NextResponse.json(resultado);

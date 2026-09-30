@@ -85,3 +85,22 @@ export const IMPORTACAO_SIMULTANEA = 1;
  * provedor. Vinte por hora cobre um dia de trabalho iterativo com folga.
  */
 export const ANALISE_IA: Regra[] = [{ max: 20, janelaSegundos: 60 * 60 }];
+
+/**
+ * Consultas do console SQL, por usuário.
+ *
+ * Sessenta por minuto é folgado para quem investiga — a pessoa lê o resultado
+ * antes de escrever a próxima. O teto existe para o caso de laço acidental, não
+ * para atrapalhar o trabalho.
+ */
+export const CONSOLE_SQL: Regra[] = [{ max: 60, janelaSegundos: 60 }];
+
+/**
+ * Consultas simultâneas do console, por usuário.
+ *
+ * Duas. Como na importação, é a concorrência que derruba: cada consulta pode
+ * durar dez segundos, a máquina tem dois núcleos e o pool do Prisma abre cinco
+ * conexões. Meia dúzia de consultas pesadas ao mesmo tempo esgota o pool, e a
+ * aplicação inteira para de responder — inclusive para quem não está no console.
+ */
+export const CONSOLE_SIMULTANEO = 2;

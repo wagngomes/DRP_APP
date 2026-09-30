@@ -49,6 +49,22 @@ export const auth = betterAuth({
    * Resend: com o remetente de sandbox, o e-mail só chega para o dono da conta
    * Resend e todo mundo mais ficaria trancado do lado de fora, sem erro visível.
    */
+  /**
+   * Validade da sessão.
+   *
+   * Sem este bloco valia o padrão do Better Auth: sete dias. É folgado demais
+   * para um sistema que dá acesso à base inteira e tem console SQL — sessão
+   * roubada num computador compartilhado continuaria valendo por uma semana.
+   *
+   * Doze horas cobre um dia de trabalho sem pedir senha no meio. `updateAge`
+   * renova enquanto a pessoa usa, então quem trabalha o dia todo não é
+   * interrompido; quem parou é desconectado.
+   */
+  session: {
+    expiresIn: 60 * 60 * 12,
+    updateAge: 60 * 60,
+  },
+
   emailAndPassword: {
     enabled: true,
     // 12 é a recomendação atual para senha sem segundo fator. O antigo 8 vinha
