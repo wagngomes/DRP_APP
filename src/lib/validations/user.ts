@@ -18,6 +18,28 @@ export const signInSchema = z.object({
 
 export type SignInInput = z.infer<typeof signInSchema>;
 
+/** Pedido de redefinição: só o endereço. */
+export const pedirResetSchema = z.object({
+  email: z.email("E-mail inválido"),
+});
+
+/**
+ * Nova senha, na tela que o link do e-mail abre.
+ *
+ * O mesmo mínimo de doze caracteres do cadastro, e aqui do lado do cliente
+ * também: o servidor recusaria de qualquer jeito, mas descobrir isso só depois
+ * de enviar, com o token já gasto, seria uma armadilha.
+ */
+export const resetSenhaSchema = z
+  .object({
+    password: z.string().min(12, "A senha precisa ter ao menos 12 caracteres"),
+    confirmacao: z.string(),
+  })
+  .refine((d) => d.password === d.confirmacao, {
+    message: "As senhas não coincidem",
+    path: ["confirmacao"],
+  });
+
 export const updateUserSchema = z
   .object({
     name: z.string().trim().min(2, "Informe seu nome completo").optional(),

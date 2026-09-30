@@ -6,7 +6,10 @@ import { getSessionCookie } from "better-auth/cookies";
 
 import { registrar } from "@/lib/seguranca/auditoria";
 import { NAVEGACAO, NAVEGACAO_ANONIMA } from "@/lib/seguranca/limites";
-import { origemDaRequisicao, verificarCamadas } from "@/lib/seguranca/rate-limit";
+import {
+  origemDaRequisicao,
+  verificarCamadas,
+} from "@/lib/seguranca/rate-limit";
 
 /**
  * Rotas que dispensam sessão.
@@ -15,7 +18,10 @@ import { origemDaRequisicao, verificarCamadas } from "@/lib/seguranca/rate-limit
  * consultada por quem ainda não tem conta — time de arquitetura, integrador.
  * Se a política interna exigir, basta tirá-la desta lista.
  */
-const PUBLIC_ROUTES = ["/login", "/docs"];
+// As duas telas de senha entram aqui pelo motivo óbvio: quem esqueceu a senha
+// não consegue entrar para pedir a troca. Sem isso o proxy as devolveria para o
+// login, e o link do e-mail levaria de volta à porta trancada.
+const PUBLIC_ROUTES = ["/login", "/docs", "/recuperar-senha", "/definir-senha"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -40,7 +46,7 @@ export function proxy(request: NextRequest) {
 
   const veredito = verificarCamadas(
     chave,
-    sessionCookie ? NAVEGACAO : NAVEGACAO_ANONIMA
+    sessionCookie ? NAVEGACAO : NAVEGACAO_ANONIMA,
   );
   if (!veredito.permitido) {
     // Registra o IP, nunca a chave de sessão — o log precisa dizer de onde veio,
@@ -49,15 +55,20 @@ export function proxy(request: NextRequest) {
       origem,
       detalhe: `navegação em ${pathname}${sessionCookie ? " (autenticado)" : ""}`,
     });
-    return new NextResponse("Requisições demais. Tente novamente em instantes.", {
-      status: 429,
-      headers: {
-        "Retry-After": String(veredito.esperarSegundos),
-        "Content-Type": "text/plain; charset=utf-8",
+    return new NextResponse(
+      "Requisições demais. Tente novamente em instantes.",
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(veredito.esperarSegundos),
+          "Content-Type": "text/plain; charset=utf-8",
+        },
       },
-    });
+    );
   }
-  const isPublicRoute = PUBLIC_ROUTES.some((route) => pathname.startsWith(route));
+  const isPublicRoute = PUBLIC_ROUTES.some((route) =>
+    pathname.startsWith(route),
+  );
 
   if (!sessionCookie && !isPublicRoute) {
     return NextResponse.redirect(new URL("/login", request.url));

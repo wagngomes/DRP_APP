@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -76,7 +77,9 @@ function LoginForm() {
     setLoading(false);
 
     if (error) {
-      toast.error(error.message ?? "Não foi possível entrar. Verifique suas credenciais.");
+      toast.error(
+        error.message ?? "Não foi possível entrar. Verifique suas credenciais.",
+      );
       return;
     }
 
@@ -89,13 +92,23 @@ function LoginForm() {
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="login-email">E-mail</Label>
-        <Input id="login-email" name="email" type="email" placeholder="voce@empresa.com" required />
-        {errors.email && <p className="text-sm text-destructive">{errors.email[0]}</p>}
+        <Input
+          id="login-email"
+          name="email"
+          type="email"
+          placeholder="voce@empresa.com"
+          required
+        />
+        {errors.email && (
+          <p className="text-sm text-destructive">{errors.email[0]}</p>
+        )}
       </div>
       <div className="space-y-2">
         <Label htmlFor="login-password">Senha</Label>
         <Input id="login-password" name="password" type="password" required />
-        {errors.password && <p className="text-sm text-destructive">{errors.password[0]}</p>}
+        {errors.password && (
+          <p className="text-sm text-destructive">{errors.password[0]}</p>
+        )}
       </div>
       <Button
         type="submit"
@@ -104,6 +117,18 @@ function LoginForm() {
       >
         {loading ? "Entrando..." : "Entrar"}
       </Button>
+
+      {/* O backend já mandava o e-mail de redefinição, mas não havia por onde
+          pedi-lo: sem este link o fluxo existia e era inalcançável, e quem
+          esquecia a senha dependia de alguém mexer no banco. */}
+      <p className="text-center">
+        <Link
+          href="/recuperar-senha"
+          className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          Esqueci minha senha
+        </Link>
+      </p>
     </form>
   );
 }
@@ -152,17 +177,29 @@ function SignUpForm() {
       <div className="space-y-2">
         <Label htmlFor="signup-name">Nome completo</Label>
         <Input id="signup-name" name="name" placeholder="Seu nome" required />
-        {errors.name && <p className="text-sm text-destructive">{errors.name[0]}</p>}
+        {errors.name && (
+          <p className="text-sm text-destructive">{errors.name[0]}</p>
+        )}
       </div>
       <div className="space-y-2">
         <Label htmlFor="signup-email">E-mail</Label>
-        <Input id="signup-email" name="email" type="email" placeholder="voce@empresa.com" required />
-        {errors.email && <p className="text-sm text-destructive">{errors.email[0]}</p>}
+        <Input
+          id="signup-email"
+          name="email"
+          type="email"
+          placeholder="voce@empresa.com"
+          required
+        />
+        {errors.email && (
+          <p className="text-sm text-destructive">{errors.email[0]}</p>
+        )}
       </div>
       <div className="space-y-2">
         <Label htmlFor="signup-password">Senha</Label>
         <Input id="signup-password" name="password" type="password" required />
-        {errors.password && <p className="text-sm text-destructive">{errors.password[0]}</p>}
+        {errors.password && (
+          <p className="text-sm text-destructive">{errors.password[0]}</p>
+        )}
       </div>
       <Button
         type="submit"
