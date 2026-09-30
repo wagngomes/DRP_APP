@@ -161,6 +161,24 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Quem pode criar conta, por domínio de e-mail.
+      #
+      # Faltava aqui, e essa falta deixou o cadastro aberto desde a primeira
+      # subida: o código lê a variável, o `.env` até podia tê-la, mas o compose
+      # só repassa o que está declarado — então ela nunca chegava ao contêiner,
+      # a lista chegava vazia, e lista vazia libera qualquer domínio.
+      #
+      # Sem valor padrão de propósito. Um padrão aqui seria adivinhar o domínio
+      # de quem instala, e adivinhar errado tranca o primeiro cadastro.
+      EMAIL_DOMINIOS_PERMITIDOS: ${EMAIL_DOMINIOS_PERMITIDOS:-}
+      # Exige e-mail confirmado para entrar. Só ligue depois de o envio estar
+      # funcionando **e** de as contas existentes estarem marcadas como
+      # verificadas — ligar antes tranca todo mundo fora, inclusive quem
+      # administra.
+      EXIGIR_EMAIL_VERIFICADO: ${EXIGIR_EMAIL_VERIFICADO:-false}
+      # Origens extras aceitas pela autenticação, além de BETTER_AUTH_URL.
+      # Serve para migração de domínio; vazia é o normal.
+      ORIGENS_CONFIAVEIS: ${ORIGENS_CONFIAVEIS:-}
       # Heap declarado, e não deixado ao critério do Node: o padrão é calculado
       # sobre a memória total da máquina e ignora que o Postgres também mora
       # aqui.
