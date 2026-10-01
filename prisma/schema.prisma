@@ -553,7 +553,15 @@ model ClientesGrupos {
   cliente_nome   String?
   cliente_cnpj   String?
   cliente_grupo  String?
+  /**
+   * Mês a que esta carga se refere, preenchido pelo servidor na importação.
+   *
+   * Base mensal, não cadastro fixo: o vínculo entre CNPJ e grupo muda com o
+   * tempo, e sem a data uma reimportação reescreveria meses já fechados.
+   */
+  data_snapshot  DateTime @db.Date
 
+  @@index([data_snapshot, cliente_cnpj])
   @@map("clientes_grupos")
 }
 

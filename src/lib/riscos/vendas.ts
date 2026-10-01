@@ -14,6 +14,7 @@
  * quantidade negativa nas 457 mil linhas. Todas as somas aqui invertem o sinal.
  */
 import { prisma } from "@/lib/prisma";
+import { gruposPorCnpj } from "@/lib/clientes-grupos";
 
 /** Quantas vezes acima da mediana histórica para o mês virar anomalia. */
 export const FATOR_ANOMALIA = 2;
@@ -57,11 +58,18 @@ export type DadosVendas = {
  * Quando a base for reimportada com o mês corrente, o resultado passa a
  * refletir a operação de hoje sem mudança de código.
  */
-export async function calcularAnomaliasVenda(limite = 50): Promise<DadosVendas> {
+export async function calcularAnomaliasVenda(
+  limite = 50,
+): Promise<DadosVendas> {
   const linhas = await prisma.$queryRawUnsafe<
     {
-      codigo: string; cnpj: string; cliente: string; grupo: string | null;
-      mes_atual: number; mediana: number; mes_analisado: string;
+      codigo: string;
+      cnpj: string;
+      cliente: string;
+      grupo: string | null;
+      mes_atual: number;
+      mediana: number;
+      mes_analisado: string;
     }[]
   >(
     `WITH ref AS (
@@ -93,7 +101,10 @@ export async function calcularAnomaliasVenda(limite = 50): Promise<DadosVendas> 
             c.mediana::float8,
             (SELECT mes FROM ref) AS mes_analisado
        FROM comparado c
-       LEFT JOIN clientes_grupos g ON g.cliente_cnpj = c.cnpj
+       -- O mês vem da própria CTE: esta consulta não recebe data, ela descobre
+       -- o mês mais recente com venda. O grupo tem de ser o vigente naquele mês.
+       LEFT JOIN ${gruposPorCnpj("((SELECT mes FROM ref) || '-01')")} g
+         ON g.cliente_cnpj = c.cnpj
       WHERE c.mes_atual IS NOT NULL
         AND c.mediana IS NOT NULL
         AND c.mediana > 0
@@ -103,7 +114,7 @@ export async function calcularAnomaliasVenda(limite = 50): Promise<DadosVendas> 
       LIMIT $3`,
     MINIMO_UNIDADES,
     FATOR_ANOMALIA,
-    limite
+    limite,
   );
 
   const anomalias = linhas.map((l): AnomaliaCliente => ({

@@ -7,6 +7,7 @@ import { lerConfiguracoes } from "@/lib/configuracao.server";
 import { prisma } from "@/lib/prisma";
 import { resolverAbertura, type Abertura } from "@/utils/abertura-mes";
 import { limitesDoMes } from "@/utils/mes";
+import { gruposPorCnpj } from "@/lib/clientes-grupos";
 import { listarSnapshots } from "@/lib/snapshots";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
 import {
@@ -51,17 +52,6 @@ function cargaVigente(tabela: string, alias: string): string {
          WHERE _c.competencia >= $2::date AND _c.competencia < $3::date
       )`;
 }
-
-/**
- * Grupo do cliente a partir do CNPJ.
- *
- * `DISTINCT ON` porque o cadastro tem uma linha por loja: o mesmo CNPJ aparece
- * repetido e um join direto multiplicaria as linhas de contrato.
- */
-const GRUPOS_POR_CNPJ = `(
-  SELECT DISTINCT ON (cliente_cnpj) cliente_cnpj, cliente_grupo
-    FROM clientes_grupos WHERE cliente_cnpj IS NOT NULL ORDER BY cliente_cnpj
-)`;
 
 export type DivisaoSop = {
   divisao: string;
@@ -284,7 +274,7 @@ export async function carregarRaioX(
               MIN(c.representante) AS representante,
               COUNT(DISTINCT c.representante)::int AS representantes
          FROM contratos c
-         LEFT JOIN ${GRUPOS_POR_CNPJ} g ON g.cliente_cnpj = c.cnpj
+         LEFT JOIN ${gruposPorCnpj("$2")} g ON g.cliente_cnpj = c.cnpj
         WHERE c.codigo = $1 AND ${cargaVigente("contratos", "c")}
         GROUP BY 1`,
       codigo,
@@ -314,7 +304,7 @@ export async function carregarRaioX(
                 COALESCE(g.cliente_grupo, c.grupo, 'Sem grupo') AS grupo,
                 g.cliente_grupo AS grupo_cadastro
            FROM contratos c
-           LEFT JOIN ${GRUPOS_POR_CNPJ} g ON g.cliente_cnpj = c.cnpj
+           LEFT JOIN ${gruposPorCnpj("$2")} g ON g.cliente_cnpj = c.cnpj
           WHERE c.codigo = $1 AND ${cargaVigente("contratos", "c")}
             AND c.cnpj IS NOT NULL
           ORDER BY c.cnpj
@@ -328,7 +318,7 @@ export async function carregarRaioX(
        vendas AS (
          SELECT h.cnpj, gv.cliente_grupo AS grupo_venda, -h.quantidade AS q
            FROM historico_vendas h
-           LEFT JOIN ${GRUPOS_POR_CNPJ} gv ON gv.cliente_cnpj = h.cnpj
+           LEFT JOIN ${gruposPorCnpj("$2")} gv ON gv.cliente_cnpj = h.cnpj
           WHERE h.cod_prod = $1 AND h.data >= $2::date AND h.data < $3::date
        )
        SELECT COALESCE(k.grupo, gc.grupo) AS grupo,

@@ -509,6 +509,17 @@ export const IMPORT_MODELS: ImportModelConfig[] = [
   {
     key: "clientes_grupos",
     label: "Clientes / Grupos",
+    // Base mensal, não cadastro fixo: o vínculo entre CNPJ e grupo muda com
+    // aquisição, reorganização comercial, cliente que troca de rede. Sem a data,
+    // reimportar reescreveria meses fechados — a divisão Contratos × Spot do
+    // raio-X mudaria sozinha, sem ninguém ter mexido em venda nenhuma.
+    //
+    // O recorte é "a carga mais recente que não seja posterior ao mês
+    // consultado", e não "a carga daquele mês": a importação é esporádica, e
+    // exigir uma por mês faria todo cliente perder o grupo nos meses sem carga.
+    cumulative: true,
+    snapshotField: "data_snapshot",
+    snapshotScope: "month",
     delegate: "clientesGrupos",
     columns: [
       col("cliente_codigo"),

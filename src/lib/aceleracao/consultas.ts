@@ -22,6 +22,7 @@
  * Todas as somas invertem o sinal.
  */
 import { prisma } from "@/lib/prisma";
+import { gruposPorCnpj } from "@/lib/clientes-grupos";
 import { joinFornecedor, nomeFornecedor } from "@/lib/fornecedor";
 import { VAZIO } from "@/lib/fornecedores/agregacao";
 import {
@@ -147,17 +148,24 @@ export async function carregarJanela(): Promise<Janela> {
   const [linha] = await prisma.$queryRawUnsafe<{ dia: number; mes: string }[]>(
     `SELECT extract(day FROM MAX(data))::int AS dia,
             to_char(MAX(data), 'YYYY-MM') AS mes
-       FROM historico_vendas`
+       FROM historico_vendas`,
   );
 
   const mesCorrente = linha?.mes ?? "";
   if (!mesCorrente) {
-    return { diaCorte: 0, mesCorrente: "", mesesBaseline: [], inicioBaseline: "1970-01-01" };
+    return {
+      diaCorte: 0,
+      mesCorrente: "",
+      mesesBaseline: [],
+      inicioBaseline: "1970-01-01",
+    };
   }
 
   const [ano, mes] = mesCorrente.split("-").map(Number);
   const mesesBaseline = Array.from({ length: MESES_BASELINE }, (_, i) =>
-    new Date(Date.UTC(ano, mes - 1 - (MESES_BASELINE - i), 1)).toISOString().slice(0, 7)
+    new Date(Date.UTC(ano, mes - 1 - (MESES_BASELINE - i), 1))
+      .toISOString()
+      .slice(0, 7),
   );
 
   return {
@@ -215,7 +223,7 @@ export async function carregarAceleracao(
   data: string,
   filtros: FiltrosAceleracao = {},
   /** Janela já calculada, para a tela não ler a mesma coisa duas vezes. */
-  janelaPronta?: Janela
+  janelaPronta?: Janela,
 ): Promise<DadosAceleracao> {
   const janela = janelaPronta ?? (await carregarJanela());
   const fracao = fracaoDoMesDecorrida(data);
@@ -223,9 +231,16 @@ export async function carregarAceleracao(
 
   const linhas = await prisma.$queryRawUnsafe<
     {
-      codigo: string; descricao: string | null; fornecedor: string;
-      bu: string; curva: string; forecast: number; vendido: number;
-      chao: number; clientes: number | null; excedente: number | null;
+      codigo: string;
+      descricao: string | null;
+      fornecedor: string;
+      bu: string;
+      curva: string;
+      forecast: number;
+      vendido: number;
+      chao: number;
+      clientes: number | null;
+      excedente: number | null;
       maior: number | null;
     }[]
   >(
@@ -268,7 +283,7 @@ export async function carregarAceleracao(
     data,
     janela.diaCorte,
     janela.mesCorrente,
-    janela.inicioBaseline
+    janela.inicioBaseline,
   );
 
   const todos = linhas.map((l): ItemAcelerado => {
@@ -291,20 +306,21 @@ export async function carregarAceleracao(
       diasNoPlano: porDiaPlano > 0 ? l.chao / porDiaPlano : null,
       clientesFora: l.clientes ?? 0,
       excedente,
-      concentracao: excedente > 0 && l.maior !== null ? l.maior / excedente : null,
+      concentracao:
+        excedente > 0 && l.maior !== null ? l.maior / excedente : null,
     };
   });
 
   // Acelerado = acima da mesma banda de tolerância usada na tela de produto,
   // com um piso de unidades para item de giro mínimo não dominar a lista.
   const acelerados = todos.filter(
-    (i) => i.indice > 1 + TOLERANCIA && i.vendido >= MINIMO_UNIDADES_CLIENTE
+    (i) => i.indice > 1 + TOLERANCIA && i.vendido >= MINIMO_UNIDADES_CLIENTE,
   );
 
   const bus = [...new Set(acelerados.map((i) => i.bu))].sort(ordemRotulo);
   const curvas = [...new Set(acelerados.map((i) => i.curva))].sort(ordemRotulo);
-  const fornecedores = [...new Set(acelerados.map((i) => i.fornecedor))].sort((a, b) =>
-    a.localeCompare(b, "pt-BR")
+  const fornecedores = [...new Set(acelerados.map((i) => i.fornecedor))].sort(
+    (a, b) => a.localeCompare(b, "pt-BR"),
   );
 
   // Recorte sem o foco: base dos cartões e das contagens das abas.
@@ -316,7 +332,7 @@ export async function carregarAceleracao(
       (!filtros.fornecedor || i.fornecedor === filtros.fornecedor) &&
       (!termo ||
         i.codigo.toLowerCase().includes(termo) ||
-        (i.descricao ?? "").toLowerCase().includes(termo))
+        (i.descricao ?? "").toLowerCase().includes(termo)),
   );
 
   const ehMulti = (i: ItemAcelerado) => i.clientesFora >= 2;
@@ -325,13 +341,16 @@ export async function carregarAceleracao(
 
   const foco = filtros.foco ?? "todos";
   const itens = noRecorte
-    .filter((i) => (foco !== "multi" || ehMulti(i)) && (foco !== "risco" || emRisco(i)))
+    .filter(
+      (i) =>
+        (foco !== "multi" || ehMulti(i)) && (foco !== "risco" || emRisco(i)),
+    )
     // Maior excedente primeiro: é o volume que a aceleração acrescentou, e
     // portanto o tamanho do problema. No empate, quem tem menos cobertura.
     .sort(
       (a, b) =>
         b.excedente - a.excedente ||
-        (a.diasNoRitmoReal ?? Infinity) - (b.diasNoRitmoReal ?? Infinity)
+        (a.diasNoRitmoReal ?? Infinity) - (b.diasNoRitmoReal ?? Infinity),
     );
 
   return {
@@ -403,7 +422,7 @@ export async function carregarDetalheItem(
    * continuar utilizável sozinha, mas a tela sempre passa: eram duas leituras
    * idênticas no mesmo request.
    */
-  janelaPronta?: Janela
+  janelaPronta?: Janela,
 ): Promise<DetalheItem> {
   const janela = janelaPronta ?? (await carregarJanela());
 
@@ -417,16 +436,24 @@ export async function carregarDetalheItem(
         GROUP BY 1, 2
         ORDER BY 1, 2`,
       codigo,
-      janela.inicioBaseline
+      janela.inicioBaseline,
     ),
-    carregarClientesFora(codigo, janela.diaCorte, janela.mesCorrente, janela.inicioBaseline),
+    carregarClientesFora(
+      codigo,
+      janela.diaCorte,
+      janela.mesCorrente,
+      janela.inicioBaseline,
+    ),
   ]);
 
   // Acumula por mês. O mês corrente pára no dia com dado; os outros vão até o
   // fim, para a comparação no mesmo ponto do mês ser visível na mesma escala.
   const porMes = new Map<string, { dia: number; qtd: number }[]>();
   for (const d of diarios) {
-    porMes.set(d.mes, [...(porMes.get(d.mes) ?? []), { dia: d.dia, qtd: d.qtd }]);
+    porMes.set(d.mes, [
+      ...(porMes.get(d.mes) ?? []),
+      { dia: d.dia, qtd: d.qtd },
+    ]);
   }
 
   const curvas: CurvaMes[] = [...porMes.entries()]
@@ -474,10 +501,16 @@ export async function carregarClientesFora(
   codigo: string,
   diaCorte: number,
   mes: string,
-  inicioBaseline: string
+  inicioBaseline: string,
 ): Promise<ClienteFora[]> {
   const linhas = await prisma.$queryRawUnsafe<
-    { cnpj: string; cliente: string; grupo: string | null; atual: number; mediana: number }[]
+    {
+      cnpj: string;
+      cliente: string;
+      grupo: string | null;
+      atual: number;
+      mediana: number;
+    }[]
   >(
     `WITH janela AS (
        SELECT h.cnpj, MIN(h.nome) AS cliente,
@@ -500,9 +533,7 @@ export async function carregarClientesFora(
      SELECT c.cnpj, c.cliente, g.cliente_grupo AS grupo,
             c.atual::float8, c.mediana::float8
        FROM comparado c
-       LEFT JOIN (
-         SELECT DISTINCT cliente_cnpj, cliente_grupo FROM clientes_grupos
-       ) g ON g.cliente_cnpj = c.cnpj
+       LEFT JOIN ${gruposPorCnpj("($3 || '-01')")} g ON g.cliente_cnpj = c.cnpj
       WHERE c.atual IS NOT NULL AND c.mediana > 0
         AND c.meses_com_dado >= ${MINIMO_MESES_HISTORICO}
         AND c.atual >= ${MINIMO_UNIDADES_CLIENTE}
@@ -512,7 +543,7 @@ export async function carregarClientesFora(
     codigo,
     diaCorte,
     mes,
-    inicioBaseline
+    inicioBaseline,
   );
 
   return linhas.map((l) => ({
