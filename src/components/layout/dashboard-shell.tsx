@@ -9,6 +9,7 @@ import {
   Flame,
   FlaskConical,
   Gauge,
+  Grid3x3,
   Package,
   ScanLine,
   ChevronDown,
@@ -119,6 +120,11 @@ const NAV: EntradaNav[] = [
     icon: Gauge,
     itens: [
       { label: "Disponibilidade", icon: Gauge, href: "/disponibilidade" },
+      {
+        label: "Tabela de cobertura",
+        icon: Grid3x3,
+        href: "/disponibilidade/tabela",
+      },
       { label: "Aceleração", icon: Flame, href: "/aceleracao" },
       {
         label: "Compras urgentes",

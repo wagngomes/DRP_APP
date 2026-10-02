@@ -72,7 +72,7 @@ export type ItemDisponibilidade = {
 
 export async function contarPorFaixa(
   data: string,
-  fornecedor?: string
+  fornecedor?: string,
 ): Promise<ContagemFaixa[]> {
   const { inicio, fim } = limitesDoMes(data);
   const args: unknown[] = [data, inicio, fim];
@@ -88,7 +88,7 @@ export async function contarPorFaixa(
        ${baseSql(Boolean(fornecedor))}
       GROUP BY f.filial, 2, 3, 4, 5
       ORDER BY f.filial`,
-    ...args
+    ...args,
   );
 }
 
@@ -101,7 +101,7 @@ export async function listarItens(
   curva?: string,
   bu?: string,
   analista?: string,
-  limite = 500
+  limite = 500,
 ): Promise<ItemDisponibilidade[]> {
   const { inicio, fim } = limitesDoMes(data);
   const args: unknown[] = [data, inicio, fim];
@@ -131,7 +131,7 @@ export async function listarItens(
         ${analista ? `AND COALESCE(NULLIF(trim(f.analista), ''), '—') = $${posAnalista}` : ""}
       ORDER BY ${DIAS_CHAO} ASC, f.codigo
       LIMIT ${limite}`,
-    ...args
+    ...args,
   );
 }
 
@@ -142,7 +142,7 @@ export async function listarFornecedores(data: string): Promise<string[]> {
        FROM simulador s ${joinFornecedor("s")}
       WHERE s.fornecedor IS NOT NULL AND s.data_snapshot = $1::date
       ORDER BY 1`,
-    data
+    data,
   );
   return linhas.map((l) => l.fornecedor);
 }
@@ -166,7 +166,10 @@ export type ContagemCia = {
   itens: number;
 };
 
-export async function contarCia(data: string, fornecedor?: string): Promise<ContagemCia[]> {
+export async function contarCia(
+  data: string,
+  fornecedor?: string,
+): Promise<ContagemCia[]> {
   const { inicio, fim } = limitesDoMes(data);
   const args: unknown[] = [data, inicio, fim];
   if (fornecedor) args.push(fornecedor);
@@ -179,7 +182,7 @@ export async function contarCia(data: string, fornecedor?: string): Promise<Cont
             COUNT(*)::int AS itens
        ${baseSql(Boolean(fornecedor))}
       GROUP BY 1, 2, 3, 4`,
-    ...args
+    ...args,
   );
 }
 
@@ -195,7 +198,7 @@ export async function listarItensCia(
   curva?: string,
   bu?: string,
   analista?: string,
-  limite = 500
+  limite = 500,
 ): Promise<ItemDisponibilidade[]> {
   const { inicio, fim } = limitesDoMes(data);
   const args: unknown[] = [data, inicio, fim];
@@ -224,7 +227,7 @@ export async function listarItensCia(
         ${analista ? `AND COALESCE(NULLIF(trim(f.analista), ''), '—') = $${posAnalista}` : ""}
       ORDER BY ${DIAS_CHAO} ASC, f.codigo, f.filial
       LIMIT ${limite}`,
-    ...args
+    ...args,
   );
 }
 
@@ -245,7 +248,7 @@ export async function listarItensCia(
  */
 export function consolidarCia(
   contagens: ContagemCia[],
-  recorte: { curva: string; bu?: string; analista?: string }
+  recorte: { curva: string; bu?: string; analista?: string },
 ): Map<FaixaId, number> {
   const mapa = new Map<FaixaId, number>();
   for (const x of contagens) {

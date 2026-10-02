@@ -48,7 +48,9 @@ export function DicaPercurso({
   }
 
   const viraEsquerda =
-    pos !== null && typeof window !== "undefined" && pos.x + 380 > window.innerWidth;
+    pos !== null &&
+    typeof window !== "undefined" &&
+    pos.x + 380 > window.innerWidth;
 
   return (
     <>
@@ -79,7 +81,10 @@ export function DicaPercurso({
             >
               <div className="flex flex-col gap-2">
                 {remessas.map((r, i) => (
-                  <div key={`${r.documento}-${i}`} className="flex flex-col gap-1">
+                  <div
+                    key={`${r.documento}-${i}`}
+                    className="flex flex-col gap-1"
+                  >
                     <span className="font-mono text-[11px] text-muted-foreground">
                       {`${r.origem === "compra" ? "Pedido" : "NF"} ${r.documento} · ${r.quantidade} un`}
                       {r.emissao
@@ -92,13 +97,18 @@ export function DicaPercurso({
                     ) : (
                       <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                         <li className="rounded bg-muted px-1.5 py-0.5">
-                          <span className="font-mono text-xs font-bold">{r.etapas[0]?.de}</span>
+                          <span className="font-mono text-xs font-bold">
+                            {r.etapas[0]?.de}
+                          </span>
                           <span className="ml-1 font-mono text-[10px] text-muted-foreground">
                             {r.inicio}
                           </span>
                         </li>
                         {r.etapas.map((e, j) => (
-                          <li key={`${e.de}-${e.para}-${j}`} className="flex items-center gap-1">
+                          <li
+                            key={`${e.de}-${e.para}-${j}`}
+                            className="flex items-center gap-1"
+                          >
                             <MoveRight className="size-3 shrink-0 text-muted-foreground" />
                             <span
                               className={`rounded px-1.5 py-0.5 ${
@@ -109,7 +119,9 @@ export function DicaPercurso({
                                   : "bg-muted"
                               }`}
                             >
-                              <span className="font-mono text-xs font-bold">{e.para}</span>
+                              <span className="font-mono text-xs font-bold">
+                                {e.para}
+                              </span>
                               <span className="ml-1 font-mono text-[10px] text-muted-foreground">
                                 {e.data}
                               </span>
@@ -122,7 +134,7 @@ export function DicaPercurso({
                 ))}
               </div>
             </div>,
-            document.body
+            document.body,
           )
         : null}
     </>

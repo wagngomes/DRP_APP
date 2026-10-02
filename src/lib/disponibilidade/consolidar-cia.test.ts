@@ -20,7 +20,7 @@ function linha(
   curva: string,
   bu: string,
   analista: string,
-  itens: number
+  itens: number,
 ): ContagemCia {
   return { faixa, curva, bu, analista, itens } as ContagemCia;
 }
@@ -66,14 +66,20 @@ describe("consolidarCia", () => {
   });
 
   it("aplica os dois filtros juntos", () => {
-    const r = consolidarCia(contagens, { curva: "A", bu: "MAT", analista: "ANA" });
+    const r = consolidarCia(contagens, {
+      curva: "A",
+      bu: "MAT",
+      analista: "ANA",
+    });
     expect(r.get("zero")).toBe(30);
     expect(r.get("critico")).toBeUndefined();
   });
 
   it("devolve vazio quando o recorte não existe", () => {
     expect(consolidarCia(contagens, { curva: "Z" }).size).toBe(0);
-    expect(consolidarCia(contagens, { curva: "A", analista: "NINGUEM" }).size).toBe(0);
+    expect(
+      consolidarCia(contagens, { curva: "A", analista: "NINGUEM" }).size,
+    ).toBe(0);
   });
 
   it("o total do recorte é a soma das faixas", () => {

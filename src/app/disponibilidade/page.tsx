@@ -2,7 +2,13 @@ import Link from "next/link";
 
 import { exigirSessao } from "@/lib/autorizacao";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -95,7 +101,9 @@ export default async function Disponibilidade({
 
   // A lista de analistas sai das contagens completas, antes de qualquer
   // recorte: senão escolher um analista esvaziaria o próprio seletor.
-  const analistasPresentes = [...new Set(todasContagens.map((c) => c.analista))].sort(ordemRotulo);
+  const analistasPresentes = [
+    ...new Set(todasContagens.map((c) => c.analista)),
+  ].sort(ordemRotulo);
 
   // O analista recorta o gráfico também, e não só a tabela: um filtro que
   // mudasse a lista sem mudar as barras faria as duas discordarem na mesma tela.
@@ -105,17 +113,35 @@ export default async function Disponibilidade({
 
   // Uma guia por unidade de negócio, já dentro do recorte do analista — sem
   // isso a tela ofereceria uma BU que ficou sem nenhuma posição.
-  const busPresentes = [...new Set(porAnalista.map((c) => c.bu))].sort(ordemRotulo);
+  const busPresentes = [...new Set(porAnalista.map((c) => c.bu))].sort(
+    ordemRotulo,
+  );
   const buParam = primeiro(params.bu);
-  const bu = buParam && busPresentes.includes(buParam) ? buParam : busPresentes[0];
+  const bu =
+    buParam && busPresentes.includes(buParam) ? buParam : busPresentes[0];
 
   const contagens = bu ? porAnalista.filter((c) => c.bu === bu) : porAnalista;
   const ehCia = filial === FILIAL_CIA;
   const itens =
     filial && faixa
       ? ehCia
-        ? await listarItensCia(dataReferencia, faixa, fornecedor, curva, bu, analista)
-        : await listarItens(dataReferencia, filial, faixa, fornecedor, curva, bu, analista)
+        ? await listarItensCia(
+            dataReferencia,
+            faixa,
+            fornecedor,
+            curva,
+            bu,
+            analista,
+          )
+        : await listarItens(
+            dataReferencia,
+            filial,
+            faixa,
+            fornecedor,
+            curva,
+            bu,
+            analista,
+          )
       : [];
 
   // Reposições a caminho, só quando há tabela para preencher: o cálculo projeta
@@ -129,7 +155,7 @@ export default async function Disponibilidade({
     : [new Map<string, Reposicao[]>(), new Map<string, string>()];
 
   const rotulo = (codigo: string | null) =>
-    codigo ? rotulosFiliais.get(codigo) ?? codigo : "—";
+    codigo ? (rotulosFiliais.get(codigo) ?? codigo) : "—";
 
   const totalItens = contagens.reduce((soma, c) => soma + c.itens, 0);
   const faixaSelecionada = faixa ? faixaPorId(faixa) : undefined;
@@ -220,7 +246,9 @@ export default async function Disponibilidade({
                   }`}
                 >
                   {item === "—" ? "Sem BU" : item}
-                  <span className={`ml-1.5 text-xs ${ativo ? "opacity-80" : "opacity-70"}`}>
+                  <span
+                    className={`ml-1.5 text-xs ${ativo ? "opacity-80" : "opacity-70"}`}
+                  >
                     {inteiro(total)}
                   </span>
                 </Link>
@@ -246,7 +274,10 @@ export default async function Disponibilidade({
                 {/* Legenda única para os três gráficos: as faixas são as mesmas. */}
                 <ul className="flex flex-wrap gap-x-4 gap-y-1.5">
                   {FAIXAS.map((f) => (
-                    <li key={f.id} className="flex items-center gap-1.5 text-xs">
+                    <li
+                      key={f.id}
+                      className="flex items-center gap-1.5 text-xs"
+                    >
                       <span
                         className="size-2.5 shrink-0 rounded-[2px]"
                         style={{ background: `var(--faixa-${f.id})` }}
@@ -261,11 +292,17 @@ export default async function Disponibilidade({
                   // Visão consolidada do MESMO recorte, para a coluna "Cia".
                   // A regra vive em `consolidarCia` para poder ser testada —
                   // foi embutida aqui que ela passou despercebida.
-                  const mapaCia = consolidarCia(contagensCia, { curva: c, bu, analista });
+                  const mapaCia = consolidarCia(contagensCia, {
+                    curva: c,
+                    bu,
+                    analista,
+                  });
                   const total = doCurva.reduce((soma, x) => soma + x.itens, 0);
                   // A tabela abre ao lado do gráfico da curva clicada, para o
                   // resultado ficar junto do que o gerou.
-                  const aqui = Boolean(filial && faixaSelecionada && curva === c);
+                  const aqui = Boolean(
+                    filial && faixaSelecionada && curva === c,
+                  );
                   return (
                     <div key={c} className="space-y-2">
                       <p className="flex items-baseline gap-2 border-b pb-1.5">
@@ -348,7 +385,7 @@ export default async function Disponibilidade({
  */
 function paraTexto(
   lista: Reposicao[],
-  rotulo: (codigo: string | null) => string
+  rotulo: (codigo: string | null) => string,
 ): RemessaTexto[] {
   const dia = (d: Date) => dataBr(d.toISOString().slice(0, 10));
   return lista.map((r) => ({
@@ -393,10 +430,15 @@ function TabelaItens({
    * passa por três centros só conta como saldo do destino. É o mesmo critério
    * usado nas telas de produto e fornecedores.
    */
-  const reposicoes = (codigo: string, cd: string, origem: Reposicao["origem"]) =>
+  const reposicoes = (
+    codigo: string,
+    cd: string,
+    origem: Reposicao["origem"],
+  ) =>
     (chegadas.get(`${codigo}|${cd}`) ?? []).filter((r) => r.origem === origem);
 
-  const somar = (lista: Reposicao[]) => lista.reduce((a, r) => a + r.quantidade, 0);
+  const somar = (lista: Reposicao[]) =>
+    lista.reduce((a, r) => a + r.quantidade, 0);
 
   return (
     <div className="rounded-lg border bg-card p-3">
@@ -424,8 +466,12 @@ function TabelaItens({
               <TableHead className="text-right">Estoque chão</TableHead>
               <TableHead className="text-right">Dias chão</TableHead>
               <TableHead className="text-right">Dias total</TableHead>
-              <TableHead className="text-right whitespace-nowrap">Transf. em aberto</TableHead>
-              <TableHead className="text-right whitespace-nowrap">Compras em aberto</TableHead>
+              <TableHead className="text-right whitespace-nowrap">
+                Transf. em aberto
+              </TableHead>
+              <TableHead className="text-right whitespace-nowrap">
+                Compras em aberto
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -450,7 +496,9 @@ function TabelaItens({
                     </Link>
                   </TableCell>
                   {ehCia ? (
-                    <TableCell className="font-mono text-sm">{item.filial}</TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {item.filial}
+                    </TableCell>
                   ) : null}
                   <TableCell className="text-right font-mono tabular-nums">
                     {numero(item.forecast)}
@@ -466,18 +514,27 @@ function TabelaItens({
                   </TableCell>
                   <TableCell className="text-right">
                     <DicaPercurso
-                      total={numero(somar(reposicoes(item.codigo, item.filial, "transferencia")))}
+                      total={numero(
+                        somar(
+                          reposicoes(item.codigo, item.filial, "transferencia"),
+                        ),
+                      )}
                       remessas={paraTexto(
                         reposicoes(item.codigo, item.filial, "transferencia"),
-                        rotulo
+                        rotulo,
                       )}
                       cor="text-teal-700 dark:text-teal-300"
                     />
                   </TableCell>
                   <TableCell className="text-right">
                     <DicaPercurso
-                      total={numero(somar(reposicoes(item.codigo, item.filial, "compra")))}
-                      remessas={paraTexto(reposicoes(item.codigo, item.filial, "compra"), rotulo)}
+                      total={numero(
+                        somar(reposicoes(item.codigo, item.filial, "compra")),
+                      )}
+                      remessas={paraTexto(
+                        reposicoes(item.codigo, item.filial, "compra"),
+                        rotulo,
+                      )}
                       cor="text-amber-700 dark:text-amber-400"
                     />
                   </TableCell>
@@ -490,5 +547,3 @@ function TabelaItens({
     </div>
   );
 }
-
-

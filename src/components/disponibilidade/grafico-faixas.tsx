@@ -78,7 +78,11 @@ export function GraficoFaixas({
     if (fornecedor) params.set("fornecedor", fornecedor);
     if (bu) params.set("bu", bu);
     // Clicar de novo no mesmo segmento fecha a tabela.
-    if (!(filialAtiva === filial && faixaAtiva === faixa && curvaAtiva === curva)) {
+    if (!(
+      filialAtiva === filial &&
+      faixaAtiva === faixa &&
+      curvaAtiva === curva
+    )) {
       params.set("filial", filial);
       params.set("faixa", faixa);
       params.set("curva", curva);
@@ -87,7 +91,9 @@ export function GraficoFaixas({
     // `scroll: false`: por padrão o App Router rola para o topo a cada
     // navegação, e aqui a "navegação" é só abrir a tabela ao lado da barra —
     // jogar o leitor para o topo faria ele perder de vista o que clicou.
-    router.push(qs ? `/disponibilidade?${qs}` : "/disponibilidade", { scroll: false });
+    router.push(qs ? `/disponibilidade?${qs}` : "/disponibilidade", {
+      scroll: false,
+    });
   }
 
   function coluna({
@@ -126,7 +132,9 @@ export function GraficoFaixas({
 
             const chave = `${chaveCd}-${faixa.id}`;
             const selecionado =
-              filialAtiva === chaveCd && faixaAtiva === faixa.id && curvaAtiva === curva;
+              filialAtiva === chaveCd &&
+              faixaAtiva === faixa.id &&
+              curvaAtiva === curva;
             const outroSelecionado = Boolean(filialAtiva) && !selecionado;
 
             return (
@@ -137,7 +145,9 @@ export function GraficoFaixas({
                 onMouseMove={(e) =>
                   setDica({
                     chave,
-                    titulo: destaque ? "Visão Cia (todos os CDs)" : `CD ${rotulo}`,
+                    titulo: destaque
+                      ? "Visão Cia (todos os CDs)"
+                      : `CD ${rotulo}`,
                     faixa: faixa.rotulo,
                     detalhe: `${inteiro(itens)} ${destaque ? "posições" : "itens"} · ${(fracao * 100).toFixed(1)}%`,
                     x: e.clientX,
@@ -152,7 +162,9 @@ export function GraficoFaixas({
                   minHeight: `${ALTURA_MINIMA_PX}px`,
                   background: `var(--faixa-${faixa.id})`,
                   opacity: outroSelecionado ? 0.35 : 1,
-                  outline: selecionado ? "2px solid var(--brand-petrol)" : undefined,
+                  outline: selecionado
+                    ? "2px solid var(--brand-petrol)"
+                    : undefined,
                   outlineOffset: "-2px",
                   filter: hover === chave ? "brightness(1.15)" : undefined,
                 }}
@@ -176,7 +188,9 @@ export function GraficoFaixas({
 
         <span
           className={`font-mono text-xs ${
-            destaque ? "font-semibold text-(--brand-turquoise)" : "text-muted-foreground"
+            destaque
+              ? "font-semibold text-(--brand-turquoise)"
+              : "text-muted-foreground"
           }`}
         >
           {rotulo}
@@ -203,7 +217,12 @@ export function GraficoFaixas({
             })}
           </div>
           {cds.map((cd) =>
-            coluna({ chaveCd: cd.filial, rotulo: cd.filial, mapa: cd.mapa, total: cd.total })
+            coluna({
+              chaveCd: cd.filial,
+              rotulo: cd.filial,
+              mapa: cd.mapa,
+              total: cd.total,
+            }),
           )}
         </div>
       </div>
@@ -223,7 +242,8 @@ function Tooltip({ dica }: { dica: Dica }) {
   // Perto da borda direita o tooltip vira para a esquerda do cursor.
   const larguraEstimada = 200;
   const viraEsquerda =
-    typeof window !== "undefined" && dica.x + larguraEstimada + 24 > window.innerWidth;
+    typeof window !== "undefined" &&
+    dica.x + larguraEstimada + 24 > window.innerWidth;
 
   return (
     <div
