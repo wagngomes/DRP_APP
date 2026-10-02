@@ -68,7 +68,9 @@ export function SeletorPapel({
               onClick={() => escolher(p)}
               disabled={bloqueado || pendente}
               title={
-                bloqueado ? "Você não pode remover o próprio acesso de administrador" : undefined
+                bloqueado
+                  ? "Você não pode remover o próprio acesso de administrador"
+                  : undefined
               }
               aria-pressed={ativo}
               className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -77,7 +79,11 @@ export function SeletorPapel({
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {ativo ? <Check className="size-3.5" strokeWidth={3} /> : <Icone className="size-3.5" />}
+              {ativo ? (
+                <Check className="size-3.5" strokeWidth={3} />
+              ) : (
+                <Icone className="size-3.5" />
+              )}
               {ROTULO_PAPEL[p]}
             </button>
           );

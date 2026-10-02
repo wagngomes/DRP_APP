@@ -19,15 +19,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { SeletorPapel } from "@/components/usuarios/seletor-papel";
 import { prisma } from "@/lib/prisma";
 import {
   DESCRICAO_PAPEL,
@@ -37,6 +28,8 @@ import {
   type Papel,
 } from "@/lib/autorizacao";
 import { dominiosPermitidos } from "@/utils/email-permitido";
+import { carregarAcessos } from "@/lib/usuarios/acessos";
+import { CartaoUsuario } from "@/components/usuarios/cartao-usuario";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +81,10 @@ export default async function Usuarios({
       take: POR_PAGINA,
     }),
   ]);
+
+  // Os acessos vêm depois dos usuários porque dependem dos ids da página — e
+  // numa consulta só para todos eles, não uma por cartão.
+  const acessos = await carregarAcessos(usuarios.map((u) => u.id));
 
   const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   const href = (p: number) => {
@@ -185,60 +182,28 @@ export default async function Usuarios({
               </Button>
             </form>
 
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>E-mail</TableHead>
-                    <TableHead>Desde</TableHead>
-                    <TableHead>Papel</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {usuarios.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={4}
-                        className="text-center text-muted-foreground"
-                      >
-                        {busca
-                          ? `Nenhuma conta encontrada para "${busca}".`
-                          : "Nenhuma conta cadastrada."}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    usuarios.map((u) => {
-                      const ehVoce = u.id === sessao.usuario.id;
-                      return (
-                        <TableRow key={u.id}>
-                          <TableCell className="font-medium">
-                            {u.name}
-                            {ehVoce ? (
-                              <span className="ml-2 text-xs font-normal text-muted-foreground">
-                                você
-                              </span>
-                            ) : null}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {u.email}
-                          </TableCell>
-                          <TableCell className="font-mono text-sm tabular-nums text-muted-foreground">
-                            {u.createdAt.toLocaleDateString("pt-BR")}
-                          </TableCell>
-                          <TableCell>
-                            <SeletorPapel
-                              id={u.id}
-                              papel={lerPapel(u.role)}
-                              ehVoce={ehVoce}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
+            {/* Cartões, não linhas de tabela: cada conta abre e mostra o
+                histórico de acesso, e isso não cabe numa coluna. O último
+                acesso fica visível fechado, porque é o que se quer saber na
+                maioria das vezes. */}
+            <div className="grid gap-2">
+              {usuarios.length === 0 ? (
+                <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                  {busca
+                    ? `Nenhuma conta encontrada para "${busca}".`
+                    : "Nenhuma conta cadastrada."}
+                </p>
+              ) : (
+                usuarios.map((u) => (
+                  <CartaoUsuario
+                    key={u.id}
+                    usuario={u}
+                    papel={lerPapel(u.role)}
+                    acessos={acessos.get(u.id) ?? []}
+                    ehVoce={u.id === sessao.usuario.id}
+                  />
+                ))
+              )}
             </div>
 
             {paginas > 1 ? (
