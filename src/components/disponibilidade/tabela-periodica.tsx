@@ -4,8 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { ShoppingCart, Truck } from "lucide-react";
 
-import type { CelulaTabela, DadosTabela } from "@/lib/disponibilidade/tabela";
+import {
+  CIA,
+  type CelulaTabela,
+  type DadosTabela,
+} from "@/lib/disponibilidade/tabela";
 import type { Reposicao } from "@/lib/fornecedores/agregacao";
+import { COLUNAS_ESTOQUE_CHAO, ROTULO_ARMAZEM } from "@/utils/dias-estoque";
 
 /**
  * A grade item × CD, no formato de tabela periódica.
@@ -61,6 +66,9 @@ function Detalhe({
   chegadas: Reposicao[];
 }) {
   const aCaminho = chegadas.reduce((a, r) => a + r.quantidade, 0);
+  const armazens = COLUNAS_ESTOQUE_CHAO.map(
+    (coluna) => [coluna, c.porArmazem[coluna] ?? 0] as const,
+  ).filter(([, valor]) => valor > 0);
 
   return (
     <div className="w-80 space-y-2.5 text-left">
@@ -70,15 +78,28 @@ function Detalhe({
       </div>
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-        <Campo rotulo="Estoque chão" valor={num(c.estoqueChao)} />
-        <Campo rotulo="Estoque total" valor={num(c.estoqueTotal)} />
+        <Campo
+          rotulo="Estoque chão"
+          valor={num(c.estoqueChao)}
+          tom={TOM.estoque}
+          destaque
+        />
+        <Campo
+          rotulo="Estoque total"
+          valor={num(c.estoqueTotal)}
+          tom={TOM.estoque}
+        />
         <Campo
           rotulo="Cobertura chão"
           valor={`${dias(c.diasChao)} dias`}
           destaque
         />
         <Campo rotulo="Cobertura total" valor={`${dias(c.diasTotal)} dias`} />
-        <Campo rotulo="Forecast do mês" valor={num(c.forecast)} />
+        <Campo
+          rotulo="Forecast do mês"
+          valor={num(c.forecast)}
+          tom={TOM.previsao}
+        />
         <Campo
           rotulo="Vendido no mês"
           valor={`${num(c.vendido)}${
@@ -86,8 +107,32 @@ function Detalhe({
               ? ""
               : ` · ${Math.round(c.percentualVendido * 100)}%`
           }`}
+          tom={TOM.previsao}
         />
       </div>
+
+      {/* O chão aberto por armazém, como no card da tela de produto. O total
+          esconde a composição: trinta mil em Q40 e trinta mil em 01 cobrem os
+          mesmos dias e são situações diferentes — uma está disponível, a outra
+          em quarentena. Armazém zerado não aparece. */}
+      {armazens.length > 0 ? (
+        <div className="border-t pt-2">
+          <p className="mb-1 text-[10px] text-muted-foreground">
+            Chão por armazém
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {armazens.map(([coluna, valor]) => (
+              <span
+                key={coluna}
+                className={`rounded bg-(--brand-turquoise)/10 px-1.5 py-0.5 font-mono text-[11px] tabular-nums ${TOM.estoque}`}
+              >
+                <span className="opacity-60">{ROTULO_ARMAZEM[coluna]}</span>{" "}
+                {num(valor)}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* O que vem chegando, com o percurso. É a diferença entre "está baixo" e
           "está baixo e ninguém mandou nada". */}
@@ -113,7 +158,11 @@ function Detalhe({
                   <Truck className="mt-0.5 size-3 shrink-0 text-teal-600" />
                 )}
                 <span className="min-w-0">
-                  <span className="font-mono tabular-nums">
+                  <span
+                    className={`font-mono font-medium tabular-nums ${
+                      r.origem === "compra" ? TOM.compra : TOM.transferencia
+                    }`}
+                  >
                     {num(r.quantidade)}
                   </span>
                   <span className="text-muted-foreground">{` · ${dataBr(r.chegada)}`}</span>
@@ -152,20 +201,37 @@ function Detalhe({
   );
 }
 
+/**
+ * Cores por natureza do número, e não por status.
+ *
+ * As mesmas do resto do sistema: turquesa é o que está parado no CD, âmbar é
+ * previsão e compra, teal é transferência em curso. Quem vem da tela de
+ * triangulações já conhece as duas últimas, e não precisa reaprender aqui.
+ */
+const TOM = {
+  estoque: "text-(--brand-petrol) dark:text-(--brand-turquoise)",
+  previsao: "text-amber-700 dark:text-amber-400",
+  transferencia: "text-teal-700 dark:text-teal-300",
+  compra: "text-amber-700 dark:text-amber-400",
+} as const;
+
 function Campo({
   rotulo,
   valor,
   destaque,
+  tom,
 }: {
   rotulo: string;
   valor: string;
   destaque?: boolean;
+  /** Classe de cor pela natureza do número — estoque, previsão, reposição. */
+  tom?: string;
 }) {
   return (
     <span>
       <span className="block text-[10px] text-muted-foreground">{rotulo}</span>
       <span
-        className={`font-mono tabular-nums ${destaque ? "font-semibold" : ""}`}
+        className={`font-mono tabular-nums ${destaque ? "font-semibold" : ""} ${tom ?? ""}`}
       >
         {valor}
       </span>
@@ -186,6 +252,10 @@ export function TabelaPeriodica({
   const [ativa, setAtiva] = useState<string | null>(null);
   const sigla = (codigo: string) => rotulos[codigo] ?? codigo;
 
+  // A companhia primeiro: é a leitura que responde "o item está coberto?" antes
+  // de "onde está o problema". Mesma ordem da tela de produto.
+  const colunas = [CIA, ...dados.filiais];
+
   if (dados.linhas.length === 0) {
     return (
       <p className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">
@@ -204,12 +274,16 @@ export function TabelaPeriodica({
             <th className="sticky left-0 z-20 bg-card px-2 text-left text-xs font-medium text-muted-foreground">
               Produto
             </th>
-            {dados.filiais.map((f) => (
+            {colunas.map((f) => (
               <th
                 key={f}
-                className="px-1 pb-1 text-center font-mono text-xs font-semibold whitespace-nowrap"
+                className={`px-1 pb-1 text-center font-mono text-xs font-semibold whitespace-nowrap ${
+                  f === CIA
+                    ? "text-(--brand-petrol) dark:text-(--brand-turquoise)"
+                    : ""
+                }`}
               >
-                {sigla(f)}
+                {f === CIA ? "CIA" : sigla(f)}
               </th>
             ))}
           </tr>
@@ -226,9 +300,10 @@ export function TabelaPeriodica({
                 </span>
               </th>
 
-              {dados.filiais.map((filial) => {
+              {colunas.map((filial) => {
                 const c = linha.celulas.get(filial);
                 const chave = `${linha.codigo}|${filial}`;
+                const ehCia = filial === CIA;
 
                 if (!c) {
                   // Sem forecast neste CD: o item não é planejado ali, e um
@@ -246,10 +321,20 @@ export function TabelaPeriodica({
                     <div
                       onMouseEnter={() => setAtiva(chave)}
                       onMouseLeave={() => setAtiva(null)}
-                      className="flex size-20 cursor-default flex-col justify-between rounded-md p-1.5 transition-transform hover:scale-105 hover:shadow-lg"
+                      className={`flex size-20 cursor-default flex-col justify-between rounded-md p-1.5 transition-all hover:z-10 hover:-translate-y-0.5 ${
+                        ehCia ? "ring-2 ring-(--brand-petrol)/30" : ""
+                      }`}
                       style={{
                         backgroundColor: `var(--faixa-${c.faixa})`,
                         color: `var(--faixa-${c.faixa}-ink)`,
+                        // Relevo de cubo, em três camadas: luz no topo, sombra
+                        // na base e uma sombra projetada curta. Tudo em branco e
+                        // preto translúcidos, para funcionar sobre as seis cores
+                        // das faixas sem precisar de uma variante por cor.
+                        boxShadow:
+                          "inset 0 1px 0 rgba(255,255,255,0.35), " +
+                          "inset 0 -2px 3px rgba(0,0,0,0.18), " +
+                          "0 1px 2px rgba(0,0,0,0.18)",
                       }}
                     >
                       {/* Canto superior, no lugar do número atômico: cobertura

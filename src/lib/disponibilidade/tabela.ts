@@ -6,11 +6,12 @@ import {
   COLUNAS_ESTOQUE_TOTAL,
   COLUNAS_VENDIDO_M0,
   DIAS_NO_MES,
+  faixaDe,
   faixaSql,
   snapshotMensalSql,
   somaSql,
   torreValidaSql,
-  type Faixa,
+  type FaixaId,
 } from "@/utils/dias-estoque";
 
 /**
@@ -48,8 +49,19 @@ export type CelulaTabela = {
   /** Quanto do forecast do mês já saiu; `null` quando não há forecast. */
   percentualVendido: number | null;
   /** Faixa de cobertura — é ela que dá a cor da célula. */
-  faixa: Faixa;
+  faixa: FaixaId;
+  /**
+   * O estoque de chão aberto por armazém.
+   *
+   * Vem junto porque o total esconde a composição: 30 mil unidades em Q40 e 30
+   * mil em 01 cobrem os mesmos dias e são situações diferentes — uma está
+   * disponível, a outra em quarentena.
+   */
+  porArmazem: Record<string, number>;
 };
+
+/** Coluna sintética da visão Cia: a soma de todos os CDs. */
+export const CIA = "CIA";
 
 export type LinhaTabela = {
   codigo: string;
@@ -83,7 +95,7 @@ export async function carregarTabela(
   if (!fornecedor) return { linhas: [], filiais: [], fornecedores };
 
   const linhas = await prisma.$queryRawUnsafe<
-    {
+    ({
       codigo: string;
       descricao: string | null;
       filial: string;
@@ -93,8 +105,8 @@ export async function carregarTabela(
       vendido: number;
       dias_chao: number;
       dias_total: number;
-      faixa: Faixa;
-    }[]
+      faixa: FaixaId;
+    } & Record<string, number>)[]
   >(
     // O fornecedor sai de um CTE, resolvido uma vez por item, e não de
     // subconsulta correlacionada por linha. A versão correlacionada levava 23
@@ -115,7 +127,10 @@ export async function carregarTabela(
             COALESCE(${VENDIDO}, 0)::float8    AS vendido,
             ${DIAS_CHAO}::float8               AS dias_chao,
             (COALESCE(${EST_TOTAL},0) / ${POR_DIA})::float8 AS dias_total,
-            ${faixaSql(DIAS_CHAO)}             AS faixa
+            ${faixaSql(DIAS_CHAO)}             AS faixa,
+            ${COLUNAS_ESTOQUE_CHAO.map(
+              (c) => `COALESCE(s."${c}", 0)::float8 AS "${c}"`,
+            ).join(", ")}
        FROM forecast f
        LEFT JOIN ${simuladorPorCd("s.data_snapshot = $1::date")} s
          ON s.codigo = f.codigo AND s.filial = f.filial AND s.data_snapshot = $1::date
@@ -144,6 +159,9 @@ export async function carregarTabela(
       forecastTotal: 0,
     };
     item.forecastTotal += l.forecast;
+    const porArmazem: Record<string, number> = {};
+    for (const c of COLUNAS_ESTOQUE_CHAO) porArmazem[c] = Number(l[c] ?? 0);
+
     item.celulas.set(l.filial, {
       codigo: l.codigo,
       filial: l.filial,
@@ -155,8 +173,20 @@ export async function carregarTabela(
       diasTotal: l.dias_total,
       percentualVendido: l.forecast > 0 ? l.vendido / l.forecast : null,
       faixa: l.faixa,
+      porArmazem,
     });
     porItem.set(l.codigo, item);
+  }
+
+  // A coluna Cia é somada aqui, e não no SQL, para somar exatamente as mesmas
+  // células que a grade mostra — um GROUP BY paralelo acabaria divergindo no dia
+  // em que um filtro novo entrasse só num dos dois caminhos.
+  //
+  // Os dias da Cia saem da divisão dos totais, nunca da média dos CDs: um CD com
+  // 2 dias e outro com 200 não fazem 101 dias de cobertura da companhia.
+  for (const item of porItem.values()) {
+    const cia = somarCelulas([...item.celulas.values()]);
+    if (cia) item.celulas.set(CIA, cia);
   }
 
   return {
@@ -180,4 +210,38 @@ async function listarLaboratorios(data: string): Promise<string[]> {
     data,
   );
   return linhas.map((l) => l.fornecedor);
+}
+
+/** Soma as posições de um item em uma célula só, a visão da companhia. */
+function somarCelulas(celulas: CelulaTabela[]): CelulaTabela | null {
+  if (celulas.length === 0) return null;
+
+  const porArmazem: Record<string, number> = {};
+  for (const c of COLUNAS_ESTOQUE_CHAO) {
+    porArmazem[c] = celulas.reduce((a, x) => a + (x.porArmazem[c] ?? 0), 0);
+  }
+
+  const estoqueChao = celulas.reduce((a, c) => a + c.estoqueChao, 0);
+  const estoqueTotal = celulas.reduce((a, c) => a + c.estoqueTotal, 0);
+  const forecast = celulas.reduce((a, c) => a + c.forecast, 0);
+  const vendido = celulas.reduce((a, c) => a + c.vendido, 0);
+  const porDia = forecast / DIAS_NO_MES;
+
+  const diasChao = porDia > 0 ? estoqueChao / porDia : 0;
+
+  return {
+    codigo: celulas[0].codigo,
+    filial: CIA,
+    estoqueChao,
+    estoqueTotal,
+    forecast,
+    vendido,
+    diasChao,
+    diasTotal: porDia > 0 ? estoqueTotal / porDia : 0,
+    percentualVendido: forecast > 0 ? vendido / forecast : null,
+    // `faixaDe` devolve nulo só para dias nulo ou NaN, e aqui o número é
+    // sempre finito — mas o fallback evita um `!` que esconderia a hipótese.
+    faixa: faixaDe(diasChao) ?? "zero",
+    porArmazem,
+  };
 }
