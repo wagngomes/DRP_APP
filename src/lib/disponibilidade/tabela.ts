@@ -6,6 +6,7 @@ import {
   COLUNAS_ESTOQUE_TOTAL,
   COLUNAS_VENDIDO_M0,
   DIAS_NO_MES,
+  COLUNA_CIA,
   faixaDe,
   faixaSql,
   snapshotMensalSql,
@@ -59,9 +60,6 @@ export type CelulaTabela = {
    */
   porArmazem: Record<string, number>;
 };
-
-/** Coluna sintética da visão Cia: a soma de todos os CDs. */
-export const CIA = "CIA";
 
 export type LinhaTabela = {
   codigo: string;
@@ -186,7 +184,7 @@ export async function carregarTabela(
   // 2 dias e outro com 200 não fazem 101 dias de cobertura da companhia.
   for (const item of porItem.values()) {
     const cia = somarCelulas([...item.celulas.values()]);
-    if (cia) item.celulas.set(CIA, cia);
+    if (cia) item.celulas.set(COLUNA_CIA, cia);
   }
 
   return {
@@ -231,7 +229,7 @@ function somarCelulas(celulas: CelulaTabela[]): CelulaTabela | null {
 
   return {
     codigo: celulas[0].codigo,
-    filial: CIA,
+    filial: COLUNA_CIA,
     estoqueChao,
     estoqueTotal,
     forecast,

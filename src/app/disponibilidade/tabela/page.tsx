@@ -3,8 +3,8 @@ import { Grid3x3 } from "lucide-react";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { TabelaPeriodica } from "@/components/disponibilidade/tabela-periodica";
 import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
-import { FAIXAS } from "@/utils/dias-estoque";
-import { carregarTabela, CIA } from "@/lib/disponibilidade/tabela";
+import { COLUNA_CIA, FAIXAS } from "@/utils/dias-estoque";
+import { carregarTabela } from "@/lib/disponibilidade/tabela";
 import { carregarChegadas, chaveChegada } from "@/lib/reposicoes/chegadas";
 import type { Reposicao } from "@/lib/fornecedores/agregacao";
 import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
@@ -62,7 +62,7 @@ export default async function TabelaDisponibilidade({
     for (const linha of dados.linhas) {
       const doItem: Reposicao[] = [];
       for (const filial of linha.celulas.keys()) {
-        if (filial === CIA) continue;
+        if (filial === COLUNA_CIA) continue;
         const r = mapaChegadas.get(chaveChegada(linha.codigo, filial));
         if (r && r.length > 0) {
           chegadas[`${linha.codigo}|${filial}`] = r;
@@ -73,7 +73,7 @@ export default async function TabelaDisponibilidade({
       // resposta a "quando o item volta a ter estoque", sem o leitor abrir cinco
       // células para montar a linha do tempo de cabeça.
       if (doItem.length > 0) {
-        chegadas[`${linha.codigo}|${CIA}`] = doItem.sort(
+        chegadas[`${linha.codigo}|${COLUNA_CIA}`] = doItem.sort(
           (a, b) => a.chegada.getTime() - b.chegada.getTime(),
         );
       }
@@ -83,7 +83,7 @@ export default async function TabelaDisponibilidade({
   // A Cia é coluna derivada: contá-la como posição inflaria o número que a tela
   // anuncia, e ninguém carregou nada a mais por causa dela.
   const posicoes = dados.linhas.reduce(
-    (a, l) => a + [...l.celulas.keys()].filter((f) => f !== CIA).length,
+    (a, l) => a + [...l.celulas.keys()].filter((f) => f !== COLUNA_CIA).length,
     0,
   );
 

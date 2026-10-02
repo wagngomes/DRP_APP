@@ -4,13 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { ShoppingCart, Truck } from "lucide-react";
 
-import {
-  CIA,
-  type CelulaTabela,
-  type DadosTabela,
-} from "@/lib/disponibilidade/tabela";
+import type { CelulaTabela, DadosTabela } from "@/lib/disponibilidade/tabela";
 import type { Reposicao } from "@/lib/fornecedores/agregacao";
-import { COLUNAS_ESTOQUE_CHAO, ROTULO_ARMAZEM } from "@/utils/dias-estoque";
+import {
+  COLUNA_CIA,
+  COLUNAS_ESTOQUE_CHAO,
+  ROTULO_ARMAZEM,
+} from "@/utils/dias-estoque";
 
 /**
  * A grade item × CD, no formato de tabela periódica.
@@ -254,7 +254,7 @@ export function TabelaPeriodica({
 
   // A companhia primeiro: é a leitura que responde "o item está coberto?" antes
   // de "onde está o problema". Mesma ordem da tela de produto.
-  const colunas = [CIA, ...dados.filiais];
+  const colunas = [COLUNA_CIA, ...dados.filiais];
 
   if (dados.linhas.length === 0) {
     return (
@@ -278,12 +278,12 @@ export function TabelaPeriodica({
               <th
                 key={f}
                 className={`px-1 pb-1 text-center font-mono text-xs font-semibold whitespace-nowrap ${
-                  f === CIA
+                  f === COLUNA_CIA
                     ? "text-(--brand-petrol) dark:text-(--brand-turquoise)"
                     : ""
                 }`}
               >
-                {f === CIA ? "CIA" : sigla(f)}
+                {f === COLUNA_CIA ? "COLUNA_CIA" : sigla(f)}
               </th>
             ))}
           </tr>
@@ -303,7 +303,7 @@ export function TabelaPeriodica({
               {colunas.map((filial) => {
                 const c = linha.celulas.get(filial);
                 const chave = `${linha.codigo}|${filial}`;
-                const ehCia = filial === CIA;
+                const ehCia = filial === COLUNA_CIA;
 
                 if (!c) {
                   // Sem forecast neste CD: o item não é planejado ali, e um

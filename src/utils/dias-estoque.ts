@@ -20,7 +20,10 @@ export const COLUNAS_ESTOQUE_CHAO = [
  * Rótulo curto de cada armazém do estoque chão, para a abertura caber no card
  * sem repetir o prefixo "est_arm_" em todas as colunas.
  */
-export const ROTULO_ARMAZEM: Record<(typeof COLUNAS_ESTOQUE_CHAO)[number], string> = {
+export const ROTULO_ARMAZEM: Record<
+  (typeof COLUNAS_ESTOQUE_CHAO)[number],
+  string
+> = {
   est_arm_01: "01",
   est_arm_11: "11",
   est_arm_26: "26",
@@ -86,7 +89,7 @@ export function torreValidaSql(alias = "f"): string {
 export function snapshotMensalSql(
   tabela: string,
   alias: string,
-  paramData: string
+  paramData: string,
 ): string {
   return `${alias}.data_snapshot = (
       SELECT MAX(_m.data_snapshot) FROM ${tabela} _m
@@ -105,12 +108,26 @@ export const DIAS_NO_MES = 30;
  * cobertura é indefinida, não infinita — e a página só considera itens com
  * `forecast_m0 > 0`, então esse caso não deveria aparecer.
  */
-export function diasDeEstoque(estoque: number, forecastMensal: number): number | null {
+export function diasDeEstoque(
+  estoque: number,
+  forecastMensal: number,
+): number | null {
   if (!forecastMensal || forecastMensal <= 0) return null;
   return estoque / (forecastMensal / DIAS_NO_MES);
 }
 
-export type FaixaId = "zero" | "critico" | "baixo" | "adequado" | "alto" | "excesso";
+/**
+ * Coluna sintética da visão da companhia, na tabela de cobertura.
+ *
+ * Mora aqui, e não no módulo de consulta, porque o componente de tela precisa
+ * dela — e importar um valor do módulo de consulta arrastaria o Prisma inteiro
+ * para o pacote do navegador. O teste de fronteira cliente/servidor pegou
+ * exatamente isso.
+ */
+export const COLUNA_CIA = "CIA";
+
+export type FaixaId =
+  "zero" | "critico" | "baixo" | "adequado" | "alto" | "excesso";
 
 export type Faixa = {
   id: FaixaId;
