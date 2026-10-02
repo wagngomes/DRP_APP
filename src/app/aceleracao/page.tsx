@@ -1,9 +1,15 @@
 import Link from "next/link";
-import { Flame, TrendingUp, Users, X } from "lucide-react";
+import { CalendarOff, Flame, TrendingUp, Users, X } from "lucide-react";
 
 import { exigirSessao } from "@/lib/autorizacao";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,17 +28,41 @@ import {
   carregarAceleracao,
   carregarDetalheItem,
   carregarJanela,
+  listarMesesAceleracao,
   DIAS_RISCO,
   type FiltrosAceleracao,
 } from "@/lib/aceleracao/consultas";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { VAZIO } from "@/lib/fornecedores/agregacao";
 import { dataBr, inteiro } from "@/lib/visao-geral/formato";
+
+const NOMES_MES = [
+  "jan",
+  "fev",
+  "mar",
+  "abr",
+  "mai",
+  "jun",
+  "jul",
+  "ago",
+  "set",
+  "out",
+  "nov",
+  "dez",
+];
+
+/** "2026-09" -> "set/26". */
+function mesBr(iso: string): string {
+  const [ano, mes] = iso.split("-");
+  return `${NOMES_MES[Number(mes) - 1]}/${ano.slice(2)}`;
+}
 import { faixaDe } from "@/utils/dias-estoque";
 
 export const dynamic = "force-dynamic";
 
 type SearchParams = {
+  /** Competência escolhida no seletor; ausente usa a data de referência. */
+  mes?: string | string[];
   bu?: string | string[];
   curva?: string | string[];
   fornecedor?: string | string[];
@@ -52,7 +82,9 @@ function num(v: number): string {
 }
 
 function umaCasa(v: number | null): string {
-  return v === null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  return v === null
+    ? "—"
+    : v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 }
 
 /**
@@ -61,7 +93,11 @@ function umaCasa(v: number | null): string {
  */
 function estiloDias(dias: number | null): React.CSSProperties {
   const id = faixaDe(dias);
-  if (!id) return { backgroundColor: "var(--muted)", color: "var(--muted-foreground)" };
+  if (!id)
+    return {
+      backgroundColor: "var(--muted)",
+      color: "var(--muted-foreground)",
+    };
   return {
     backgroundColor: `var(--faixa-${id})`,
     color: `var(--faixa-${id}-ink)`,
@@ -87,29 +123,54 @@ export default async function Aceleracao({
   const fornecedor = primeiro(params.fornecedor);
   const produto = primeiro(params.produto);
   const focoParam = primeiro(params.foco);
-  const foco = (FOCOS.some((f) => f.id === focoParam) ? focoParam : "todos") as
-    NonNullable<FiltrosAceleracao["foco"]>;
+  const foco = (
+    FOCOS.some((f) => f.id === focoParam) ? focoParam : "todos"
+  ) as NonNullable<FiltrosAceleracao["foco"]>;
   const item = primeiro(params.item);
   const pagPedida = Number(primeiro(params.pag) ?? 1) || 1;
 
-  const dataReferencia = await lerDataReferencia();
+  const [dataSistema, meses] = await Promise.all([
+    lerDataReferencia(),
+    listarMesesAceleracao(),
+  ]);
+
+  /**
+   * Mês escolhido no seletor, ou o da data de referência do sistema.
+   *
+   * Mês fechado usa o **último snapshot do simulador** dentro dele, e não o
+   * último dia do calendário: o vendido sai de `data_snapshot = $1`, casamento
+   * exato. Apontar para 30 de setembro quando a última carga foi dia 11 daria
+   * tela vazia.
+   */
+  const mesPedido = primeiro(params.mes);
+  const escolhido = meses.find((m) => m.mes === mesPedido);
+  const dataReferencia = escolhido?.data ?? dataSistema;
+
   // A janela é lida uma vez e compartilhada: as duas consultas dependiam dela e
   // cada uma a relia, em sequência. Com ela pronta, as duas correm juntas.
-  const janela = await carregarJanela();
+  const janela = await carregarJanela(dataReferencia);
   const [dados, detalhe] = await Promise.all([
-    carregarAceleracao(dataReferencia, { bu, curva, fornecedor, produto, foco }, janela),
-    item ? carregarDetalheItem(item, janela) : null,
+    carregarAceleracao(
+      dataReferencia,
+      { bu, curva, fornecedor, produto, foco },
+      janela,
+    ),
+    item ? carregarDetalheItem(item, dataReferencia, janela) : null,
   ]);
 
   const paginas = Math.max(1, Math.ceil(dados.itens.length / POR_PAGINA));
   const pagina = Math.min(Math.max(1, pagPedida), paginas);
-  const visiveis = dados.itens.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA);
+  const visiveis = dados.itens.slice(
+    (pagina - 1) * POR_PAGINA,
+    pagina * POR_PAGINA,
+  );
 
   const selecionado = dados.itens.find((i) => i.codigo === item);
 
   /** Preserva o recorte ao trocar um filtro; qualquer troca volta à página 1. */
   const href = (extra: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
+    if (escolhido) p.set("mes", escolhido.mes);
     if (bu) p.set("bu", bu);
     if (curva) p.set("curva", curva);
     if (fornecedor) p.set("fornecedor", fornecedor);
@@ -123,7 +184,6 @@ export default async function Aceleracao({
     const qs = p.toString();
     return qs ? `/aceleracao?${qs}` : "/aceleracao";
   };
-
 
   /** Filtros atuais em texto, para o gráfico montar os links no cliente. */
   const filtrosQuery = (() => {
@@ -148,7 +208,8 @@ export default async function Aceleracao({
               Aceleração de vendas
             </h1>
             <p className="text-muted-foreground">
-              Itens vendendo acima do plano na visão Cia, e os clientes que puxaram.
+              Itens vendendo acima do plano na visão Cia, e os clientes que
+              puxaram.
             </p>
           </div>
           <Badge variant="secondary" className="text-sm">
@@ -159,15 +220,25 @@ export default async function Aceleracao({
         <Card>
           <CardContent className="grid gap-4 pt-6">
             {/* Formulário GET: a busca vira URL e o recorte inteiro cabe num link. */}
-            <form action="/aceleracao" className="flex flex-wrap items-end gap-2">
+            <form
+              action="/aceleracao"
+              className="flex flex-wrap items-end gap-2"
+            >
               {bu ? <input type="hidden" name="bu" value={bu} /> : null}
-              {curva ? <input type="hidden" name="curva" value={curva} /> : null}
+              {curva ? (
+                <input type="hidden" name="curva" value={curva} />
+              ) : null}
               {fornecedor ? (
                 <input type="hidden" name="fornecedor" value={fornecedor} />
               ) : null}
-              {foco !== "todos" ? <input type="hidden" name="foco" value={foco} /> : null}
+              {foco !== "todos" ? (
+                <input type="hidden" name="foco" value={foco} />
+              ) : null}
               <div className="space-y-1.5">
-                <label htmlFor="produto" className="text-xs text-muted-foreground">
+                <label
+                  htmlFor="produto"
+                  className="text-xs text-muted-foreground"
+                >
                   Produto
                 </label>
                 <Input
@@ -184,7 +255,9 @@ export default async function Aceleracao({
               {produto ? (
                 <Button
                   variant="ghost"
-                  render={<Link href={href({ produto: undefined, pag: undefined })} />}
+                  render={
+                    <Link href={href({ produto: undefined, pag: undefined })} />
+                  }
                 >
                   Limpar
                 </Button>
@@ -193,7 +266,11 @@ export default async function Aceleracao({
 
             <div className="flex flex-wrap items-center gap-1.5">
               {FOCOS.map((f) => (
-                <Chip key={f.id} href={href({ foco: f.id, pag: undefined })} ativo={foco === f.id}>
+                <Chip
+                  key={f.id}
+                  href={href({ foco: f.id, pag: undefined })}
+                  ativo={foco === f.id}
+                >
                   {`${f.rotulo} (${inteiro(dados.totaisFoco[f.id])})`}
                 </Chip>
               ))}
@@ -201,12 +278,21 @@ export default async function Aceleracao({
 
             {dados.curvas.length > 1 ? (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="mr-1 text-sm font-medium text-muted-foreground">Curva</span>
-                <Chip href={href({ curva: undefined, pag: undefined })} ativo={!curva}>
+                <span className="mr-1 text-sm font-medium text-muted-foreground">
+                  Curva
+                </span>
+                <Chip
+                  href={href({ curva: undefined, pag: undefined })}
+                  ativo={!curva}
+                >
                   Todas
                 </Chip>
                 {dados.curvas.map((c) => (
-                  <Chip key={c} href={href({ curva: c, pag: undefined })} ativo={curva === c}>
+                  <Chip
+                    key={c}
+                    href={href({ curva: c, pag: undefined })}
+                    ativo={curva === c}
+                  >
                     {c === VAZIO ? "Sem curva" : c}
                   </Chip>
                 ))}
@@ -215,12 +301,21 @@ export default async function Aceleracao({
 
             {dados.bus.length > 1 ? (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="mr-1 text-sm font-medium text-muted-foreground">BU</span>
-                <Chip href={href({ bu: undefined, pag: undefined })} ativo={!bu}>
+                <span className="mr-1 text-sm font-medium text-muted-foreground">
+                  BU
+                </span>
+                <Chip
+                  href={href({ bu: undefined, pag: undefined })}
+                  ativo={!bu}
+                >
                   Todas
                 </Chip>
                 {dados.bus.map((b) => (
-                  <Chip key={b} href={href({ bu: b, pag: undefined })} ativo={bu === b}>
+                  <Chip
+                    key={b}
+                    href={href({ bu: b, pag: undefined })}
+                    ativo={bu === b}
+                  >
                     {b === VAZIO ? "Sem BU" : b}
                   </Chip>
                 ))}
@@ -266,18 +361,82 @@ export default async function Aceleracao({
           />
         </div>
 
-        <p className="text-xs text-muted-foreground">
-          {`Aceleração medida contra o forecast do mês, proporcional aos dias decorridos. Os clientes comparam os dias 1 a ${dados.diaCorte} de ${dados.mesCorrente} com os dias 1 a ${dados.diaCorte} de ${dados.mesesBaseline.join(", ") || "—"}.`}
-        </p>
+        {/* Competência. O mês da data de referência vem primeiro e sem
+            parâmetro na URL: é o caso comum, e deixá-lo limpo faz o link
+            compartilhado seguir a referência do sistema em vez de congelar um
+            mês. */}
+        {meses.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Competência:</span>
+            <Link
+              href={href({ mes: undefined, pag: undefined })}
+              scroll={false}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                escolhido
+                  ? "text-muted-foreground hover:bg-muted"
+                  : "bg-(--brand-petrol) text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)"
+              }`}
+            >
+              {`Atual · ${mesBr(dataSistema.slice(0, 7))}`}
+            </Link>
+            {meses
+              .filter((m) => m.mes !== dataSistema.slice(0, 7))
+              .map((m) => (
+                <Link
+                  key={m.mes}
+                  href={href({ mes: m.mes, pag: undefined })}
+                  scroll={false}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                    escolhido?.mes === m.mes
+                      ? "bg-(--brand-petrol) text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {mesBr(m.mes)}
+                </Link>
+              ))}
+            {escolhido ? (
+              <span className="text-xs text-muted-foreground">
+                {`posição de ${dataBr(escolhido.data)}`}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Mês de referência sem venda importada: a tela diz isso em vez de
+            mostrar zeros que parecem resultado. Antes a janela vinha do último
+            mês com dado, e em 2 de outubro ela exibia setembro inteiro como se
+            fosse o mês corrente — apontando aceleração de item que não teve
+            faturamento nenhum. */}
+        {/* Três motivos diferentes para a tela vir vazia, e cada um pede uma
+            ação diferente de quem lê. Sem isto, "nada acelerou" e "falta
+            forecast" produzem exatamente a mesma tela. */}
+        {dados.totalUniverso === 0 ? (
+          <Aviso titulo={`Sem forecast para ${dados.mesCorrente}`}>
+            A aceleração mede o vendido contra o forecast do mês. Sem a carga de
+            forecast não há contra o que comparar — importe a do mês na tela de
+            Importar CSV.
+          </Aviso>
+        ) : dados.diaCorte === 0 ? (
+          <Aviso titulo={`Sem venda registrada em ${dados.mesCorrente}`}>
+            Os clientes acelerados saem do histórico de vendas, e ele não tem
+            movimento neste mês. Importe o histórico, ou escolha outra
+            competência acima.
+          </Aviso>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {`Aceleração medida contra o forecast do mês, proporcional aos dias decorridos. Os clientes comparam os dias 1 a ${dados.diaCorte} de ${dados.mesCorrente} com os dias 1 a ${dados.diaCorte} de ${dados.mesesBaseline.join(", ") || "—"}.`}
+          </p>
+        )}
 
         <Card>
           <CardHeader>
             <CardTitle>Aceleração x cobertura</CardTitle>
             <CardDescription>
-              Cada bolha é um item. Quanto mais à direita, mais acima do plano está vendendo;
-              quanto mais abaixo, menos dias de estoque restam no ritmo real. A região
-              destacada é onde as duas coisas acontecem juntas. Clique numa bolha para abrir
-              o item.
+              Cada bolha é um item. Quanto mais à direita, mais acima do plano
+              está vendendo; quanto mais abaixo, menos dias de estoque restam no
+              ritmo real. A região destacada é onde as duas coisas acontecem
+              juntas. Clique numa bolha para abrir o item.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -320,7 +479,9 @@ export default async function Aceleracao({
                 <Button
                   variant="ghost"
                   size="sm"
-                  render={<Link href={href({ item: undefined })} scroll={false} />}
+                  render={
+                    <Link href={href({ item: undefined })} scroll={false} />
+                  }
                 >
                   <X className="size-4" />
                   Fechar
@@ -353,8 +514,9 @@ export default async function Aceleracao({
                   </p>
                 ) : detalhe.clientes.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    Nenhum cliente isolado explica esta aceleração — o aumento está diluído
-                    entre muitos, o que costuma indicar forecast defasado e não pedido pontual.
+                    Nenhum cliente isolado explica esta aceleração — o aumento
+                    está diluído entre muitos, o que costuma indicar forecast
+                    defasado e não pedido pontual.
                   </p>
                 ) : (
                   <div className="max-h-[15rem] overflow-auto rounded-md border">
@@ -362,16 +524,25 @@ export default async function Aceleracao({
                       <TableHeader className="sticky top-0 z-10 bg-card">
                         <TableRow>
                           <TableHead className="text-xs">Cliente</TableHead>
-                          <TableHead className="text-right text-xs">Mês</TableHead>
-                          <TableHead className="text-right text-xs">Padrão</TableHead>
-                          <TableHead className="text-right text-xs">Excedente</TableHead>
+                          <TableHead className="text-right text-xs">
+                            Mês
+                          </TableHead>
+                          <TableHead className="text-right text-xs">
+                            Padrão
+                          </TableHead>
+                          <TableHead className="text-right text-xs">
+                            Excedente
+                          </TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {detalhe.clientes.map((c) => (
                           <TableRow key={c.cnpj}>
                             <TableCell className="max-w-52 py-1.5">
-                              <span className="block truncate text-xs" title={c.cliente}>
+                              <span
+                                className="block truncate text-xs"
+                                title={c.cliente}
+                              >
                                 {c.cliente}
                               </span>
                               {c.grupo ? (
@@ -404,8 +575,8 @@ export default async function Aceleracao({
           <CardHeader>
             <CardTitle>{`${inteiro(dados.itens.length)} item(ns) neste recorte`}</CardTitle>
             <CardDescription>
-              Ordenado pelo excedente — as unidades que a aceleração acrescentou. Clique no
-              item para ver a curva do mês e os clientes.
+              Ordenado pelo excedente — as unidades que a aceleração
+              acrescentou. Clique no item para ver a curva do mês e os clientes.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -422,14 +593,21 @@ export default async function Aceleracao({
                     <TableHead className="text-right">Forecast</TableHead>
                     <TableHead className="text-center">Clientes</TableHead>
                     <TableHead className="text-right">Excedente</TableHead>
-                    <TableHead className="text-right whitespace-nowrap">Dias real</TableHead>
-                    <TableHead className="text-right whitespace-nowrap">Dias plano</TableHead>
+                    <TableHead className="text-right whitespace-nowrap">
+                      Dias real
+                    </TableHead>
+                    <TableHead className="text-right whitespace-nowrap">
+                      Dias plano
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {visiveis.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={11}
+                        className="py-8 text-center text-muted-foreground"
+                      >
                         Nenhum item neste recorte.
                       </TableCell>
                     </TableRow>
@@ -437,7 +615,9 @@ export default async function Aceleracao({
                     visiveis.map((i) => (
                       <TableRow
                         key={i.codigo}
-                        className={i.codigo === item ? "bg-muted/60" : undefined}
+                        className={
+                          i.codigo === item ? "bg-muted/60" : undefined
+                        }
                       >
                         <TableCell className="font-mono">
                           <Link
@@ -454,8 +634,12 @@ export default async function Aceleracao({
                         >
                           {i.descricao ?? "—"}
                         </TableCell>
-                        <TableCell className="max-w-36 truncate text-xs">{i.fornecedor}</TableCell>
-                        <TableCell className="text-center text-xs">{i.curva}</TableCell>
+                        <TableCell className="max-w-36 truncate text-xs">
+                          {i.fornecedor}
+                        </TableCell>
+                        <TableCell className="text-center text-xs">
+                          {i.curva}
+                        </TableCell>
                         <TableCell className="text-right font-mono font-semibold tabular-nums text-red-700 dark:text-red-400">
                           {i.indice.toFixed(2)}
                         </TableCell>
@@ -467,10 +651,14 @@ export default async function Aceleracao({
                         </TableCell>
                         <TableCell className="text-center">
                           {i.clientesFora === 0 ? (
-                            <span className="font-mono text-muted-foreground/40">0</span>
+                            <span className="font-mono text-muted-foreground/40">
+                              0
+                            </span>
                           ) : (
                             <Badge
-                              variant={i.clientesFora >= 2 ? "default" : "secondary"}
+                              variant={
+                                i.clientesFora >= 2 ? "default" : "secondary"
+                              }
                               className="font-mono"
                             >
                               {i.clientesFora}
@@ -507,7 +695,12 @@ export default async function Aceleracao({
                   variant="outline"
                   size="sm"
                   disabled={pagina <= 1}
-                  render={<Link href={href({ pag: String(pagina - 1) })} scroll={false} />}
+                  render={
+                    <Link
+                      href={href({ pag: String(pagina - 1) })}
+                      scroll={false}
+                    />
+                  }
                 >
                   Anterior
                 </Button>
@@ -515,7 +708,12 @@ export default async function Aceleracao({
                   variant="outline"
                   size="sm"
                   disabled={pagina >= paginas}
-                  render={<Link href={href({ pag: String(pagina + 1) })} scroll={false} />}
+                  render={
+                    <Link
+                      href={href({ pag: String(pagina + 1) })}
+                      scroll={false}
+                    />
+                  }
                 >
                   Próxima
                 </Button>
@@ -542,7 +740,9 @@ function Cartao({
   destaque?: boolean;
 }) {
   return (
-    <Card className={destaque ? "border-l-4 border-(--brand-turquoise)" : undefined}>
+    <Card
+      className={destaque ? "border-l-4 border-(--brand-turquoise)" : undefined}
+    >
       <CardContent className="pt-6">
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
           {icone}
@@ -576,5 +776,26 @@ function Chip({
     >
       {children}
     </Link>
+  );
+}
+
+/** Aviso de tela vazia, com o motivo e o que fazer a respeito. */
+function Aviso({
+  titulo,
+  children,
+}: {
+  titulo: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+      <CalendarOff className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+      <div className="text-sm">
+        <p className="font-medium text-amber-700 dark:text-amber-400">
+          {titulo}
+        </p>
+        <p className="text-muted-foreground">{children}</p>
+      </div>
+    </div>
   );
 }

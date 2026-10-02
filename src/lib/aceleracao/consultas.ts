@@ -22,6 +22,8 @@
  * Todas as somas invertem o sinal.
  */
 import { prisma } from "@/lib/prisma";
+import { listarSnapshots } from "@/lib/snapshots";
+import { limitesDoMes } from "@/utils/mes";
 import { gruposPorCnpj } from "@/lib/clientes-grupos";
 import { joinFornecedor, nomeFornecedor } from "@/lib/fornecedor";
 import { VAZIO } from "@/lib/fornecedores/agregacao";
@@ -118,13 +120,26 @@ export type FiltrosAceleracao = {
 export const DIAS_RISCO = 20;
 
 /**
- * Janela de comparação: até que dia do mês corrente há venda registrada.
+ * Janela de comparação: no mês de referência, até que dia há venda registrada.
  *
- * Sai do último dia com dado, não da data de referência do sistema: se o
- * histórico foi carregado até dia 3 e a referência é dia 4, comparar 1..4 de
- * setembro contra 1..4 dos outros meses tiraria um dia inteiro só de setembro.
+ * Duas decisões, e a ordem entre elas importa.
+ *
+ * **O mês é o da data de referência**, não o último mês com dado. Antes era o
+ * último com dado, e isso quebrava na virada: em 2 de outubro, sem a venda de
+ * outubro importada, a tela mostrava setembro inteiro como se fosse o mês
+ * corrente — apontando aceleração de item que não teve faturamento nenhum no
+ * mês.
+ *
+ * **O dia de corte é o último com dado dentro desse mês**, não o dia de hoje. É
+ * a parte que já estava certa: se o histórico foi carregado até dia 3 e a
+ * referência é dia 4, comparar 1..4 contra 1..4 dos outros meses tiraria um dia
+ * inteiro só do mês corrente.
+ *
+ * Quando não há venda nenhuma no mês de referência, `diaCorte` é zero e a tela
+ * diz isso, em vez de mostrar os números do mês anterior.
  */
 export type Janela = {
+  /** Último dia do mês de referência com venda; zero quando não há nenhuma. */
   diaCorte: number;
   mesCorrente: string;
   mesesBaseline: string[];
@@ -144,22 +159,18 @@ export type Janela = {
  * `SELECT DISTINCT to_char(data,'YYYY-MM')`, que aplicava a função em cada uma
  * das 490 mil linhas e custava até 7 segundos — por request, duas vezes.
  */
-export async function carregarJanela(): Promise<Janela> {
-  const [linha] = await prisma.$queryRawUnsafe<{ dia: number; mes: string }[]>(
-    `SELECT extract(day FROM MAX(data))::int AS dia,
-            to_char(MAX(data), 'YYYY-MM') AS mes
-       FROM historico_vendas`,
-  );
+export async function carregarJanela(dataReferencia: string): Promise<Janela> {
+  const mesCorrente = dataReferencia.slice(0, 7);
+  const { inicio, fim } = limitesDoMes(dataReferencia);
 
-  const mesCorrente = linha?.mes ?? "";
-  if (!mesCorrente) {
-    return {
-      diaCorte: 0,
-      mesCorrente: "",
-      mesesBaseline: [],
-      inicioBaseline: "1970-01-01",
-    };
-  }
+  // Só o `MAX(data)` do mês vai ao banco, e ele usa índice.
+  const [linha] = await prisma.$queryRawUnsafe<{ dia: number | null }[]>(
+    `SELECT extract(day FROM MAX(data))::int AS dia
+       FROM historico_vendas
+      WHERE data >= $1::date AND data < $2::date`,
+    inicio,
+    fim,
+  );
 
   const [ano, mes] = mesCorrente.split("-").map(Number);
   const mesesBaseline = Array.from({ length: MESES_BASELINE }, (_, i) =>
@@ -168,8 +179,17 @@ export async function carregarJanela(): Promise<Janela> {
       .slice(0, 7),
   );
 
+  // O corte é o menor entre o último dia com dado e o dia da referência.
+  //
+  // Os dois limites existem por motivos diferentes: o dado porque comparar
+  // 1..4 contra 1..4 tiraria um dia inteiro só do mês corrente, e a referência
+  // porque olhar além dela seria ler o futuro — consultar o dia 10 e receber a
+  // venda até o dia 23 não é o estado daquele momento.
+  const diaDaReferencia = Number(dataReferencia.slice(8, 10));
+  const diaCorte = Math.min(linha?.dia ?? 0, diaDaReferencia);
+
   return {
-    diaCorte: linha?.dia ?? 0,
+    diaCorte,
     mesCorrente,
     mesesBaseline,
     inicioBaseline: `${mesesBaseline[0]}-01`,
@@ -225,7 +245,15 @@ export async function carregarAceleracao(
   /** Janela já calculada, para a tela não ler a mesma coisa duas vezes. */
   janelaPronta?: Janela,
 ): Promise<DadosAceleracao> {
-  const janela = janelaPronta ?? (await carregarJanela());
+  const janela = janelaPronta ?? (await carregarJanela(data));
+  // Do calendário, e não da janela: `vendido` sai das colunas `vendido_m0` do
+  // simulador, que são o acumulado do mês na data do snapshot — e o snapshot é
+  // exatamente a data de referência. A fração que corresponde a esse acumulado é
+  // a do mês decorrido naquela data.
+  //
+  // A janela é outra coisa: ela recorta o histórico de vendas para a análise de
+  // clientes, que compara os mesmos dias entre meses. As duas datas convivem de
+  // propósito, porque medem fontes diferentes.
   const fracao = fracaoDoMesDecorrida(data);
   const diasDecorridos = Math.max(1, fracao * DIAS_NO_MES);
 
@@ -417,6 +445,8 @@ export type DetalheItem = {
  */
 export async function carregarDetalheItem(
   codigo: string,
+  /** Data de referência do sistema, que define o mês da janela. */
+  data: string,
   /**
    * Janela já calculada pela consulta principal. Opcional para a função
    * continuar utilizável sozinha, mas a tela sempre passa: eram duas leituras
@@ -424,7 +454,7 @@ export async function carregarDetalheItem(
    */
   janelaPronta?: Janela,
 ): Promise<DetalheItem> {
-  const janela = janelaPronta ?? (await carregarJanela());
+  const janela = janelaPronta ?? (await carregarJanela(data));
 
   const [diarios, clientes] = await Promise.all([
     prisma.$queryRawUnsafe<{ mes: string; dia: number; qtd: number }[]>(
@@ -555,4 +585,82 @@ export async function carregarClientesFora(
     excedente: l.atual - l.mediana,
     fator: l.mediana > 0 ? l.atual / l.mediana : 0,
   }));
+}
+
+/** Um mês disponível para consulta, com a data que o representa. */
+export type MesAceleracao = {
+  /** "2026-09" — o que aparece no seletor. */
+  mes: string;
+  /**
+   * Data a usar como referência para esse mês.
+   *
+   * É o último snapshot do simulador dentro dele, e não o último dia do
+   * calendário: o `vendido` da tela sai de `s.data_snapshot = $1` — casamento
+   * exato, não intervalo. Apontar para 30 de setembro quando a última carga foi
+   * dia 11 devolveria tela vazia.
+   */
+  data: string;
+};
+
+/**
+ * Meses que podem ser consultados, do mais recente para o mais antigo.
+ *
+ * Um mês só entra quando tem as **duas** cargas: simulador, de onde vem o
+ * vendido, e forecast, que é contra o que ele é medido. Faltando qualquer uma
+ * não há aceleração a calcular, e oferecer o mês no seletor seria convidar para
+ * uma tela vazia.
+ *
+ * A regra sai do dado, e não de uma data fixa no código: hoje isso exclui julho,
+ * que não tem forecast carregado; carregue o de julho e ele aparece sozinho, sem
+ * ninguém precisar lembrar de mexer aqui.
+ */
+export async function listarMesesAceleracao(): Promise<MesAceleracao[]> {
+  const doSimulador = await listarSnapshots("simulador");
+
+  // `listarSnapshots` vem do mais recente para o mais antigo, então o primeiro
+  // de cada mês já é o último dia carregado dele.
+  const porMes = new Map<string, string>();
+  for (const data of doSimulador) {
+    const mes = data.slice(0, 7);
+    if (!porMes.has(mes)) porMes.set(mes, data);
+  }
+
+  const candidatos = [...porMes.entries()].map(([mes, data]) => ({
+    mes,
+    data,
+  }));
+  if (candidatos.length === 0) return [];
+
+  /**
+   * O mês tem forecast **utilizável** na carga que a tela vai usar?
+   *
+   * Duas sutilezas, e as duas já morderam. A primeira: não basta existir carga
+   * de forecast no mês — a de agosto tem 6.168 linhas com `codigo` nulo, órfãs
+   * de uma reimportação de Produtos, em que o `onDelete: SetNull` zera o código
+   * em cascata sem erro nenhum.
+   *
+   * A segunda: a verificação tem de olhar **a mesma carga que a consulta
+   * principal escolhe** — a última do mês até a data de referência. Agosto tem
+   * carga boa num snapshot anterior e carga órfã no último; checar "o mês tem
+   * alguma linha com código" diria que sim, e a tela viria vazia mesmo assim.
+   */
+  const usaveis = await prisma.$queryRawUnsafe<{ mes: string }[]>(
+    `SELECT c.mes
+       FROM unnest($1::text[], $2::date[]) AS c(mes, data)
+      WHERE EXISTS (
+        SELECT 1 FROM forecast f
+         WHERE f.data_snapshot = (
+                 SELECT MAX(_f.data_snapshot) FROM forecast _f
+                  WHERE _f.data_snapshot >= date_trunc('month', c.data)
+                    AND _f.data_snapshot <= c.data
+               )
+           AND f.codigo IS NOT NULL AND f.forecast_m0 > 0
+           AND ${torreValidaSql("f")}
+      )`,
+    candidatos.map((c) => c.mes),
+    candidatos.map((c) => c.data),
+  );
+
+  const ok = new Set(usaveis.map((u) => u.mes));
+  return candidatos.filter((c) => ok.has(c.mes));
 }
