@@ -30,6 +30,17 @@ import {
  * reaprender.
  */
 
+/**
+ * Separação da coluna Cia das filiais.
+ *
+ * Tracejado claro em vez de borda cheia, e folga de `pr-3` contra o
+ * `border-spacing-1` das demais — o dobro do espaço, para a coluna ler como
+ * outra coisa sem precisar de título ou moldura.
+ */
+function separador(ehCia: boolean): string {
+  return ehCia ? "border-r border-dashed border-muted-foreground/25 pr-3" : "";
+}
+
 function num(v: number): string {
   return Math.round(v).toLocaleString("pt-BR");
 }
@@ -279,11 +290,15 @@ export function TabelaPeriodica({
                 key={f}
                 className={`px-1 pb-1 text-center font-mono text-xs font-semibold whitespace-nowrap ${
                   f === COLUNA_CIA
-                    ? "text-(--brand-petrol) dark:text-(--brand-turquoise)"
+                    ? // A Cia é outra natureza de leitura, não mais uma filial:
+                      // o tracejado separa as duas sem o peso de uma borda
+                      // cheia, e a folga dobrada dá o respiro que a linha
+                      // sozinha não daria.
+                      "border-r border-dashed border-muted-foreground/25 pr-3 text-(--brand-petrol) dark:text-(--brand-turquoise)"
                     : ""
                 }`}
               >
-                {f === COLUNA_CIA ? "COLUNA_CIA" : sigla(f)}
+                {f === COLUNA_CIA ? "CIA" : sigla(f)}
               </th>
             ))}
           </tr>
@@ -310,14 +325,17 @@ export function TabelaPeriodica({
                   // elemento vazio diz isso melhor que um zero, que pareceria
                   // ruptura.
                   return (
-                    <td key={filial} className="p-0">
+                    <td key={filial} className={`p-0 ${separador(ehCia)}`}>
                       <div className="size-20 rounded-md border border-dashed border-muted-foreground/15" />
                     </td>
                   );
                 }
 
                 return (
-                  <td key={filial} className="relative p-0">
+                  <td
+                    key={filial}
+                    className={`relative p-0 ${separador(ehCia)}`}
+                  >
                     <div
                       onMouseEnter={() => setAtiva(chave)}
                       onMouseLeave={() => setAtiva(null)}
