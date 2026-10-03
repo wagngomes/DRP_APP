@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ShoppingCart, Truck } from "lucide-react";
 
 import type { CelulaTabela, DadosTabela } from "@/lib/disponibilidade/tabela";
+import { Abertura } from "@/components/comum/abertura";
 import type { Reposicao } from "@/lib/fornecedores/agregacao";
 import {
   COLUNA_CIA,
@@ -77,9 +78,10 @@ function Detalhe({
   chegadas: Reposicao[];
 }) {
   const aCaminho = chegadas.reduce((a, r) => a + r.quantidade, 0);
-  const armazens = COLUNAS_ESTOQUE_CHAO.map(
-    (coluna) => [coluna, c.porArmazem[coluna] ?? 0] as const,
-  ).filter(([, valor]) => valor > 0);
+  const armazens = COLUNAS_ESTOQUE_CHAO.map((coluna) => ({
+    rotulo: ROTULO_ARMAZEM[coluna],
+    quantidade: c.porArmazem[coluna] ?? 0,
+  }));
 
   return (
     <div className="w-72 space-y-2.5 text-left sm:w-80">
@@ -122,28 +124,18 @@ function Detalhe({
         />
       </div>
 
-      {/* O chão aberto por armazém, como no card da tela de produto. O total
-          esconde a composição: trinta mil em Q40 e trinta mil em 01 cobrem os
-          mesmos dias e são situações diferentes — uma está disponível, a outra
-          em quarentena. Armazém zerado não aparece. */}
-      {armazens.length > 0 ? (
-        <div className="border-t pt-2">
-          <p className="mb-1 text-[10px] text-muted-foreground">
-            Chão por armazém
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {armazens.map(([coluna, valor]) => (
-              <span
-                key={coluna}
-                className={`rounded bg-(--brand-turquoise)/10 px-1.5 py-0.5 font-mono text-[11px] tabular-nums ${TOM.estoque}`}
-              >
-                <span className="opacity-60">{ROTULO_ARMAZEM[coluna]}</span>{" "}
-                {num(valor)}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      {/* O chão aberto por armazém, no mesmo formato do card da tela de
+          produto — e literalmente o mesmo componente, para as duas não
+          divergirem no primeiro ajuste de qualquer uma.
+
+          Todos os armazéns aparecem, inclusive os zerados: saber que não há
+          nada em Q40 é diferente de não saber quanto há. */}
+      <div>
+        <Abertura itens={armazens} tom={TOM.estoque} />
+        <p className="mt-1 text-center text-[10px] text-muted-foreground">
+          chão por armazém
+        </p>
+      </div>
 
       {/* O que vem chegando, com o percurso. É a diferença entre "está baixo" e
           "está baixo e ninguém mandou nada". */}

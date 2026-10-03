@@ -14,8 +14,13 @@ import { Badge } from "@/components/ui/badge";
 import { BadgeDias } from "@/components/produto/badge-dias";
 import { WorkflowRota } from "@/components/produto/workflow-rota";
 import type { PosicaoFilial } from "@/lib/produto/consultas";
-import { ROTULO_STATUS, calcularRitmo, type StatusRitmo } from "@/utils/ritmo-venda";
+import {
+  ROTULO_STATUS,
+  calcularRitmo,
+  type StatusRitmo,
+} from "@/utils/ritmo-venda";
 import { ehCdVirtual } from "@/utils/cds-virtuais";
+import { Abertura } from "@/components/comum/abertura";
 
 function numero(v: number): string {
   return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
@@ -34,18 +39,46 @@ function dataBr(d: Date | string | null): string {
  * conjunto sem repetir tom.
  */
 const TILES = [
-  { chave: "estoque", icone: Boxes, cor: "text-(--brand-petrol) dark:text-sky-300", fundo: "bg-(--brand-petrol)/5 dark:bg-sky-950/40" },
-  { chave: "compras", icone: ShoppingCart, cor: "text-amber-600 dark:text-amber-400", fundo: "bg-amber-500/8 dark:bg-amber-950/40" },
-  { chave: "transf", icone: Truck, cor: "text-teal-600 dark:text-teal-300", fundo: "bg-teal-500/8 dark:bg-teal-950/40" },
-  { chave: "forecast", icone: TrendingUp, cor: "text-violet-600 dark:text-violet-300", fundo: "bg-violet-500/8 dark:bg-violet-950/40" },
-  { chave: "vendido", icone: Gauge, cor: "text-rose-600 dark:text-rose-300", fundo: "bg-rose-500/8 dark:bg-rose-950/40" },
+  {
+    chave: "estoque",
+    icone: Boxes,
+    cor: "text-(--brand-petrol) dark:text-sky-300",
+    fundo: "bg-(--brand-petrol)/5 dark:bg-sky-950/40",
+  },
+  {
+    chave: "compras",
+    icone: ShoppingCart,
+    cor: "text-amber-600 dark:text-amber-400",
+    fundo: "bg-amber-500/8 dark:bg-amber-950/40",
+  },
+  {
+    chave: "transf",
+    icone: Truck,
+    cor: "text-teal-600 dark:text-teal-300",
+    fundo: "bg-teal-500/8 dark:bg-teal-950/40",
+  },
+  {
+    chave: "forecast",
+    icone: TrendingUp,
+    cor: "text-violet-600 dark:text-violet-300",
+    fundo: "bg-violet-500/8 dark:bg-violet-950/40",
+  },
+  {
+    chave: "vendido",
+    icone: Gauge,
+    cor: "text-rose-600 dark:text-rose-300",
+    fundo: "bg-rose-500/8 dark:bg-rose-950/40",
+  },
 ] as const;
 
 /**
  * Status do ritmo com ícone + rótulo: cor sozinha não carrega o significado,
  * e "atrasada" é aviso, não erro — por isso âmbar e não vermelho.
  */
-const STATUS: Record<StatusRitmo, { icone: typeof TrendingUp; cor: string; rotulo: string }> = {
+const STATUS: Record<
+  StatusRitmo,
+  { icone: typeof TrendingUp; cor: string; rotulo: string }
+> = {
   atrasada: {
     icone: TrendingDown,
     cor: "text-amber-700 bg-amber-500/15 dark:text-amber-400",
@@ -69,27 +102,6 @@ const STATUS: Record<StatusRitmo, { icone: typeof TrendingUp; cor: string; rotul
  * pares "rótulo valor" lado a lado estouravam a largura e quebravam em duas
  * linhas, dobrando a altura do card.
  */
-function Abertura({
-  itens,
-}: {
-  itens: { rotulo: string; quantidade: number | null }[];
-}) {
-  if (itens.length === 0) return null;
-  return (
-    <dl className="mt-2 flex gap-x-1 border-t pt-2">
-      {itens.map((i) => (
-        <div key={i.rotulo} className="min-w-0 flex-1 text-center">
-          <dt className="truncate text-[10px] leading-tight font-medium text-muted-foreground">
-            {i.rotulo}
-          </dt>
-          <dd className="truncate font-mono text-xs leading-tight font-medium tabular-nums text-foreground/80">
-            {i.quantidade === null ? "—" : numero(i.quantidade)}
-          </dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
 
 function Tile({
   indice,
@@ -110,7 +122,11 @@ function Tile({
         <Icone className={`size-4 ${t.cor}`} />
         {titulo}
       </p>
-      <p className={`mt-1 font-mono text-2xl font-semibold tabular-nums ${t.cor}`}>{valor}</p>
+      <p
+        className={`mt-1 font-mono text-2xl font-semibold tabular-nums ${t.cor}`}
+      >
+        {valor}
+      </p>
       {children}
     </div>
   );
@@ -140,14 +156,25 @@ export function CardFilial({
    */
   modo?: "filial" | "cia";
 }) {
-  const rotulo = (codigo: string | null) => (codigo ? (rotulos[codigo] ?? codigo) : "—");
-  const emTransito = posicao.transferencias.reduce((s, t) => s + (t.qtde ?? 0), 0);
+  const rotulo = (codigo: string | null) =>
+    codigo ? (rotulos[codigo] ?? codigo) : "—";
+  const emTransito = posicao.transferencias.reduce(
+    (s, t) => s + (t.qtde ?? 0),
+    0,
+  );
   // Os pedidos com rota entram no destino final, então o total do card é o que
   // de fato chega aqui — e não o que foi emitido por esta filial.
-  const comprasChegando = posicao.pedidos.reduce((s, pe) => s + (pe.quantidade_receber ?? 0), 0);
+  const comprasChegando = posicao.pedidos.reduce(
+    (s, pe) => s + (pe.quantidade_receber ?? 0),
+    0,
+  );
   const ehCia = modo === "cia";
   const par = indice % 2 === 0;
-  const ritmo = calcularRitmo(posicao.vendidoMes, posicao.forecastM0, dataReferencia);
+  const ritmo = calcularRitmo(
+    posicao.vendidoMes,
+    posicao.forecastM0,
+    dataReferencia,
+  );
   const info = ritmo.status ? STATUS[ritmo.status] : null;
 
   return (
@@ -162,7 +189,9 @@ export function CardFilial({
         <CardTitle className="flex items-baseline gap-2 text-xl">
           {ehCia ? (
             <>
-              <span className="text-teal-700 dark:text-(--brand-turquoise)">Visão Cia</span>
+              <span className="text-teal-700 dark:text-(--brand-turquoise)">
+                Visão Cia
+              </span>
               <span className="text-sm font-normal text-muted-foreground">
                 consolidado de todos os CDs
               </span>
@@ -170,7 +199,11 @@ export function CardFilial({
           ) : (
             <>
               <span
-                className={par ? "text-(--brand-petrol) dark:text-sky-300" : "text-teal-700 dark:text-(--brand-turquoise)"}
+                className={
+                  par
+                    ? "text-(--brand-petrol) dark:text-sky-300"
+                    : "text-teal-700 dark:text-(--brand-turquoise)"
+                }
               >
                 {rotulo(posicao.filial)}
               </span>
@@ -188,26 +221,46 @@ export function CardFilial({
 
       <CardContent className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <Tile indice={0} titulo="Estoque chão" valor={numero(posicao.estoqueChao)}>
+          <Tile
+            indice={0}
+            titulo="Estoque chão"
+            valor={numero(posicao.estoqueChao)}
+          >
             <Abertura itens={posicao.armazens} />
           </Tile>
-          <Tile indice={1} titulo="Compras chegando" valor={numero(comprasChegando)} />
-          <Tile indice={2} titulo="Transferências chegando" valor={numero(emTransito)} />
+          <Tile
+            indice={1}
+            titulo="Compras chegando"
+            valor={numero(comprasChegando)}
+          />
+          <Tile
+            indice={2}
+            titulo="Transferências chegando"
+            valor={numero(emTransito)}
+          />
           <Tile
             indice={3}
             titulo="Forecast do mês"
-            valor={posicao.forecastM0 === null ? "—" : numero(posicao.forecastM0)}
+            valor={
+              posicao.forecastM0 === null ? "—" : numero(posicao.forecastM0)
+            }
           >
             {/* Vendas dos 4 meses anteriores: dão a tendência que sustenta (ou
                 contradiz) o forecast destacado acima. */}
             <Abertura itens={posicao.historico} />
           </Tile>
-          <Tile indice={4} titulo="Vendido no mês" valor={numero(posicao.vendidoMes)}>
+          <Tile
+            indice={4}
+            titulo="Vendido no mês"
+            valor={numero(posicao.vendidoMes)}
+          >
             {/* Percentual e status na mesma linha: são a mesma leitura — quanto
                 do forecast saiu e se isso está adiantado ou atrasado. */}
             <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t pt-2">
               <span className="flex items-baseline gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">do forecast</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  do forecast
+                </span>
                 <span className="font-mono text-sm font-medium tabular-nums text-foreground/80">
                   {ritmo.percentualForecast === null
                     ? "—"
@@ -223,7 +276,9 @@ export function CardFilial({
                   {info.rotulo}
                 </span>
               ) : (
-                <span className="text-xs text-muted-foreground">sem forecast</span>
+                <span className="text-xs text-muted-foreground">
+                  sem forecast
+                </span>
               )}
             </div>
           </Tile>
@@ -231,7 +286,8 @@ export function CardFilial({
 
         {/* Só aparece quando a venda deste CD está acelerada: em qualquer outro
             ritmo, "quem comprou fora do padrão" é curiosidade, não explicação. */}
-        {ritmo.status === "acelerada" && posicao.clientesAcelerando.length > 0 ? (
+        {ritmo.status === "acelerada" &&
+        posicao.clientesAcelerando.length > 0 ? (
           <section className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 dark:border-red-500/25 dark:bg-red-950/20">
             <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-red-700 dark:text-red-400">
               <Users className="size-4" />
@@ -248,7 +304,10 @@ export function CardFilial({
                   key={c.cnpj}
                   className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 rounded-md border bg-card px-2.5 py-1.5"
                 >
-                  <span className="min-w-0 flex-1 truncate text-xs" title={c.cliente}>
+                  <span
+                    className="min-w-0 flex-1 truncate text-xs"
+                    title={c.cliente}
+                  >
                     {c.cliente}
                   </span>
                   <span className="font-mono text-xs tabular-nums text-muted-foreground">
@@ -271,7 +330,8 @@ export function CardFilial({
         {/* Aceleração sem cliente identificado é informação, não ausência de
             dado: quando o aumento está diluído entre muitos, o forecast é que
             está defasado. Nos CDs virtuais é limite da base de origem. */}
-        {ritmo.status === "acelerada" && posicao.clientesAcelerando.length === 0 ? (
+        {ritmo.status === "acelerada" &&
+        posicao.clientesAcelerando.length === 0 ? (
           <p className="rounded-lg border border-dashed p-2.5 text-xs text-muted-foreground">
             {ehCdVirtual(posicao.filial)
               ? "O histórico de vendas não separa o armazém 11, então não há como atribuir esta aceleração a clientes deste CD."
@@ -298,7 +358,9 @@ export function CardFilial({
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="font-mono text-2xl font-semibold text-amber-700 tabular-nums dark:text-amber-400">
                       {numero(pe.quantidade_receber ?? 0)}
-                      <span className="ml-1 text-sm font-normal text-muted-foreground">un</span>
+                      <span className="ml-1 text-sm font-normal text-muted-foreground">
+                        un
+                      </span>
                     </span>
                     <span className="font-mono text-xs font-medium">
                       Pedido {pe.num_pedido ?? "—"}
@@ -307,9 +369,13 @@ export function CardFilial({
                       {`emitido ${dataBr(pe.data_emissao)}`}
                     </span>
                     {pe.projecao.direto ? (
-                      <span className="text-xs text-muted-foreground">compra direta</span>
+                      <span className="text-xs text-muted-foreground">
+                        compra direta
+                      </span>
                     ) : (
-                      <span className="font-mono text-xs text-muted-foreground">{pe.rota}</span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {pe.rota}
+                      </span>
                     )}
                     {pe.projecao.reprojetada ? (
                       <Badge variant="secondary" className="text-[10px]">
@@ -327,9 +393,13 @@ export function CardFilial({
 
                   {pe.projecao.direto ? (
                     <p className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-amber-500/20 px-2 py-1 text-xs">
-                      <span className="font-medium">{rotulo(pe.projecao.cdFinal)}</span>
+                      <span className="font-medium">
+                        {rotulo(pe.projecao.cdFinal)}
+                      </span>
                       <span className="font-mono tabular-nums text-muted-foreground">
-                        {pe.projecao.chegadaFinal ? dataBr(pe.projecao.chegadaFinal) : "sem data"}
+                        {pe.projecao.chegadaFinal
+                          ? dataBr(pe.projecao.chegadaFinal)
+                          : "sem data"}
                       </span>
                     </p>
                   ) : (
@@ -370,16 +440,24 @@ export function CardFilial({
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="font-mono text-2xl font-semibold text-teal-700 tabular-nums dark:text-teal-300">
                       {numero(t.qtde ?? 0)}
-                      <span className="ml-1 text-sm font-normal text-muted-foreground">un</span>
+                      <span className="ml-1 text-sm font-normal text-muted-foreground">
+                        un
+                      </span>
                     </span>
-                    <span className="font-mono text-xs font-medium">NF {t.numero_nf_saida ?? "—"}</span>
+                    <span className="font-mono text-xs font-medium">
+                      NF {t.numero_nf_saida ?? "—"}
+                    </span>
                     <span className="text-xs text-muted-foreground">
                       {`emitida ${dataBr(t.data_emissao)}`}
                     </span>
                     {t.rota ? (
-                      <span className="font-mono text-xs text-muted-foreground">{t.rota}</span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {t.rota}
+                      </span>
                     ) : (
-                      <span className="text-xs text-muted-foreground">transferência simples</span>
+                      <span className="text-xs text-muted-foreground">
+                        transferência simples
+                      </span>
                     )}
                     {t.projecao.reprojetada ? (
                       <Badge variant="secondary" className="text-[10px]">

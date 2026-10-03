@@ -7,7 +7,13 @@ import { faixaDe, faixaPorId } from "@/utils/dias-estoque";
  * O texto traz sempre o número de dias e a faixa fica no `title`, então a
  * leitura nunca depende só da cor.
  */
-export function BadgeDias({ dias, rotulo }: { dias: number | null; rotulo: string }) {
+export function BadgeDias({
+  dias,
+  rotulo,
+}: {
+  dias: number | null;
+  rotulo: string;
+}) {
   if (dias === null) {
     return (
       <span className="inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm text-muted-foreground">

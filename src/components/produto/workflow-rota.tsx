@@ -30,20 +30,27 @@ export function WorkflowRota({
   return (
     <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-2">
       <li className="rounded-md bg-muted px-2 py-1">
-        <span className="font-mono text-sm font-bold">{rotulo(etapas[0].de)}</span>
+        <span className="font-mono text-sm font-bold">
+          {rotulo(etapas[0].de)}
+        </span>
         <span className="ml-1.5 font-mono text-xs tabular-nums text-muted-foreground">
           {inicio}
         </span>
       </li>
       {etapas.map((e, i) => (
-        <li key={`${e.de}-${e.para}-${i}`} className="flex items-center gap-1.5">
+        <li
+          key={`${e.de}-${e.para}-${i}`}
+          className="flex items-center gap-1.5"
+        >
           <MoveRight className="size-4 shrink-0 text-muted-foreground" />
           <span
             className={`rounded-md px-2 py-1 ${
               i === etapas.length - 1 ? destaque : "bg-muted"
             }`}
           >
-            <span className="font-mono text-sm font-bold">{rotulo(e.para)}</span>
+            <span className="font-mono text-sm font-bold">
+              {rotulo(e.para)}
+            </span>
             <span className="ml-1.5 font-mono text-xs tabular-nums text-muted-foreground">
               {e.chegadaPrevista ? dataBr(e.chegadaPrevista) : "sem SLA"}
             </span>
