@@ -16,7 +16,7 @@ const PARTES = [
   { n: "1", onde: "centro", oque: "dias de cobertura do estoque chão" },
   { n: "2", onde: "topo", oque: "dias contando o que está a caminho" },
   { n: "3", onde: "abaixo", oque: "unidades em chão" },
-  { n: "4", onde: "rodapé", oque: "do forecast do mês já vendido" },
+  { n: "4", onde: "rodapé", oque: "forecast do mês | quanto dele já saiu" },
 ] as const;
 
 function Marca({ n }: { n: string }) {
@@ -42,7 +42,7 @@ export function LegendaElemento() {
               "inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -2px 3px rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.18)",
           }}
         >
-          <span className="text-right font-mono text-[10px] leading-none opacity-80">
+          <span className="text-right font-mono text-[11px] leading-none font-bold opacity-90">
             42
           </span>
           <span className="text-center font-mono text-2xl leading-none font-bold">
@@ -52,7 +52,7 @@ export function LegendaElemento() {
             29k
           </span>
           <span className="text-center font-mono text-[10px] leading-none opacity-75">
-            34%
+            1,2k<span className="mx-0.5 opacity-50">|</span>34%
           </span>
         </div>
 

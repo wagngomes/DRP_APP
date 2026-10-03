@@ -360,7 +360,7 @@ export function TabelaPeriodica({
                       {/* Canto superior, no lugar do número atômico: cobertura
                           total, que é a mesma pergunta do número grande só que
                           contando o que ainda vai chegar. */}
-                      <span className="text-right font-mono text-[10px] leading-none opacity-80">
+                      <span className="text-right font-mono text-[11px] leading-none font-bold opacity-90">
                         {dias(c.diasTotal)}
                       </span>
 
@@ -375,7 +375,13 @@ export function TabelaPeriodica({
                       {/* Rodapé, no lugar da massa atômica: quanto do forecast
                           já saiu. É o que diz se a cobertura é confortável ou se
                           o mês está correndo mais rápido que ela. */}
+                      {/* Forecast e o quanto dele já saiu, juntos: a
+                          porcentagem sozinha não diz se 34% são de trezentas ou
+                          de trinta mil unidades. O forecast vai abreviado para
+                          os dois caberem na largura do elemento. */}
                       <span className="text-center font-mono text-[10px] leading-none opacity-75">
+                        {curto(c.forecast)}
+                        <span className="mx-0.5 opacity-50">|</span>
                         {c.percentualVendido === null
                           ? "—"
                           : `${Math.round(c.percentualVendido * 100)}%`}
