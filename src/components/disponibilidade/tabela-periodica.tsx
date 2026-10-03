@@ -82,7 +82,7 @@ function Detalhe({
   ).filter(([, valor]) => valor > 0);
 
   return (
-    <div className="w-80 space-y-2.5 text-left">
+    <div className="w-72 space-y-2.5 text-left sm:w-80">
       <div>
         <p className="font-mono text-xs text-muted-foreground">{`${c.codigo} · ${sigla(c.filial)}`}</p>
         <p className="text-sm leading-tight font-medium">{descricao ?? "—"}</p>
@@ -282,7 +282,7 @@ export function TabelaPeriodica({
           <tr>
             {/* A primeira coluna fica presa: rolando dez CDs à direita, sem ela
                 não se sabe mais de que produto é a linha. */}
-            <th className="sticky left-0 z-20 bg-card px-2 text-left text-xs font-medium text-muted-foreground">
+            <th className="sticky left-0 z-20 w-28 bg-card px-2 text-left text-xs font-medium text-muted-foreground sm:w-auto">
               Produto
             </th>
             {colunas.map((f) => (
@@ -306,7 +306,9 @@ export function TabelaPeriodica({
         <tbody>
           {dados.linhas.map((linha) => (
             <tr key={linha.codigo}>
-              <th className="sticky left-0 z-10 max-w-64 bg-card px-2 text-left font-normal">
+              {/* Mais estreita no celular: 16rem de produto numa tela de 375px
+                  deixaria menos de um elemento visível ao lado. */}
+              <th className="sticky left-0 z-10 w-28 max-w-28 bg-card px-2 text-left font-normal sm:w-auto sm:max-w-64">
                 <span className="block font-mono text-xs font-medium">
                   {linha.codigo}
                 </span>
@@ -381,7 +383,10 @@ export function TabelaPeriodica({
                     </div>
 
                     {ativa === chave ? (
-                      <div className="absolute top-full left-0 z-30 mt-1 rounded-lg border bg-popover p-3 shadow-xl">
+                      // No celular o painel é largo demais para abrir à direita
+                      // da célula: ancorado à direita, ele cresce para dentro da
+                      // tela em vez de para fora.
+                      <div className="absolute top-full right-0 z-30 mt-1 rounded-lg border bg-popover p-3 shadow-xl sm:right-auto sm:left-0">
                         <Detalhe
                           celula={c}
                           descricao={linha.descricao}

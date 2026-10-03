@@ -190,8 +190,18 @@ export async function carregarTabela(
   return {
     // Maior forecast primeiro: a grade é longa, e quem abre quer ver o que pesa
     // antes de rolar.
+    // Menor cobertura da companhia primeiro: a grade é longa, e o que precisa
+    // de decisão tem de estar no topo. Por forecast, o item de maior volume
+    // vinha na frente — que é outra pergunta.
+    //
+    // Empate desempata pelo maior forecast: entre dois itens com a mesma
+    // cobertura, o que vende mais pesa mais.
+    //
+    // Item sem posição na Cia vai para o fim, e não para o começo como um zero
+    // faria: ausência de cobertura não é cobertura zero.
     linhas: [...porItem.values()].sort(
-      (a, b) => b.forecastTotal - a.forecastTotal,
+      (a, b) =>
+        coberturaCia(a) - coberturaCia(b) || b.forecastTotal - a.forecastTotal,
     ),
     filiais: [...filiais].sort(),
     fornecedores,
@@ -242,4 +252,9 @@ function somarCelulas(celulas: CelulaTabela[]): CelulaTabela | null {
     faixa: faixaDe(diasChao) ?? "zero",
     porArmazem,
   };
+}
+
+/** Cobertura da companhia, para ordenar. Sem posição vai para o fim. */
+function coberturaCia(linha: LinhaTabela): number {
+  return linha.celulas.get(COLUNA_CIA)?.diasChao ?? Number.POSITIVE_INFINITY;
 }

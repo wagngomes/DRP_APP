@@ -1,9 +1,10 @@
 import { Grid3x3 } from "lucide-react";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { LegendaElemento } from "@/components/disponibilidade/legenda-elemento";
 import { TabelaPeriodica } from "@/components/disponibilidade/tabela-periodica";
 import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
-import { COLUNA_CIA, FAIXAS } from "@/utils/dias-estoque";
+import { COLUNA_CIA } from "@/utils/dias-estoque";
 import { carregarTabela } from "@/lib/disponibilidade/tabela";
 import { carregarChegadas, chaveChegada } from "@/lib/reposicoes/chegadas";
 import type { Reposicao } from "@/lib/fornecedores/agregacao";
@@ -116,47 +117,7 @@ export default async function TabelaDisponibilidade({
           />
         </div>
 
-        {/* A legenda explica o elemento antes da grade. Sem ela, quatro números
-            num quadrado de três centímetros são adivinhação. */}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border bg-muted/20 p-3 text-xs">
-          <span className="flex items-center gap-2">
-            <span className="flex size-14 shrink-0 flex-col justify-between rounded-md border bg-card p-1 text-[9px] leading-none text-muted-foreground">
-              <span className="text-right">total</span>
-              <span className="text-center text-base font-bold text-foreground">
-                chão
-              </span>
-              <span className="text-center">qtd</span>
-              <span className="text-center">%</span>
-            </span>
-            <span className="text-muted-foreground">
-              <span className="block">
-                <b className="text-foreground">centro</b> · dias de estoque chão
-              </span>
-              <span className="block">
-                <b className="text-foreground">topo</b> · dias de estoque total
-              </span>
-              <span className="block">
-                <b className="text-foreground">abaixo</b> · quantidade em chão
-              </span>
-              <span className="block">
-                <b className="text-foreground">rodapé</b> · do forecast já
-                vendido
-              </span>
-            </span>
-          </span>
-
-          <span className="flex flex-wrap items-center gap-2">
-            {FAIXAS.map((f) => (
-              <span key={f.id} className="flex items-center gap-1.5">
-                <span
-                  className="size-3 rounded-sm"
-                  style={{ backgroundColor: `var(--faixa-${f.id})` }}
-                />
-                {f.rotulo}
-              </span>
-            ))}
-          </span>
-        </div>
+        <LegendaElemento />
 
         <TabelaPeriodica
           dados={dados}
