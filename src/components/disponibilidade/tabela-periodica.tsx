@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { ShoppingCart, Truck } from "lucide-react";
 
@@ -468,8 +468,16 @@ export function TabelaPeriodica({
           nenhum `overflow` alcança. */}
       {painel ? (
         <div
-          className="fixed z-50 max-h-[80vh] overflow-auto rounded-lg border bg-popover p-3 shadow-xl"
-          style={posicaoPainel(painel.onde.getBoundingClientRect())}
+          // Transparente ao mouse enquanto é só hover: se o painel receber o
+          // cursor, a célula perde o hover e ele se fecha sozinho. Fixado por
+          // clique volta a ser clicável, que é quando o link do produto importa.
+          className={`fixed z-50 overflow-auto rounded-lg border bg-popover p-3 shadow-xl ${
+            fixada === painel.chave ? "" : "pointer-events-none"
+          }`}
+          style={posicaoPainel(painel.onde.getBoundingClientRect(), {
+            largura: window.innerWidth,
+            altura: window.innerHeight,
+          })}
         >
           <Detalhe
             celula={painel.celula}
@@ -483,27 +491,41 @@ export function TabelaPeriodica({
   );
 }
 
-/** Largura e altura de folga do painel, para decidir de que lado ele abre. */
-const PAINEL_LARGURA = 320;
-const PAINEL_ALTURA = 300;
+/** Largura mínima utilizável, só para escolher de que lado o painel abre. */
+export const PAINEL_LARGURA = 320;
 
 /**
  * Onde desenhar o painel, a partir da célula que o abriu.
  *
- * Abre para baixo e à esquerda por padrão, e vira para o outro lado quando não
- * cabe. Sem isso, a célula da última linha abriria um painel inteiro abaixo da
- * dobra, e a da última coluna, um painel fora da tela à direita.
+ * **Ancora a borda oposta, em vez de calcular a posição.** A primeira versão
+ * estimava a altura do painel em 300px para decidir se ele cabia abaixo; quando
+ * não cabia, subtraía esse chute do topo da célula. Com o painel mais alto que o
+ * chute, a conta o colocava *em cima* da célula — e aí ele nascia debaixo do
+ * cursor, roubava o hover, a célula disparava `onMouseLeave` e o painel fechava
+ * no mesmo quadro. Por fora parecia tooltip que não abre.
+ *
+ * Ancorando `bottom` quando sobe e `right` quando vira para a esquerda, o painel
+ * cresce para longe da célula seja qual for o tamanho dele, e nenhuma dimensão
+ * precisa ser adivinhada. O `maxHeight` é o espaço real que resta daquele lado,
+ * então o conteúdo rola por dentro em vez de vazar da tela.
  */
-function posicaoPainel(r: DOMRect): { left: number; top: number } {
+export function posicaoPainel(
+  r: { top: number; bottom: number; left: number; right: number },
+  /** Dimensões da janela. Parâmetro, e não `window`, para isto ser testável. */
+  janela: { largura: number; altura: number },
+): CSSProperties {
   const folga = 8;
-  const left = Math.max(
-    folga,
-    Math.min(r.left, window.innerWidth - PAINEL_LARGURA - folga),
-  );
-  const abaixo = r.bottom + 4;
-  const top =
-    abaixo + PAINEL_ALTURA + folga > window.innerHeight
-      ? Math.max(folga, r.top - PAINEL_ALTURA - 4)
-      : abaixo;
-  return { left, top };
+  const vertical: CSSProperties =
+    janela.altura - r.bottom >= r.top
+      ? { top: r.bottom + 4, maxHeight: janela.altura - r.bottom - folga }
+      : { bottom: janela.altura - r.top + 4, maxHeight: r.top - folga };
+
+  // Espaço à direita medido a partir da borda esquerda da célula, que é onde o
+  // painel começaria.
+  const horizontal: CSSProperties =
+    janela.largura - r.left >= PAINEL_LARGURA + folga
+      ? { left: r.left }
+      : { right: Math.max(folga, janela.largura - r.right) };
+
+  return { ...vertical, ...horizontal };
 }
