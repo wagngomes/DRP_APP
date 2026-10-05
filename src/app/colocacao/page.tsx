@@ -166,8 +166,12 @@ export default async function Colocacao({
                 "radial-gradient(ellipse 80% 120% at 30% 0%, black, transparent)",
             }}
           />
-          <div className="relative flex flex-wrap items-end justify-between gap-4">
-            <div>
+          {/* Sem `flex-wrap`: com R$ 526 milhões o bloco de totais quebrava
+              para a linha de baixo, e a altura do cabeçalho mudava conforme o
+              filtro. O título encolhe, os números não — eles têm largura
+              própria e são o que a pessoa vem conferir. */}
+          <div className="relative flex items-end justify-between gap-6">
+            <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
                 <ClipboardList className="size-3.5" />
                 Compras
@@ -182,8 +186,10 @@ export default async function Colocacao({
             </div>
 
             {mes ? (
-              <div className="flex gap-6">
-                <div>
+              // `shrink-0` e larguras mínimas: sem elas, trocar de filtro
+              // mudava a largura de cada número e a linha inteira dançava.
+              <div className="flex shrink-0 gap-6">
+                <div className="min-w-44 text-right">
                   <p className="text-xs tracking-wide text-muted-foreground uppercase">
                     Valor colocado
                   </p>
@@ -191,7 +197,7 @@ export default async function Colocacao({
                     {moeda(totalMes)}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-20 text-right">
                   <p className="text-xs tracking-wide text-muted-foreground uppercase">
                     Pedidos
                   </p>
@@ -199,7 +205,7 @@ export default async function Colocacao({
                     {inteiro(pedidosMes)}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-28 text-right">
                   <p className="text-xs tracking-wide text-muted-foreground uppercase">
                     Quantidade
                   </p>

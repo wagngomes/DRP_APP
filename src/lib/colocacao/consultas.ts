@@ -107,12 +107,31 @@ export type Filtros = {
   produto?: string;
 };
 
-/** Meses com pedido colocado, do mais recente para o mais antigo. */
+/**
+ * Meses com colocação **completa**, do mais recente para o mais antigo.
+ *
+ * O corte não é uma data fixa: é o mês seguinte ao da primeira carga. A base só
+ * guarda pedido ainda aberto, então de um mês anterior ao início das cargas
+ * sobrevive apenas o que não tinha sido entregue — e isso não é a colocação
+ * daquele mês, é o resíduo dela.
+ *
+ * O efeito aparece nos números: com a primeira carga em 28/07, setembro tem
+ * 1.115 pedidos, agosto 345, julho 126, junho 22, caindo até um pedido solto de
+ * 2025. Oferecer esses meses no filtro convidaria a ler como colocação um número
+ * que não é.
+ *
+ * Derivado em vez de escrito no código, para continuar certo quando a base
+ * acumular mais meses e para valer em qualquer instalação.
+ */
 export async function listarMeses(): Promise<string[]> {
   const linhas = await prisma.$queryRawUnsafe<{ mes: string }[]>(
     `SELECT DISTINCT to_char(data_emissao, 'YYYY-MM') AS mes
        FROM pedidos_de_compra
       WHERE data_emissao IS NOT NULL AND codigo IS NOT NULL
+        AND data_emissao >= (
+          SELECT date_trunc('month', MIN(data_snapshot)) + interval '1 month'
+            FROM pedidos_de_compra
+        )
       ORDER BY 1 DESC`,
   );
   return linhas.map((l) => l.mes);
@@ -198,21 +217,28 @@ export async function carregarColocacao(
     ...args,
   );
 
-  return agrupar(linhas, (l) => l.fornecedor).map(([fornecedor, doGrupo]) => ({
-    fornecedor,
-    dias: doGrupo.map((l) => ({
-      dia: l.dia,
-      valor: l.valor,
-      quantidade: l.quantidade,
-    })),
-    total: doGrupo.reduce((a, l) => a + l.valor, 0),
-    quantidadeTotal: doGrupo.reduce((a, l) => a + l.quantidade, 0),
-    // Somar os distintos de cada dia contaria duas vezes o pedido que aparece em
-    // dias diferentes — mas um pedido tem uma data de emissão só, então ele cai
-    // num dia apenas e a soma é exata.
-    pedidos: doGrupo.reduce((a, l) => a + l.pedidos, 0),
-    produtos: doGrupo.reduce((a, l) => a + l.produtos, 0),
-  }));
+  const porFornecedor = agrupar(linhas, (l) => l.fornecedor).map(
+    ([fornecedor, doGrupo]) => ({
+      fornecedor,
+      dias: doGrupo.map((l) => ({
+        dia: l.dia,
+        valor: l.valor,
+        quantidade: l.quantidade,
+      })),
+      total: doGrupo.reduce((a, l) => a + l.valor, 0),
+      quantidadeTotal: doGrupo.reduce((a, l) => a + l.quantidade, 0),
+      // Somar os distintos de cada dia contaria duas vezes o pedido que aparece em
+      // dias diferentes — mas um pedido tem uma data de emissão só, então ele cai
+      // num dia apenas e a soma é exata.
+      pedidos: doGrupo.reduce((a, l) => a + l.pedidos, 0),
+      produtos: doGrupo.reduce((a, l) => a + l.produtos, 0),
+    }),
+  );
+
+  // Maior valor primeiro: a lista tem mais de cem fornecedores, e o que decide
+  // compra é onde o dinheiro foi. Em ordem alfabética, os maiores ficavam
+  // espalhados e só apareciam rolando.
+  return porFornecedor.sort((a, b) => b.total - a.total);
 }
 
 /** O segundo nível: os produtos de um fornecedor dentro do mês. */
@@ -250,18 +276,22 @@ export async function carregarProdutos(
     ...args,
   );
 
-  return agrupar(linhas, (l) => l.codigo).map(([codigo, doGrupo]) => ({
-    codigo,
-    descricao: doGrupo[0].descricao,
-    dias: doGrupo.map((l) => ({
-      dia: l.dia,
-      valor: l.valor,
-      quantidade: l.quantidade,
-    })),
-    total: doGrupo.reduce((a, l) => a + l.valor, 0),
-    quantidadeTotal: doGrupo.reduce((a, l) => a + l.quantidade, 0),
-    pedidos: doGrupo.reduce((a, l) => a + l.pedidos, 0),
-  }));
+  const porProduto = agrupar(linhas, (l) => l.codigo).map(
+    ([codigo, doGrupo]) => ({
+      codigo,
+      descricao: doGrupo[0].descricao,
+      dias: doGrupo.map((l) => ({
+        dia: l.dia,
+        valor: l.valor,
+        quantidade: l.quantidade,
+      })),
+      total: doGrupo.reduce((a, l) => a + l.valor, 0),
+      quantidadeTotal: doGrupo.reduce((a, l) => a + l.quantidade, 0),
+      pedidos: doGrupo.reduce((a, l) => a + l.pedidos, 0),
+    }),
+  );
+
+  return porProduto.sort((a, b) => b.total - a.total);
 }
 
 /** Agrupa preservando a ordem de chegada, que o SQL já definiu. */
