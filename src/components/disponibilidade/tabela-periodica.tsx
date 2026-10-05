@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ShoppingCart, Truck } from "lucide-react";
 
@@ -264,7 +264,53 @@ export function TabelaPeriodica({
    */
   const [fixada, setFixada] = useState<string | null>(null);
   const aberta = fixada ?? sobMouse;
+  /**
+   * A célula que abriu o painel, para ele se posicionar.
+   *
+   * Existe por causa do cabeçalho congelado. Para a linha dos CDs ficar presa,
+   * a grade precisou virar sua própria área de rolagem — e área de rolagem
+   * recorta o que transborda, o que cortaria o painel das últimas linhas pela
+   * metade. Com `fixed` ele é posicionado contra a janela e escapa do corte,
+   * mas aí precisa saber de onde saiu.
+   *
+   * Guarda o elemento, e não as coordenadas dele: `fixed` não acompanha o
+   * scroll, e um painel fixado por clique ficaria parado no ar enquanto a
+   * grade rola por baixo. Com o elemento, a posição é remedida a cada rolagem.
+   */
+  const [ancora, setAncora] = useState<HTMLElement | null>(null);
+  const [, remedir] = useState(0);
+
+  useEffect(() => {
+    if (!ancora) return;
+    const refazer = () => remedir((t) => t + 1);
+    // Captura, porque quem rola é a grade por dentro, e evento de scroll de
+    // elemento não sobe até a janela sem isso.
+    window.addEventListener("scroll", refazer, true);
+    window.addEventListener("resize", refazer);
+    return () => {
+      window.removeEventListener("scroll", refazer, true);
+      window.removeEventListener("resize", refazer);
+    };
+  }, [ancora]);
+
+  const abrir = (chave: string, alvo: HTMLElement) => {
+    setAncora(alvo);
+    setSobMouse(chave);
+  };
   const sigla = (codigo: string) => rotulos[codigo] ?? codigo;
+
+  // A célula aberta, resolvida uma vez: o painel agora é desenhado fora do laço
+  // da tabela, então precisa reencontrar de que linha e de que CD ele veio.
+  const painel = (() => {
+    if (!aberta || !ancora) return null;
+    const corte = aberta.indexOf("|");
+    const codigo = aberta.slice(0, corte);
+    const filial = aberta.slice(corte + 1);
+    const linha = dados.linhas.find((l) => l.codigo === codigo);
+    const celula = linha?.celulas.get(filial);
+    if (!linha || !celula) return null;
+    return { linha, celula, chave: aberta, onde: ancora };
+  })();
 
   // A companhia primeiro: é a leitura que responde "o item está coberto?" antes
   // de "onde está o problema". Mesma ordem da tela de produto.
@@ -279,19 +325,27 @@ export function TabelaPeriodica({
   }
 
   return (
-    <div className="relative overflow-x-auto rounded-xl border bg-card">
+    // A altura limitada é o que faz o cabeçalho congelar: `sticky` prende o
+    // elemento à sua área de rolagem, e sem altura própria a área é a página
+    // inteira — a linha dos CDs subiria junto com o resto. Com o teto, a grade
+    // rola por dentro e a linha fica.
+    <div className="relative max-h-[78vh] overflow-auto rounded-xl border bg-card">
       <table className="border-separate border-spacing-1 p-1">
         <thead>
           <tr>
-            {/* A primeira coluna fica presa: rolando dez CDs à direita, sem ela
-                não se sabe mais de que produto é a linha. */}
-            <th className="sticky left-0 z-20 w-28 bg-card px-2 text-left text-xs font-medium text-muted-foreground sm:w-auto">
+            {/* O canto fica preso nos dois eixos — é a única célula que precisa
+                sobreviver ao scroll horizontal e ao vertical ao mesmo tempo, e
+                por isso tem a camada mais alta. */}
+            <th className="sticky top-0 left-0 z-40 w-28 bg-card px-2 text-left text-xs font-medium text-muted-foreground shadow-[0_4px_0_0_var(--card)] sm:w-auto">
               Produto
             </th>
             {colunas.map((f) => (
               <th
                 key={f}
-                className={`px-1 pb-1 text-center font-mono text-xs font-semibold whitespace-nowrap ${
+                // A sombra chapada de 4px tapa a folga do `border-spacing`: sem
+                // ela, as linhas aparecem passando por baixo do cabeçalho numa
+                // fresta entre as duas.
+                className={`sticky top-0 z-30 bg-card px-1 pb-1 text-center font-mono text-xs font-semibold whitespace-nowrap shadow-[0_4px_0_0_var(--card)] ${
                   f === COLUNA_CIA
                     ? // A Cia é outra natureza de leitura, não mais uma filial:
                       // o tracejado separa as duas sem o peso de uma borda
@@ -311,7 +365,10 @@ export function TabelaPeriodica({
             <tr key={linha.codigo}>
               {/* Mais estreita no celular: 16rem de produto numa tela de 375px
                   deixaria menos de um elemento visível ao lado. */}
-              <th className="sticky left-0 z-10 w-28 max-w-28 bg-card px-2 text-left font-normal sm:w-auto sm:max-w-64">
+              {/* z-20 e não z-10: a célula sob o cursor sobe para z-10 ao
+                  levantar, e empataria com a coluna presa — passando por cima
+                  dela ao rolar na horizontal. */}
+              <th className="sticky left-0 z-20 w-28 max-w-28 bg-card px-2 text-left font-normal sm:w-auto sm:max-w-64">
                 <span className="block font-mono text-xs font-medium">
                   {linha.codigo}
                 </span>
@@ -342,11 +399,12 @@ export function TabelaPeriodica({
                     className={`relative p-0 ${separador(ehCia)}`}
                   >
                     <div
-                      onMouseEnter={() => setSobMouse(chave)}
+                      onMouseEnter={(e) => abrir(chave, e.currentTarget)}
                       onMouseLeave={() => setSobMouse(null)}
-                      onClick={() =>
-                        setFixada((f) => (f === chave ? null : chave))
-                      }
+                      onClick={(e) => {
+                        setAncora(e.currentTarget);
+                        setFixada((f) => (f === chave ? null : chave));
+                      }}
                       className={`flex size-20 cursor-pointer flex-col justify-between rounded-md p-1.5 transition-all hover:z-10 hover:-translate-y-0.5 ${
                         ehCia ? "ring-2 ring-(--brand-petrol)/30" : ""
                       } ${
@@ -397,20 +455,6 @@ export function TabelaPeriodica({
                           : `${Math.round(c.percentualVendido * 100)}%`}
                       </span>
                     </div>
-
-                    {aberta === chave ? (
-                      // No celular o painel é largo demais para abrir à direita
-                      // da célula: ancorado à direita, ele cresce para dentro da
-                      // tela em vez de para fora.
-                      <div className="absolute top-full right-0 z-30 mt-1 rounded-lg border bg-popover p-3 shadow-xl sm:right-auto sm:left-0">
-                        <Detalhe
-                          celula={c}
-                          descricao={linha.descricao}
-                          sigla={sigla}
-                          chegadas={chegadas[chave] ?? []}
-                        />
-                      </div>
-                    ) : null}
                   </td>
                 );
               })}
@@ -418,6 +462,48 @@ export function TabelaPeriodica({
           ))}
         </tbody>
       </table>
+
+      {/* Fora da tabela, de propósito: aqui dentro da área de rolagem ele seria
+          recortado nas últimas linhas. `fixed` o posiciona contra a janela, que
+          nenhum `overflow` alcança. */}
+      {painel ? (
+        <div
+          className="fixed z-50 max-h-[80vh] overflow-auto rounded-lg border bg-popover p-3 shadow-xl"
+          style={posicaoPainel(painel.onde.getBoundingClientRect())}
+        >
+          <Detalhe
+            celula={painel.celula}
+            descricao={painel.linha.descricao}
+            sigla={sigla}
+            chegadas={chegadas[painel.chave] ?? []}
+          />
+        </div>
+      ) : null}
     </div>
   );
+}
+
+/** Largura e altura de folga do painel, para decidir de que lado ele abre. */
+const PAINEL_LARGURA = 320;
+const PAINEL_ALTURA = 300;
+
+/**
+ * Onde desenhar o painel, a partir da célula que o abriu.
+ *
+ * Abre para baixo e à esquerda por padrão, e vira para o outro lado quando não
+ * cabe. Sem isso, a célula da última linha abriria um painel inteiro abaixo da
+ * dobra, e a da última coluna, um painel fora da tela à direita.
+ */
+function posicaoPainel(r: DOMRect): { left: number; top: number } {
+  const folga = 8;
+  const left = Math.max(
+    folga,
+    Math.min(r.left, window.innerWidth - PAINEL_LARGURA - folga),
+  );
+  const abaixo = r.bottom + 4;
+  const top =
+    abaixo + PAINEL_ALTURA + folga > window.innerHeight
+      ? Math.max(folga, r.top - PAINEL_ALTURA - 4)
+      : abaixo;
+  return { left, top };
 }
