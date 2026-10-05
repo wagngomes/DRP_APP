@@ -32,14 +32,47 @@ function arquivosFonte(dir: string, acc: string[] = []): string[] {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) arquivosFonte(p, acc);
-    else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) acc.push(p);
+    else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name))
+      acc.push(p);
   }
   return acc;
 }
 
 /** "use client" precisa estar no topo do arquivo para valer. */
 function ehComponenteCliente(conteudo: string): boolean {
-  return /^\s*["']use client["']/m.test(conteudo.split("\n").slice(0, 3).join("\n"));
+  return /^\s*["']use client["']/m.test(
+    conteudo.split("\n").slice(0, 3).join("\n"),
+  );
+}
+
+/**
+ * O texto das props de cada uso de `<Nome ...>` num arquivo.
+ *
+ * Varredura com contagem de chaves em vez de regex. A versão anterior usava
+ * `<Nome[^>]*?>`, que para no primeiro `>` — e `=>` tem um. Bastava uma arrow
+ * function entre as props para o resto da tag ficar invisível ao teste, que foi
+ * como `rodapeDica={{ icone: Warehouse }}` passou e derrubou duas telas.
+ */
+function usosDoComponente(texto: string, nome: string): string[] {
+  const achados: string[] = [];
+  const marca = new RegExp(`<${nome}[\\s/>]`, "g");
+
+  for (const inicio of texto.matchAll(marca)) {
+    let i = (inicio.index ?? 0) + nome.length + 1;
+    let chaves = 0;
+    const comeco = i;
+
+    while (i < texto.length) {
+      const c = texto[i];
+      if (c === "{") chaves++;
+      else if (c === "}") chaves--;
+      else if (c === ">" && chaves === 0 && texto[i - 1] !== "=") break;
+      i++;
+    }
+    achados.push(texto.slice(comeco, i));
+  }
+
+  return achados;
 }
 
 describe("fronteira servidor → cliente", () => {
@@ -49,7 +82,8 @@ describe("fronteira servidor → cliente", () => {
   for (const f of arquivos) {
     const t = fs.readFileSync(f, "utf8");
     if (!ehComponenteCliente(t)) continue;
-    for (const m of t.matchAll(/export function (\w+)/g)) nomesCliente.add(m[1]);
+    for (const m of t.matchAll(/export function (\w+)/g))
+      nomesCliente.add(m[1]);
   }
 
   it("encontra os componentes cliente do projeto", () => {
@@ -67,8 +101,65 @@ describe("fronteira servidor → cliente", () => {
 
       for (const nome of nomesCliente) {
         for (const uso of t.matchAll(new RegExp(`<${nome}\\b[^>]*?>`, "gs"))) {
-          for (const prop of uso[0].matchAll(/(\w+)=\{(\([^)]*\)\s*=>|function\b)/g)) {
-            problemas.push(`${path.relative(RAIZ, f)}: <${nome} ${prop[1]}={função}>`);
+          for (const prop of uso[0].matchAll(
+            /(\w+)=\{(\([^)]*\)\s*=>|function\b)/g,
+          )) {
+            problemas.push(
+              `${path.relative(RAIZ, f)}: <${nome} ${prop[1]}={função}>`,
+            );
+          }
+        }
+      }
+    }
+
+    expect(problemas).toEqual([]);
+  });
+
+  it("nenhum componente de servidor passa componente a um componente cliente", () => {
+    // A versão anterior deste arquivo só pegava função literal — `prop={() =>
+    // ...}`. Passar a **referência** de um componente escapava, e foi assim que
+    // `rodapeDica={{ icone: Warehouse }}` derrubou duas telas em produção com
+    // "a server error occurred", sem nada no erro apontando para a causa.
+    //
+    // Componente é função: vale a mesma regra. O que muda é só a forma de
+    // escrever, e o teste precisa enxergar as duas.
+    const problemas: string[] = [];
+
+    for (const f of arquivos) {
+      const t = fs.readFileSync(f, "utf8");
+      if (ehComponenteCliente(t)) continue;
+
+      // Só identificadores vindos de pacotes de componente contam. Um `tipo:
+      // Status` com enum não é problema, e sinalizá-lo treinaria todo mundo a
+      // ignorar este teste.
+      const importados = new Set<string>();
+      for (const imp of t.matchAll(
+        /import\s*\{([^}]+)\}\s*from\s*["']([^"']+)["']/g,
+      )) {
+        const origem = imp[2];
+        if (!/lucide-react|\/components\//.test(origem)) continue;
+        for (const nome of imp[1].split(",")) {
+          const limpo = nome
+            .replace(/type/, "")
+            .trim()
+            .split(/\s+as\s+/)
+            .pop()
+            ?.trim();
+          if (limpo && /^[A-Z]/.test(limpo)) importados.add(limpo);
+        }
+      }
+      if (importados.size === 0) continue;
+
+      for (const nome of nomesCliente) {
+        for (const uso of usosDoComponente(t, nome)) {
+          for (const prop of uso.matchAll(
+            /([\w.]+)\s*[:=]\s*\{?\s*([A-Z]\w*)\s*[,}\s]/g,
+          )) {
+            if (importados.has(prop[2])) {
+              problemas.push(
+                `${path.relative(RAIZ, f)}: <${nome}> recebe o componente ${prop[2]} em ${prop[1]}`,
+              );
+            }
           }
         }
       }
@@ -125,7 +216,9 @@ function importsDe(conteudo: string): string[] {
  * acusaria como problema exatamente o mecanismo que existe para resolvê-lo.
  */
 function ehServerAction(conteudo: string): boolean {
-  return /^\s*["']use server["']/m.test(conteudo.split("\n").slice(0, 3).join("\n"));
+  return /^\s*["']use server["']/m.test(
+    conteudo.split("\n").slice(0, 3).join("\n"),
+  );
 }
 
 describe("componentes cliente não importam servidor", () => {

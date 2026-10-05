@@ -320,7 +320,7 @@ export default async function Colocacao({
                   fornecedorAberto={fornecedorAberto}
                   href={hrefPorFornecedor}
                   rodapeDica={{
-                    icone: ClipboardList,
+                    icone: "pedido",
                     texto: bu ? `Somente ${bu}` : "Todas as BUs",
                   }}
                 />

@@ -1,4 +1,4 @@
-import { PackageCheck, Warehouse } from "lucide-react";
+import { PackageCheck } from "lucide-react";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import {
@@ -259,7 +259,7 @@ export default async function Recebimentos({
                   fornecedorAberto={fornecedorAberto}
                   href={hrefPorFornecedor}
                   rodapeDica={{
-                    icone: Warehouse,
+                    icone: "armazem",
                     texto: cd
                       ? `Somente ${rotulosFiliais.get(cd) ?? cd}`
                       : "Todos os CDs",

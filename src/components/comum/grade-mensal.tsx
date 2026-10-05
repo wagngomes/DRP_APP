@@ -3,9 +3,12 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { ChevronDown, ChevronRight } from "lucide-react";
-
-import type { LucideIcon } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ClipboardList,
+  Warehouse,
+} from "lucide-react";
 
 /**
  * Grade mensal de dois níveis: grupo por linha, dia por coluna.
@@ -25,6 +28,11 @@ import type { LucideIcon } from "lucide-react";
  */
 
 export type CelulaDia = { dia: number; valor: number; quantidade: number };
+
+/** Ícones aceitos no pé da dica, por nome. */
+export type IconeRodape = "armazem" | "pedido";
+
+const ICONES = { armazem: Warehouse, pedido: ClipboardList } as const;
 
 /** Primeiro nível: o que cada linha agrupa. */
 export type LinhaGrupo = {
@@ -131,8 +139,15 @@ export function GradeMensal({
   fornecedorAberto?: string;
   /** URL de cada linha, já montada no servidor — função não atravessa a fronteira. */
   href: Record<string, string>;
-  /** Linha de contexto no pé da dica: o recorte que vale para aquele número. */
-  rodapeDica?: { icone: LucideIcon; texto: string };
+  /**
+   * Linha de contexto no pé da dica: o recorte que vale para aquele número.
+   *
+   * O ícone vem como **nome**, não como componente. Componente é função, e
+   * função não atravessa a fronteira servidor→cliente: passá-lo daqui derrubava
+   * a página inteira com erro de servidor, sem mensagem útil. O mapa fica deste
+   * lado, que é onde o React já está.
+   */
+  rodapeDica?: { icone: IconeRodape; texto: string };
 }) {
   const [dica, setDica] = useState<Dica | null>(null);
 
@@ -357,7 +372,7 @@ function DicaFlutuante({
   rodape,
 }: {
   dica: Dica;
-  rodape?: { icone: LucideIcon; texto: string };
+  rodape?: { icone: IconeRodape; texto: string };
 }) {
   if (typeof document === "undefined") return null;
 
@@ -386,10 +401,15 @@ function DicaFlutuante({
       {/* O recorte de CD vem do filtro da página, não da célula: escolhido um
           CD, todo número da tela já é dele, e repetir aqui seria ruído. */}
       <p className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-        {rodape ? <rodape.icone className="size-3 shrink-0" /> : null}
+        {rodape ? <Icone nome={rodape.icone} /> : null}
         {rodape?.texto ?? ""}
       </p>
     </div>,
     document.body,
   );
+}
+
+function Icone({ nome }: { nome: IconeRodape }) {
+  const C = ICONES[nome];
+  return <C className="size-3 shrink-0" />;
 }
