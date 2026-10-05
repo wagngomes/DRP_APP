@@ -3,17 +3,50 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, Warehouse } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
-import type { CelulaDia, LinhaFornecedor, LinhaProduto } from "@/lib/recebimentos/consultas";
+import type { LucideIcon } from "lucide-react";
 
 /**
- * Grade de recebimentos: fornecedor por linha, dia por coluna.
+ * Grade mensal de dois níveis: grupo por linha, dia por coluna.
+ *
+ * Nasceu na tela de recebimentos e foi extraída quando a de colocação de
+ * pedidos precisou da mesma leitura. As duas olham pontas opostas do mesmo
+ * ciclo — o que foi pedido e o que chegou — e mostrar uma diferente da outra
+ * seria um obstáculo gratuito para quem compara as duas.
+ *
+ * Os tipos são definidos aqui, e não importados de um módulo de consulta: a
+ * grade não deve conhecer a origem dos números, e importar de `recebimentos`
+ * amarraria a tela de colocação àquele domínio sem motivo.
  *
  * Componente cliente por causa da dica que segue o cursor. O `title` nativo
- * daria o texto, mas não a abertura por CD em forma de tabela — e é ela que
- * responde "de onde veio esse número", que era o motivo de existir a dica.
+ * daria o texto, mas não a abertura em forma de tabela — e é ela que responde
+ * "de onde veio esse número", que era o motivo de existir a dica.
  */
+
+export type CelulaDia = { dia: number; valor: number; quantidade: number };
+
+/** Primeiro nível: o que cada linha agrupa. */
+export type LinhaGrupo = {
+  /** Identifica a linha e é a chave do mapa de URLs. */
+  chave: string;
+  rotulo: string;
+  dias: CelulaDia[];
+  total: number;
+  quantidadeTotal: number;
+  /** Até dois contadores de apoio, exibidos ao lado do nome. */
+  apoio?: string;
+};
+
+/** Segundo nível: o detalhe que abre sob a linha. */
+export type LinhaDetalhe = {
+  chave: string;
+  rotulo: string;
+  descricao: string | null;
+  dias: CelulaDia[];
+  total: number;
+  quantidadeTotal: number;
+};
 
 const AZUL = "text-sky-600 dark:text-sky-400";
 
@@ -79,7 +112,7 @@ type Dica = {
   y: number;
 };
 
-export function GradeRecebimentos({
+export function GradeMensal({
   linhas,
   produtos,
   colunas,
@@ -87,10 +120,10 @@ export function GradeRecebimentos({
   maximo,
   fornecedorAberto,
   href,
-  cdAtivo,
+  rodapeDica,
 }: {
-  linhas: LinhaFornecedor[];
-  produtos: LinhaProduto[];
+  linhas: LinhaGrupo[];
+  produtos: LinhaDetalhe[];
   colunas: number[];
   /** Mês em yyyy-mm, para saber qual coluna é fim de semana. */
   mes: string;
@@ -98,12 +131,13 @@ export function GradeRecebimentos({
   fornecedorAberto?: string;
   /** URL de cada linha, já montada no servidor — função não atravessa a fronteira. */
   href: Record<string, string>;
-  /** Rótulo do CD escolhido no filtro da página, quando há um. */
-  cdAtivo?: string;
+  /** Linha de contexto no pé da dica: o recorte que vale para aquele número. */
+  rodapeDica?: { icone: LucideIcon; texto: string };
 }) {
   const [dica, setDica] = useState<Dica | null>(null);
 
-  const mapaDias = (lista: CelulaDia[]) => new Map(lista.map((d) => [d.dia, d]));
+  const mapaDias = (lista: CelulaDia[]) =>
+    new Map(lista.map((d) => [d.dia, d]));
 
   /** Célula de valor, com a dica e o fundo proporcional. */
   function Celula({
@@ -122,16 +156,21 @@ export function GradeRecebimentos({
     const fds = ehFimDeSemana(mes, dia);
     // Risco vertical na segunda-feira: dá ritmo semanal a uma faixa de 31
     // colunas iguais, e é o que permite achar "a terceira semana" sem contar.
-    const inicioSemana = diaSemanaIndice(mes, dia) === 1 ? "border-l border-l-border" : "";
+    const inicioSemana =
+      diaSemanaIndice(mes, dia) === 1 ? "border-l border-l-border" : "";
     if (!c) {
       // Vazio, não zero: com 31 colunas um mar de zeros esconde o movimento.
       return (
-        <td className={`border-b border-border/40 p-1 ${inicioSemana} ${fds ? "bg-muted/30" : ""}`} />
+        <td
+          className={`border-b border-border/40 p-1 ${inicioSemana} ${fds ? "bg-muted/30" : ""}`}
+        />
       );
     }
     return (
       <td
-        onMouseMove={(e) => setDica({ titulo, dia, celula: c, x: e.clientX, y: e.clientY })}
+        onMouseMove={(e) =>
+          setDica({ titulo, dia, celula: c, x: e.clientX, y: e.clientY })
+        }
         onMouseLeave={() => setDica(null)}
         className={`cursor-default border-b border-border/40 p-1 text-center font-mono tabular-nums transition-[filter] hover:brightness-95 ${inicioSemana} ${
           pequena ? "text-[10px]" : "text-[11px]"
@@ -147,7 +186,9 @@ export function GradeRecebimentos({
         }
       >
         <span className="block font-semibold">{curto(c.valor)}</span>
-        <span className={`block text-[9px] font-bold ${AZUL}`}>{inteiro(c.quantidade)}</span>
+        <span className={`block text-[9px] font-bold ${AZUL}`}>
+          {inteiro(c.quantidade)}
+        </span>
       </td>
     );
   }
@@ -184,7 +225,9 @@ export function GradeRecebimentos({
                   <th
                     key={d}
                     className={`sticky top-0 z-20 min-w-16 border-b bg-background p-1.5 text-center font-mono text-xs font-semibold tabular-nums ${
-                      diaSemanaIndice(mes, d) === 1 ? "border-l border-l-border" : ""
+                      diaSemanaIndice(mes, d) === 1
+                        ? "border-l border-l-border"
+                        : ""
                     } ${fds ? "text-muted-foreground/40" : "text-foreground"}`}
                   >
                     <span className="block">{d}</span>
@@ -198,16 +241,16 @@ export function GradeRecebimentos({
           </thead>
           <tbody>
             {linhas.map((l) => {
-              const aberto = fornecedorAberto === l.fornecedor;
+              const aberto = fornecedorAberto === l.chave;
               const mapa = mapaDias(l.dias);
               return [
                 <tr
-                  key={l.fornecedor}
+                  key={l.chave}
                   className={`group ${aberto ? "bg-muted/60" : "hover:bg-muted/30"}`}
                 >
                   <td className="sticky left-0 z-10 border-b border-border/40 bg-background p-0 group-hover:bg-muted/30">
                     <Link
-                      href={href[l.fornecedor]}
+                      href={href[l.chave]}
                       scroll={false}
                       className={`flex items-center gap-1.5 p-2.5 font-medium ${
                         aberto ? "bg-muted/60" : ""
@@ -218,11 +261,18 @@ export function GradeRecebimentos({
                       ) : (
                         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
                       )}
-                      <span className="truncate">{l.fornecedor}</span>
+                      <span className="truncate">{l.rotulo}</span>
+                      {l.apoio ? (
+                        <span className="shrink-0 text-[10px] font-normal text-muted-foreground">
+                          {l.apoio}
+                        </span>
+                      ) : null}
                     </Link>
                   </td>
                   <td className="sticky left-56 z-10 border-r-2 border-b border-border/40 border-r-(--brand-turquoise)/40 bg-background p-2.5 text-right font-mono tabular-nums group-hover:bg-muted/30">
-                    <span className="block text-xs font-bold">{curto(l.total)}</span>
+                    <span className="block text-xs font-bold">
+                      {curto(l.total)}
+                    </span>
                     <span className={`block text-[10px] font-bold ${AZUL}`}>
                       {inteiro(l.quantidadeTotal)}
                     </span>
@@ -231,7 +281,7 @@ export function GradeRecebimentos({
                     <Celula
                       key={d}
                       c={mapa.get(d)}
-                      titulo={l.fornecedor}
+                      titulo={l.rotulo}
                       dia={d}
                       pintar
                     />
@@ -245,13 +295,16 @@ export function GradeRecebimentos({
                   ? produtos.map((p) => {
                       const mp = mapaDias(p.dias);
                       return (
-                        <tr key={`${l.fornecedor}-${p.codigo}`} className="bg-muted/20">
+                        <tr
+                          key={`${l.chave}-${p.chave}`}
+                          className="bg-muted/20"
+                        >
                           <td className="sticky left-0 z-10 border-b border-border/40 bg-muted/40 p-2 pl-8">
                             <Link
-                              href={`/produto/${encodeURIComponent(p.codigo)}`}
+                              href={`/produto/${encodeURIComponent(p.chave)}`}
                               className="font-mono text-xs font-semibold text-(--brand-petrol) underline underline-offset-2 dark:text-(--brand-turquoise)"
                             >
-                              {p.codigo}
+                              {p.rotulo}
                             </Link>
                             <span className="ml-2 text-xs text-muted-foreground">
                               {p.descricao ?? "—"}
@@ -261,7 +314,9 @@ export function GradeRecebimentos({
                             <span className="block text-[11px] font-semibold">
                               {curto(p.total)}
                             </span>
-                            <span className={`block text-[10px] font-bold ${AZUL}`}>
+                            <span
+                              className={`block text-[10px] font-bold ${AZUL}`}
+                            >
                               {inteiro(p.quantidadeTotal)}
                             </span>
                           </td>
@@ -269,7 +324,7 @@ export function GradeRecebimentos({
                             <Celula
                               key={d}
                               c={mp.get(d)}
-                              titulo={`${p.codigo} · ${p.descricao ?? ""}`}
+                              titulo={`${p.chave} · ${p.descricao ?? ""}`}
                               dia={d}
                               pintar={false}
                               pequena
@@ -285,7 +340,7 @@ export function GradeRecebimentos({
         </table>
       </div>
 
-      {dica ? <DicaFlutuante dica={dica} cdAtivo={cdAtivo} /> : null}
+      {dica ? <DicaFlutuante dica={dica} rodape={rodapeDica} /> : null}
     </>
   );
 }
@@ -297,7 +352,13 @@ export function GradeRecebimentos({
  * cortada na borda ou empurraria a própria célula. Posicionada pelo cursor, e
  * deslocada para a esquerda quando está perto da borda direita da janela.
  */
-function DicaFlutuante({ dica, cdAtivo }: { dica: Dica; cdAtivo?: string }) {
+function DicaFlutuante({
+  dica,
+  rodape,
+}: {
+  dica: Dica;
+  rodape?: { icone: LucideIcon; texto: string };
+}) {
   if (typeof document === "undefined") return null;
 
   const perto = dica.x > window.innerWidth - 280;
@@ -325,10 +386,10 @@ function DicaFlutuante({ dica, cdAtivo }: { dica: Dica; cdAtivo?: string }) {
       {/* O recorte de CD vem do filtro da página, não da célula: escolhido um
           CD, todo número da tela já é dele, e repetir aqui seria ruído. */}
       <p className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-        <Warehouse className="size-3 shrink-0" />
-        {cdAtivo ? `Somente ${cdAtivo}` : "Todos os CDs"}
+        {rodape ? <rodape.icone className="size-3 shrink-0" /> : null}
+        {rodape?.texto ?? ""}
       </p>
     </div>,
-    document.body
+    document.body,
   );
 }
