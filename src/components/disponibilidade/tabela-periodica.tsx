@@ -252,7 +252,18 @@ export function TabelaPeriodica({
   /** Chave "codigo|filial" para as reposições previstas. */
   chegadas: Record<string, Reposicao[]>;
 }) {
-  const [ativa, setAtiva] = useState<string | null>(null);
+  /** Célula sob o cursor. No celular não existe cursor, e esta fica sempre nula. */
+  const [sobMouse, setSobMouse] = useState<string | null>(null);
+  /**
+   * Célula aberta por clique ou toque.
+   *
+   * Sem ela a tela não funcionava no celular: `onMouseEnter` não existe em
+   * toque, e o painel de detalhe simplesmente não abria. Fixada, ela também
+   * sobrevive ao mouse sair — útil no desktop para ler com calma ou clicar no
+   * link do produto.
+   */
+  const [fixada, setFixada] = useState<string | null>(null);
+  const aberta = fixada ?? sobMouse;
   const sigla = (codigo: string) => rotulos[codigo] ?? codigo;
 
   // A companhia primeiro: é a leitura que responde "o item está coberto?" antes
@@ -331,10 +342,17 @@ export function TabelaPeriodica({
                     className={`relative p-0 ${separador(ehCia)}`}
                   >
                     <div
-                      onMouseEnter={() => setAtiva(chave)}
-                      onMouseLeave={() => setAtiva(null)}
-                      className={`flex size-20 cursor-default flex-col justify-between rounded-md p-1.5 transition-all hover:z-10 hover:-translate-y-0.5 ${
+                      onMouseEnter={() => setSobMouse(chave)}
+                      onMouseLeave={() => setSobMouse(null)}
+                      onClick={() =>
+                        setFixada((f) => (f === chave ? null : chave))
+                      }
+                      className={`flex size-20 cursor-pointer flex-col justify-between rounded-md p-1.5 transition-all hover:z-10 hover:-translate-y-0.5 ${
                         ehCia ? "ring-2 ring-(--brand-petrol)/30" : ""
+                      } ${
+                        // No celular não há hover para indicar qual está aberta:
+                        // o anel é o que diz de onde o painel saiu.
+                        fixada === chave ? "ring-2 ring-foreground/50" : ""
                       }`}
                       style={{
                         backgroundColor: `var(--faixa-${c.faixa})`,
@@ -380,7 +398,7 @@ export function TabelaPeriodica({
                       </span>
                     </div>
 
-                    {ativa === chave ? (
+                    {aberta === chave ? (
                       // No celular o painel é largo demais para abrir à direita
                       // da célula: ancorado à direita, ele cresce para dentro da
                       // tela em vez de para fora.

@@ -120,17 +120,20 @@ export default async function TabelaDisponibilidade({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-end gap-2">
+          {/* Os dois filtros na mesma linha quando couber, empilhados no
+              celular. `shrink-0` para o bloco não ser espremido pelo título,
+              que é o que empurrava o laboratório para a linha de baixo. */}
+          <div className="flex flex-wrap items-end gap-3 lg:shrink-0">
             {/* GET simples, como nas outras telas: o recorte vira URL e o link
                 é compartilhável. */}
             <form
               action="/disponibilidade/tabela"
-              className="flex items-end gap-2"
+              className="flex w-full flex-wrap items-end gap-2 sm:w-auto"
             >
               {fornecedor ? (
                 <input type="hidden" name="fornecedor" value={fornecedor} />
               ) : null}
-              <div className="space-y-1.5">
+              <div className="w-full space-y-1.5 sm:w-auto">
                 <label
                   htmlFor="produto"
                   className="text-xs text-muted-foreground"
@@ -144,7 +147,7 @@ export default async function TabelaDisponibilidade({
                     name="produto"
                     defaultValue={produto ?? ""}
                     placeholder="Código ou descrição"
-                    className="h-9 w-48 pl-8"
+                    className="h-9 w-full pl-8 sm:w-44"
                   />
                 </div>
               </div>
