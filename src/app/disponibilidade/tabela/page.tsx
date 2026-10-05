@@ -1,4 +1,8 @@
-import { Grid3x3 } from "lucide-react";
+import Link from "next/link";
+import { Grid3x3, Search, X } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { LegendaElemento } from "@/components/disponibilidade/legenda-elemento";
@@ -37,10 +41,16 @@ function primeiro(v: string | string[] | undefined): string | undefined {
 export default async function TabelaDisponibilidade({
   searchParams,
 }: {
-  searchParams: Promise<{ fornecedor?: string | string[] }>;
+  searchParams: Promise<{
+    fornecedor?: string | string[];
+    produto?: string | string[];
+  }>;
 }) {
   const sessao = await exigirSessao();
-  const fornecedor = primeiro((await searchParams).fornecedor);
+  const params = await searchParams;
+  const fornecedor = primeiro(params.fornecedor);
+  const produto = primeiro(params.produto);
+  const temRecorte = Boolean(fornecedor || produto);
 
   const [data, parametros] = await Promise.all([
     lerDataReferencia(),
@@ -48,11 +58,11 @@ export default async function TabelaDisponibilidade({
   ]);
 
   const [dados, rotulos, mapaChegadas] = await Promise.all([
-    carregarTabela(data, fornecedor),
+    carregarTabela(data, fornecedor, produto),
     carregarRotulosFiliais(),
     // Só quando há grade: são dois segundos, e não faz sentido pagá-los para
     // uma tela que ainda está pedindo o laboratório.
-    fornecedor ? carregarChegadas(data, parametros) : Promise.resolve(null),
+    temRecorte ? carregarChegadas(data, parametros) : Promise.resolve(null),
   ]);
 
   // O mapa inteiro cobre a base toda; a tela só precisa das posições da grade,
@@ -104,18 +114,77 @@ export default async function TabelaDisponibilidade({
               Tabela de cobertura
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {fornecedor
+              {temRecorte
                 ? `${dados.linhas.length} produto(s) em ${dados.filiais.length} CD(s) · ${posicoes} posições · ${dataBr(data)}`
-                : "Cada cruzamento de produto e CD é um elemento. Escolha um laboratório para montar a grade."}
+                : "Cada cruzamento de produto e CD é um elemento. Escolha um laboratório ou busque um produto para montar a grade."}
             </p>
           </div>
 
-          <FiltroFornecedor
-            fornecedores={dados.fornecedores}
-            atual={fornecedor}
-            basePath="/disponibilidade/tabela"
-          />
+          <div className="flex flex-wrap items-end gap-2">
+            {/* GET simples, como nas outras telas: o recorte vira URL e o link
+                é compartilhável. */}
+            <form
+              action="/disponibilidade/tabela"
+              className="flex items-end gap-2"
+            >
+              {fornecedor ? (
+                <input type="hidden" name="fornecedor" value={fornecedor} />
+              ) : null}
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="produto"
+                  className="text-xs text-muted-foreground"
+                >
+                  Produto
+                </label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="produto"
+                    name="produto"
+                    defaultValue={produto ?? ""}
+                    placeholder="Código ou descrição"
+                    className="h-9 w-48 pl-8"
+                  />
+                </div>
+              </div>
+              <Button type="submit" variant="outline">
+                Buscar
+              </Button>
+              {produto ? (
+                <Button
+                  variant="ghost"
+                  render={
+                    <Link
+                      href={
+                        fornecedor
+                          ? `/disponibilidade/tabela?fornecedor=${encodeURIComponent(fornecedor)}`
+                          : "/disponibilidade/tabela"
+                      }
+                    />
+                  }
+                >
+                  <X className="size-4" />
+                  Limpar
+                </Button>
+              ) : null}
+            </form>
+
+            <FiltroFornecedor
+              fornecedores={dados.fornecedores}
+              atual={fornecedor}
+              basePath="/disponibilidade/tabela"
+              extras={{ produto }}
+            />
+          </div>
         </div>
+
+        {dados.truncado ? (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            A busca casou mais produtos do que cabe na grade. Estão os 300 de
+            menor cobertura — estreite o recorte para ver os demais.
+          </p>
+        ) : null}
 
         <LegendaElemento />
 

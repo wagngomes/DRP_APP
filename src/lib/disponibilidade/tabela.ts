@@ -74,7 +74,18 @@ export type DadosTabela = {
   /** CDs que aparecem, na ordem das colunas. */
   filiais: string[];
   fornecedores: string[];
+  /** O recorte passou do teto e foi cortado. */
+  truncado: boolean;
 };
+
+/**
+ * Teto de produtos na grade.
+ *
+ * Uma busca por "gaze" pode casar centenas de itens, e a grade deixa de ser
+ * legível muito antes de ficar lenta. O corte acontece depois da ordenação por
+ * criticidade, então o que sobra é o que mais precisa de decisão.
+ */
+const TETO_PRODUTOS = 300;
 
 /**
  * Monta a grade de um laboratório.
@@ -88,9 +99,17 @@ export type DadosTabela = {
 export async function carregarTabela(
   data: string,
   fornecedor: string | undefined,
+  /** Código exato ou trecho da descrição. */
+  produto?: string,
 ): Promise<DadosTabela> {
   const fornecedores = await listarLaboratorios(data);
-  if (!fornecedor) return { linhas: [], filiais: [], fornecedores };
+
+  // Um dos dois basta. O laboratório existe para conter o volume, e um produto
+  // específico contém sozinho — exigir os dois obrigaria a saber de que
+  // laboratório é o item antes de poder procurá-lo.
+  if (!fornecedor && !produto) {
+    return { linhas: [], filiais: [], fornecedores, truncado: false };
+  }
 
   const linhas = await prisma.$queryRawUnsafe<
     ({
@@ -133,16 +152,22 @@ export async function carregarTabela(
        LEFT JOIN ${simuladorPorCd("s.data_snapshot = $1::date")} s
          ON s.codigo = f.codigo AND s.filial = f.filial AND s.data_snapshot = $1::date
        LEFT JOIN produtos pr ON pr.codigo = f.codigo
-       -- JOIN e nao LEFT JOIN: item sem fornecedor no simulador nao pertence a
-       -- laboratorio nenhum, e nao tem onde aparecer numa grade filtrada.
-       JOIN forn ON forn.codigo = f.codigo AND forn.nome = $2
+       -- LEFT JOIN quando nao ha filtro de laboratorio: a busca por produto nao
+       -- deve excluir item que esta sem fornecedor no simulador.
+       LEFT JOIN forn ON forn.codigo = f.codigo
       WHERE ${snapshotMensalSql("forecast", "f", "$1")}
         AND f.forecast_m0 > 0
         AND ${torreValidaSql("f")}
         AND f.filial IS NOT NULL
+        AND ($2::text IS NULL OR forn.nome = $2)
+        -- Codigo exato ou trecho da descricao, como nas outras telas. O exato
+        -- vem primeiro porque e o caso comum: quem tem o codigo quer aquele
+        -- item, nao todos os que o contem no texto.
+        AND ($3::text IS NULL OR f.codigo = $3 OR pr.descricao ILIKE '%' || $3 || '%')
       ORDER BY f.codigo, f.filial`,
     data,
-    fornecedor,
+    fornecedor ?? null,
+    produto ?? null,
   );
 
   const porItem = new Map<string, LinhaTabela>();
@@ -187,24 +212,24 @@ export async function carregarTabela(
     if (cia) item.celulas.set(COLUNA_CIA, cia);
   }
 
+  // Menor cobertura da companhia primeiro: a grade é longa, e o que precisa de
+  // decisão tem de estar no topo. Por forecast, o item de maior volume vinha na
+  // frente — que é outra pergunta.
+  //
+  // Empate desempata pelo maior forecast: entre dois itens com a mesma
+  // cobertura, o que vende mais pesa mais. Item sem posição na Cia vai para o
+  // fim, e não para o começo como um zero faria: ausência de cobertura não é
+  // cobertura zero.
+  const ordenadas = [...porItem.values()].sort(
+    (a, b) =>
+      coberturaCia(a) - coberturaCia(b) || b.forecastTotal - a.forecastTotal,
+  );
+
   return {
-    // Maior forecast primeiro: a grade é longa, e quem abre quer ver o que pesa
-    // antes de rolar.
-    // Menor cobertura da companhia primeiro: a grade é longa, e o que precisa
-    // de decisão tem de estar no topo. Por forecast, o item de maior volume
-    // vinha na frente — que é outra pergunta.
-    //
-    // Empate desempata pelo maior forecast: entre dois itens com a mesma
-    // cobertura, o que vende mais pesa mais.
-    //
-    // Item sem posição na Cia vai para o fim, e não para o começo como um zero
-    // faria: ausência de cobertura não é cobertura zero.
-    linhas: [...porItem.values()].sort(
-      (a, b) =>
-        coberturaCia(a) - coberturaCia(b) || b.forecastTotal - a.forecastTotal,
-    ),
+    linhas: ordenadas.slice(0, TETO_PRODUTOS),
     filiais: [...filiais].sort(),
     fornecedores,
+    truncado: ordenadas.length > TETO_PRODUTOS,
   };
 }
 
