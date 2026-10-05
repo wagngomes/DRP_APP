@@ -18,6 +18,13 @@
  * dias 1..N de setembro são comparados com os dias 1..N de cada mês anterior, e
  * é essa mesma janela que o gráfico acumulado desenha.
  *
+ * **Uma fonte só para venda: `historico_vendas`.** As duas perguntas acima medem
+ * a mesma venda, e por um tempo mediram de lugares diferentes — a do item pelo
+ * acumulado do ERP (`vendido_m0` do simulador), a do cliente pela nota. Os dois
+ * números apareciam lado a lado na mesma linha da tela em unidades que não
+ * somavam entre si, e divergiam cerca de 20% por item para os dois lados. É
+ * também o que fazia esta tela não bater com a de raio-X, que sempre leu a nota.
+ *
  * Sinal: `historico_vendas` grava venda como saída, com quantidade negativa.
  * Todas as somas invertem o sinal.
  */
@@ -29,7 +36,6 @@ import { joinFornecedor, nomeFornecedor } from "@/lib/fornecedor";
 import { VAZIO } from "@/lib/fornecedores/agregacao";
 import {
   COLUNAS_ESTOQUE_CHAO,
-  COLUNAS_VENDIDO_M0,
   DIAS_NO_MES,
   snapshotMensalSql,
   somaSql,
@@ -38,7 +44,6 @@ import {
 import { fracaoDoMesDecorrida, TOLERANCIA } from "@/utils/ritmo-venda";
 
 const CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
-const VENDIDO = somaSql(COLUNAS_VENDIDO_M0, "s");
 
 /** Mínimo de unidades no mês para um cliente ser considerado fora do padrão. */
 export const MINIMO_UNIDADES_CLIENTE = 10;
@@ -197,6 +202,25 @@ export async function carregarJanela(dataReferencia: string): Promise<Janela> {
 }
 
 /**
+ * Fração do mês que a janela 1..diaCorte cobre.
+ *
+ * Separada do corpo da consulta porque é onde a troca de fonte pode morder sem
+ * fazer barulho. Na virada do mês, com a venda do dia 1 ainda não importada, o
+ * corte é zero — e `vendido / forecast / 0` devolve infinito para todo item do
+ * universo, o que viraria uma tela inteira de alertas máximos em vez de uma tela
+ * vazia. Zero aqui, e quem divide trata o caso.
+ *
+ * O denominador é o tamanho real do mês, e não 30: é a mesma conta de
+ * `fracaoDoMesDecorrida`, reusada em vez de reescrita.
+ */
+export function fracaoDaJanela(mesCorrente: string, diaCorte: number): number {
+  if (diaCorte <= 0) return 0;
+  return fracaoDoMesDecorrida(
+    `${mesCorrente}-${String(diaCorte).padStart(2, "0")}`,
+  );
+}
+
+/**
  * Clientes fora do padrão por item, agregados.
  *
  * A chave é o CNPJ, que voltou a ser confiável depois da reimportação — antes
@@ -246,15 +270,15 @@ export async function carregarAceleracao(
   janelaPronta?: Janela,
 ): Promise<DadosAceleracao> {
   const janela = janelaPronta ?? (await carregarJanela(data));
-  // Do calendário, e não da janela: `vendido` sai das colunas `vendido_m0` do
-  // simulador, que são o acumulado do mês na data do snapshot — e o snapshot é
-  // exatamente a data de referência. A fração que corresponde a esse acumulado é
-  // a do mês decorrido naquela data.
+  // Da janela, e não do calendário.
   //
-  // A janela é outra coisa: ela recorta o histórico de vendas para a análise de
-  // clientes, que compara os mesmos dias entre meses. As duas datas convivem de
-  // propósito, porque medem fontes diferentes.
-  const fracao = fracaoDoMesDecorrida(data);
+  // Antes vinha do calendário, e estava certo para o que havia: `vendido` saía
+  // das colunas `vendido_m0` do simulador, que são o acumulado do ERP na data do
+  // snapshot e não conhecem corte nenhum. Agora o vendido sai do histórico
+  // recortado em 1..diaCorte, e a fração que lhe corresponde é a desses mesmos
+  // dias. A troca de fonte é o que torna esta linha correta — mudar uma sem a
+  // outra deixaria a conta pior do que estava.
+  const fracao = fracaoDaJanela(janela.mesCorrente, janela.diaCorte);
   const diasDecorridos = Math.max(1, fracao * DIAS_NO_MES);
 
   const linhas = await prisma.$queryRawUnsafe<
@@ -272,10 +296,18 @@ export async function carregarAceleracao(
       maior: number | null;
     }[]
   >(
-    // Cia é a soma de todos os CDs, então o simulador entra direto, sem a
-    // separação de CDs virtuais: ela redistribui entre filiais e não altera o
-    // total. O forecast já traz linhas das filiais "90", e por isso os dois
-    // lados da divisão cobrem o mesmo universo.
+    // Cada número vem de onde ele mora: venda do histórico, estoque do
+    // simulador, plano do forecast.
+    //
+    // O vendido já saiu do simulador. As colunas `vendido_m0` são o acumulado do
+    // ERP, e divergem do faturamento item a item em cerca de 20% para os dois
+    // lados — mediana 9% abaixo, cauda a 33%. Medido na base: 104 itens
+    // acelerando que a tela não mostrava, contra 21 alertas que o faturamento
+    // não confirmava. Pior, a mesma tela media a venda do item pelo ERP e a
+    // venda do cliente pela nota, lado a lado na mesma linha, em unidades que
+    // não somam entre si.
+    //
+    // O estoque continua no simulador, que é onde posição de estoque mora.
     `WITH fc AS (
        SELECT f.codigo,
               SUM(f.forecast_m0)::float8 AS forecast,
@@ -288,9 +320,36 @@ export async function carregarAceleracao(
           AND f.filial IS NOT NULL
         GROUP BY 1
      ),
+     -- Posições item|CD que a torre manda ignorar.
+     --
+     -- O filtro de torre valia só no lado do forecast: a posição saía do plano e
+     -- a venda dela continuava entrando, inflando o índice por um motivo que não
+     -- é aceleração. COALESCE porque torre nula não é "considerar", e sem ele a
+     -- comparação devolve NULL e a posição escapa do anti-join.
+     --
+     -- CTE e não subconsulta correlacionada: o histórico tem meia-milhão de
+     -- linhas, e correlacionar aqui custaria uma varredura por linha.
+     torre_fora AS (
+       SELECT DISTINCT f.codigo, f.filial
+         FROM forecast f
+        WHERE ${snapshotMensalSql("forecast", "f", "$1")}
+          AND f.filial IS NOT NULL
+          AND NOT COALESCE(${torreValidaSql("f")}, false)
+     ),
+     vd AS (
+       SELECT h.cod_prod AS codigo, SUM(-h.quantidade)::float8 AS vendido
+         FROM historico_vendas h
+         LEFT JOIN torre_fora tf
+                ON tf.codigo = h.cod_prod AND tf.filial = h.filial
+        WHERE h.cod_prod IS NOT NULL
+          AND h.data >= date_trunc('month', $1::date)
+          AND h.data <  date_trunc('month', $1::date) + interval '1 month'
+          AND extract(day FROM h.data) <= $2
+          AND tf.codigo IS NULL
+        GROUP BY 1
+     ),
      sim AS (
        SELECT s.codigo,
-              SUM(COALESCE(${VENDIDO}, 0))::float8 AS vendido,
               SUM(COALESCE(${CHAO}, 0))::float8 AS chao,
               MIN(${nomeFornecedor("s")}) AS fornecedor
          FROM simulador s ${joinFornecedor("s")}
@@ -301,11 +360,12 @@ export async function carregarAceleracao(
      SELECT fc.codigo, pr.descricao,
             COALESCE(sim.fornecedor, 'Sem fornecedor') AS fornecedor,
             fc.bu, fc.curva, fc.forecast,
-            COALESCE(sim.vendido, 0) AS vendido,
+            COALESCE(vd.vendido, 0) AS vendido,
             COALESCE(sim.chao, 0) AS chao,
             cli.clientes, cli.excedente, cli.maior
        FROM fc
        LEFT JOIN sim ON sim.codigo = fc.codigo
+       LEFT JOIN vd ON vd.codigo = fc.codigo
        LEFT JOIN cli ON cli.codigo = fc.codigo
        LEFT JOIN produtos pr ON pr.codigo = fc.codigo`,
     data,
@@ -315,7 +375,10 @@ export async function carregarAceleracao(
   );
 
   const todos = linhas.map((l): ItemAcelerado => {
-    const indice = l.forecast > 0 ? l.vendido / l.forecast / fracao : 0;
+    // `fracao > 0` protege a virada do mês: sem venda importada ainda, o corte é
+    // o dia zero e a divisão devolveria infinito para todo item do universo.
+    const indice =
+      l.forecast > 0 && fracao > 0 ? l.vendido / l.forecast / fracao : 0;
     const porDiaReal = l.vendido / diasDecorridos;
     const porDiaPlano = l.forecast / DIAS_NO_MES;
     const excedente = l.excedente ?? 0;
