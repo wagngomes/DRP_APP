@@ -92,6 +92,7 @@ type ListResponse = {
   pageCount: number;
   /** Datas (yyyy-mm-dd) com dados — só vem para tabelas cumulativas. */
   snapshotDates?: string[];
+  meses?: { mes: string; linhas: number }[];
 };
 
 type SnapshotFilters = { dia: string; mes: string; ano: string };
@@ -198,6 +199,14 @@ export function ImportTabPanel({
   const { key: modelKey, label } = model;
   const idField = getIdField(model);
   const isCumulative = Boolean(model.cumulative && model.snapshotField);
+  /**
+   * Bases incrementais se apagam por mês do movimento.
+   *
+   * Elas não têm snapshot — a data é a do próprio fato — então a única exclusão
+   * possível era "tudo". Num histórico de meio milhão de linhas, corrigir um
+   * mês custava apagar todos e reimportar a base inteira.
+   */
+  const porMes = Boolean(model.incremental && model.dateField);
   const columns = getDisplayColumns(model);
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [page, setPage] = useState(1);
@@ -223,6 +232,14 @@ export function ImportTabPanel({
   );
   const [resultado, setResultado] = useState<ResultadoImport | null>(null);
   const [snapshotDates, setSnapshotDates] = useState<string[]>([]);
+  /** Meses existentes na base incremental, com quantas linhas cada um tem. */
+  const [mesesDaBase, setMesesDaBase] = useState<
+    { mes: string; linhas: number }[]
+  >([]);
+  /** Meses marcados para exclusão; vazio = apagar a tabela inteira. */
+  const [mesesParaLimpar, setMesesParaLimpar] = useState<Set<string>>(
+    new Set(),
+  );
   const [filters, setFilters] = useState<SnapshotFilters>({
     dia: ALL,
     mes: ALL,
@@ -251,6 +268,7 @@ export function ImportTabPanel({
         setPageCount(data.pageCount);
         setTotal(data.total);
         setSnapshotDates(data.snapshotDates ?? []);
+        setMesesDaBase(data.meses ?? []);
       } catch {
         toast.error(`Não foi possível carregar os dados de ${label}`);
       } finally {
@@ -437,6 +455,7 @@ export function ImportTabPanel({
     try {
       const params = new URLSearchParams();
       for (const d of datasParaLimpar) params.append("data", d);
+      for (const m of mesesParaLimpar) params.append("mes", m);
       const qs = params.toString();
       const response = await fetch(
         qs ? `/api/imports/${modelKey}?${qs}` : `/api/imports/${modelKey}`,
@@ -444,8 +463,11 @@ export function ImportTabPanel({
       );
       if (!response.ok) throw new Error("Falha ao limpar a tabela");
       const data = await response.json();
-      const alvo =
-        datasParaLimpar.size === 0
+      const alvo = mesesParaLimpar.size
+        ? mesesParaLimpar.size === 1
+          ? ` em ${rotuloMesLongo([...mesesParaLimpar][0])}`
+          : ` em ${mesesParaLimpar.size} meses`
+        : datasParaLimpar.size === 0
           ? ""
           : datasParaLimpar.size === 1
             ? ` de ${formatarData([...datasParaLimpar][0])}`
@@ -454,6 +476,7 @@ export function ImportTabPanel({
         `${data.deletedCount} registro(s) removido(s) de ${label}${alvo}`,
       );
       setDatasParaLimpar(new Set());
+      setMesesParaLimpar(new Set());
       setConfirmOpen(false);
       await loadPage(1);
     } catch {
@@ -802,11 +825,67 @@ export function ImportTabPanel({
           <AlertDialogHeader>
             <AlertDialogTitle>Limpar tabela {label}?</AlertDialogTitle>
             <AlertDialogDescription>
-              {isCumulative
+              {isCumulative || (porMes && mesesDaBase.length > 0)
                 ? "Escolha o que apagar. A ação não pode ser desfeita."
                 : "Essa ação apaga todos os registros importados desta tabela. Não pode ser desfeita."}
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {/* Base incremental: a data é a do movimento, não da carga, então o
+              recorte que faz sentido é o mês. Com a contagem ao lado, porque
+              "setembro" não dimensiona nada e "setembro — 82.150 linhas" sim. */}
+          {porMes && mesesDaBase.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">
+                  {mesesParaLimpar.size === 0
+                    ? `Nada marcado — serão apagados todos os ${total.toLocaleString("pt-BR")} registro(s)`
+                    : `${linhasMarcadas(mesesDaBase, mesesParaLimpar).toLocaleString("pt-BR")} registro(s) em ${mesesParaLimpar.size} mês(es)`}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    setMesesParaLimpar((atual) =>
+                      atual.size === mesesDaBase.length
+                        ? new Set()
+                        : new Set(mesesDaBase.map((m) => m.mes)),
+                    )
+                  }
+                >
+                  {mesesParaLimpar.size === mesesDaBase.length
+                    ? "Desmarcar todos"
+                    : "Marcar todos"}
+                </Button>
+              </div>
+
+              <div className="max-h-56 space-y-1.5 overflow-auto">
+                {mesesDaBase.map((m) => (
+                  <label
+                    key={m.mes}
+                    className="flex cursor-pointer items-center gap-2 rounded-md border p-2.5 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={mesesParaLimpar.has(m.mes)}
+                      onChange={() =>
+                        setMesesParaLimpar((atual) => {
+                          const proximo = new Set(atual);
+                          if (proximo.has(m.mes)) proximo.delete(m.mes);
+                          else proximo.add(m.mes);
+                          return proximo;
+                        })
+                      }
+                    />
+                    <span className="flex-1">{rotuloMesLongo(m.mes)}</span>
+                    <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                      {`${m.linhas.toLocaleString("pt-BR")} linha(s)`}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {/* Numa tabela cumulativa cada carga vira um snapshot; marcar datas
               apaga só elas, e nenhuma marcada apaga a tabela inteira. */}
@@ -869,15 +948,40 @@ export function ImportTabPanel({
             >
               {clearing
                 ? "Limpando..."
-                : datasParaLimpar.size === 0
-                  ? "Apagar tudo"
-                  : `Apagar ${datasParaLimpar.size} carga(s)`}
+                : mesesParaLimpar.size > 0
+                  ? `Apagar ${mesesParaLimpar.size} mês(es)`
+                  : datasParaLimpar.size === 0
+                    ? "Apagar tudo"
+                    : `Apagar ${datasParaLimpar.size} carga(s)`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </Card>
   );
+}
+
+/** "2026-08" -> "agosto de 2026". Por extenso: aqui se apaga dado. */
+function rotuloMesLongo(mes: string): string {
+  const [ano, m] = mes.split("-").map(Number);
+  const nome = new Date(Date.UTC(ano, m - 1, 1)).toLocaleDateString("pt-BR", {
+    month: "long",
+    timeZone: "UTC",
+  });
+  return `${nome.charAt(0).toUpperCase()}${nome.slice(1)} de ${ano}`;
+}
+
+/**
+ * Quantas linhas as marcações somam.
+ *
+ * O diálogo mostra isso antes de apagar: marcar três meses sem saber que são
+ * duzentas mil linhas é decidir no escuro, e esta ação não tem volta.
+ */
+function linhasMarcadas(
+  meses: { mes: string; linhas: number }[],
+  marcados: Set<string>,
+): number {
+  return meses.reduce((a, m) => (marcados.has(m.mes) ? a + m.linhas : a), 0);
 }
 
 /** "2026-08" -> "ago/26", curto o bastante para caber num chip. */

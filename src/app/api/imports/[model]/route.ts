@@ -22,6 +22,7 @@ import {
 import { resolverDataCarga } from "@/lib/imports/data-carga";
 import { filterByReferences } from "@/lib/imports/references";
 import { limparCacheReferencia } from "@/lib/cache-referencia";
+import { limitesDoMes } from "@/utils/mes";
 import { listarSnapshots } from "@/lib/snapshots";
 import { metricas } from "@/lib/observabilidade/metricas";
 import { IMPORTACAO, IMPORTACAO_SIMULTANEA } from "@/lib/seguranca/limites";
@@ -150,6 +151,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
   }
 
+  // Meses presentes nas bases incrementais, para a tela de limpeza oferecer o
+  // que apagar. Elas não têm snapshot — a data é a do próprio movimento — e por
+  // isso a única exclusão possível era "tudo", o que num histórico de meio
+  // milhão de linhas é uma decisão grande demais para um botão só.
+  const meses =
+    model.incremental && model.dateField
+      ? await mesesDaBase(getTableName(model), model.dateField)
+      : [];
+
   const [rows, total] = await Promise.all([
     delegate.findMany({
       skip: (page - 1) * pageSize,
@@ -168,7 +178,40 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     pageCount: Math.max(1, Math.ceil(total / pageSize)),
     // ISO yyyy-mm-dd — a hora não interessa e evita fuso na volta para a tela.
     snapshotDates: snapshotDates.map((date) => date.toISOString().slice(0, 10)),
+    meses,
   });
+}
+
+/** Um mês presente numa base incremental, com o peso de apagá-lo. */
+type MesDaBase = { mes: string; linhas: number };
+
+/**
+ * Meses com movimento numa base incremental, do mais recente para o mais antigo.
+ *
+ * Traz a contagem junto porque é ela que dá a dimensão do que se vai apagar:
+ * "setembro" não diz nada, "setembro — 82.150 linhas" diz. Uma varredura só
+ * responde as duas coisas, então sai mais barato que perguntar depois.
+ *
+ * O identificador é validado contra o padrão de nome, e não interpolado direto:
+ * ele vem da configuração e não da requisição, mas essa distância pode encurtar
+ * numa refatoração futura, e a validação custa nada.
+ */
+async function mesesDaBase(
+  tabela: string,
+  campo: string,
+): Promise<MesDaBase[]> {
+  const valido = /^[a-z_][a-z0-9_]*$/;
+  if (!valido.test(tabela) || !valido.test(campo)) return [];
+
+  const linhas = await prisma.$queryRawUnsafe<{ mes: string; n: bigint }[]>(
+    `SELECT to_char(${campo}, 'YYYY-MM') AS mes, count(*) AS n
+       FROM ${tabela}
+      WHERE ${campo} IS NOT NULL
+      GROUP BY 1
+      ORDER BY 1 DESC`,
+  );
+
+  return linhas.map((l) => ({ mes: l.mes, linhas: Number(l.n) }));
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -417,9 +460,47 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   // o histórico inteiro, então dá para limitar a exclusão a datas escolhidas.
   // Aceita `?data=` repetido — o usuário pode marcar várias de uma vez.
   const datas = request.nextUrl.searchParams.getAll("data").filter(Boolean);
+  // Bases incrementais se apagam por mês do movimento, não por carga: não há
+  // snapshot a escolher, e o recorte que faz sentido operacionalmente é a
+  // competência. Aceita `?mes=` repetido, igual ao `?data=`.
+  const meses = request.nextUrl.searchParams.getAll("mes").filter(Boolean);
   let where: Record<string, unknown> | undefined;
 
-  if (datas.length > 0) {
+  if (meses.length > 0) {
+    if (!model.incremental || !model.dateField) {
+      return NextResponse.json(
+        { error: "Esta tabela não se apaga por mês" },
+        { status: 400 },
+      );
+    }
+    const invalido = meses.find((m) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(m));
+    if (invalido) {
+      return NextResponse.json(
+        { error: `Mês inválido: ${invalido}` },
+        { status: 400 },
+      );
+    }
+
+    // Um intervalo por mês, unidos em OR: `gte`/`lt` usa o índice de data, que
+    // um `to_char(...) IN (...)` não usaria — a função sobre a coluna descarta
+    // o índice e varreria as quinhentas mil linhas.
+    //
+    // Os limites saem de `limitesDoMes`, que já é a regra usada em todo o
+    // sistema e tem teste. Reescrever a aritmética aqui seria a sétima cópia de
+    // uma conta que já divergiu antes — e numa exclusão o erro de fronteira
+    // apaga um dia do mês vizinho, sem volta.
+    where = {
+      OR: meses.map((m) => {
+        const { inicio, fim } = limitesDoMes(m);
+        return {
+          [model.dateField!]: {
+            gte: new Date(`${inicio}T00:00:00.000Z`),
+            lt: new Date(`${fim}T00:00:00.000Z`),
+          },
+        };
+      }),
+    };
+  } else if (datas.length > 0) {
     if (!model.cumulative || !model.snapshotField) {
       return NextResponse.json(
         { error: "Esta tabela não guarda histórico por data" },
@@ -454,5 +535,5 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
   limparCacheReferencia();
 
-  return NextResponse.json({ deletedCount: count, datas });
+  return NextResponse.json({ deletedCount: count, datas, meses });
 }
