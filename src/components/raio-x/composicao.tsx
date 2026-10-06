@@ -98,12 +98,15 @@ export function LinhaDivisao({
           {`→ ${num(d.realizado)}`}
         </span>
       )}
+      {/* O número é o atingimento; a cor continua vindo do erro. Vendeu 130% e
+          vendeu 70% erram igual e pintam igual, mas significam o oposto um do
+          outro — e era o lado que o badge antigo escondia. */}
       <span
         className={`w-20 rounded-md px-1.5 py-0.5 text-right font-mono text-xs tabular-nums ${
           TOM_FAIXA[faixaAcuracidade(d.erro === null ? null : 1 - d.erro)]
         }`}
       >
-        {d.erro === null ? "—" : `erro ${pct(d.erro, 0)}`}
+        {d.atingimento === null ? "—" : pct(d.atingimento, 0)}
       </span>
     </div>
   );

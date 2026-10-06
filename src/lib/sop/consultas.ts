@@ -25,6 +25,7 @@ import {
   type ParPrevisao,
 } from "@/utils/acuracidade";
 import { agruparPorRotulo } from "@/utils/rotulos";
+import { calcularRitmo, type StatusRitmo } from "@/utils/ritmo-venda";
 
 /**
  * O raio-X de um produto num mês: de onde vem o consenso, quem são os clientes
@@ -66,6 +67,15 @@ export type DivisaoSop = {
    */
   realizado: number | null;
   erro: number | null;
+  /**
+   * Realizado ÷ consenso. É o que a tela mostra.
+   *
+   * O erro continua calculado porque é dele que sai a cor: 130% e 70% erram o
+   * mesmo tanto e merecem o mesmo tom de alerta. O que o erro não diz é para
+   * que lado foi, e é o lado que decide o que fazer — por isso o número no
+   * badge é este, e não aquele. Mesma divisão de papéis do card de acerto.
+   */
+  atingimento: number | null;
   vies: number | null;
 };
 
@@ -479,6 +489,7 @@ export async function carregarRaioX(
         consenso: d.valor,
         realizado,
         erro: par ? erroAbsoluto(par) : null,
+        atingimento: par ? atingimento(par) : null,
         vies: par ? vies(par) : null,
       };
     })
@@ -713,6 +724,86 @@ export async function carregarAbertura(
     compras: linhas[0]?.compras ?? 0,
     transferencias: linhas[0]?.transferencias ?? 0,
     filiais: linhas[0]?.filiais ?? 0,
+  };
+}
+
+/** O mês anterior já fechado: quanto saiu e se saiu no ritmo previsto. */
+export type MesAnterior = {
+  /** Primeiro dia do mês anterior, no mesmo formato da competência. */
+  mes: string;
+  vendido: number;
+  /** Forecast M0 daquele mês. `null` quando não houve carga para comparar. */
+  forecast: number | null;
+  /** Realizado ÷ previsto. `null` sem previsão. */
+  indice: number | null;
+  status: StatusRitmo | null;
+};
+
+/**
+ * O fechamento do mês anterior, ao lado da abertura do mês que se está vendo.
+ *
+ * Mora com a abertura porque responde a mesma pergunta por outro lado: a
+ * abertura diz com o que o mês começou, esta diz como o mês anterior terminou.
+ * Quem abre a tela no dia 1º não tem nada mais útil para olhar — o mês corrente
+ * ainda não aconteceu, e o anterior acabou de fechar.
+ *
+ * O status sai de `calcularRitmo`, a mesma função das outras telas, com a data
+ * no último dia do mês. Mês fechado tem fração decorrida 1, então o ritmo se
+ * reduz a realizado ÷ previsto — mas a faixa de tolerância continua sendo uma
+ * só no sistema inteiro, em vez de um limiar reescrito aqui.
+ */
+export async function carregarMesAnterior(
+  codigo: string,
+  mes: string,
+): Promise<MesAnterior> {
+  const [ano, m] = mes.slice(0, 7).split("-").map(Number);
+  // Dia 0 do mês atual é o último do anterior: evita o caso de janeiro virar
+  // mês 0 e a conta andar um ano para trás sem avisar.
+  const ultimoDia = new Date(Date.UTC(ano, m - 1, 0));
+  const anterior = new Date(Date.UTC(ano, m - 2, 1))
+    .toISOString()
+    .slice(0, 10);
+  const { inicio, fim } = limitesDoMes(anterior);
+
+  const [venda, previsao] = await Promise.all([
+    prisma.$queryRawUnsafe<{ q: number }[]>(
+      `SELECT COALESCE(SUM(-h.quantidade),0)::float8 AS q
+         FROM historico_vendas h
+        WHERE h.cod_prod = $1 AND h.data >= $2::date AND h.data < $3::date`,
+      codigo,
+      inicio,
+      fim,
+    ),
+    // Última carga de forecast dentro daquele mês, somada entre as filiais —
+    // mesmo critério do forecast do mês corrente, algumas linhas acima.
+    prisma.$queryRawUnsafe<{ m0: number | null }[]>(
+      `SELECT SUM(COALESCE(f.forecast_m0,0))::float8 AS m0
+         FROM forecast f
+        WHERE f.codigo = $1
+          AND f.data_snapshot = (
+            SELECT MAX(_f.data_snapshot) FROM forecast _f
+             WHERE _f.data_snapshot >= $2::date AND _f.data_snapshot < $3::date
+          )`,
+      codigo,
+      inicio,
+      fim,
+    ),
+  ]);
+
+  const vendido = venda[0]?.q ?? 0;
+  const forecast = previsao[0]?.m0 ?? null;
+  const ritmo = calcularRitmo(
+    vendido,
+    forecast,
+    ultimoDia.toISOString().slice(0, 10),
+  );
+
+  return {
+    mes: inicio,
+    vendido,
+    forecast,
+    indice: ritmo.indice,
+    status: ritmo.status,
   };
 }
 

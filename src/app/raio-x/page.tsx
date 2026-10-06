@@ -33,6 +33,7 @@ import { BarrasRecebimento } from "@/components/raio-x/barras-recebimento";
 import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import {
   carregarAbertura,
+  carregarMesAnterior,
   carregarCurvas,
   carregarMovimentoDoMes,
   carregarRaioX,
@@ -41,9 +42,10 @@ import {
   type DetalheSpot,
   type RaioXProduto,
   type RecebimentoDia,
+  type MesAnterior,
   type SaldoAbertura,
 } from "@/lib/sop/consultas";
-import { Acerto, Kpi } from "@/components/raio-x/cartoes";
+import { Acerto, Fechamento, Kpi } from "@/components/raio-x/cartoes";
 import { BarraComposicao, LinhaDivisao } from "@/components/raio-x/composicao";
 import { mesBr, num, pct, TOM_FAIXA } from "@/components/raio-x/formato";
 import { PoliticaDoCd } from "@/components/raio-x/politica-cd";
@@ -88,10 +90,12 @@ export default async function RaioX({
   const codigo = primeiro(params.codigo);
 
   const abrir = primeiro(params.abrir);
-  const [dados, curva, abertura, entradas, spot, rotulos] = await Promise.all([
+  const [dados, curva, abertura, anterior, entradas, spot, rotulos] =
+    await Promise.all([
     codigo && mes ? carregarRaioX(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarCurvas(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarAbertura(codigo, mes) : Promise.resolve(null),
+    codigo && mes ? carregarMesAnterior(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarMovimentoDoMes(codigo, mes) : Promise.resolve(null),
     codigo && mes ? carregarSpot(codigo, mes) : Promise.resolve(null),
     carregarRotulosFiliais(),
@@ -290,6 +294,7 @@ export default async function RaioX({
               curva={curva}
               abrir={abrir}
               abertura={abertura}
+              anterior={anterior}
               entradas={entradas}
               spot={spot}
               rotulos={Object.fromEntries(rotulos)}
@@ -316,6 +321,7 @@ function Painel({
   curva,
   abrir,
   abertura,
+  anterior,
   entradas,
   spot,
   rotulos,
@@ -328,6 +334,7 @@ function Painel({
   } | null;
   abrir?: string;
   abertura: SaldoAbertura | null;
+  anterior: MesAnterior | null;
   entradas: RecebimentoDia[] | null;
   spot: DetalheSpot | null;
   rotulos: Record<string, string>;
@@ -385,7 +392,7 @@ function Painel({
             </p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <Kpi
               icone={Boxes}
               rotulo="Estoque chão"
@@ -431,6 +438,13 @@ function Painel({
                 </p>
               </CardContent>
             </Card>
+
+            {/* O mês anterior fecha a linha: ela descreve o ponto de partida, e
+                como o mês passado terminou é parte dele. Também é o que alinha
+                esta linha com a de baixo, que tem cinco. */}
+            {anterior ? (
+              <Fechamento mes={mesBr(anterior.mes)} dados={anterior} />
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -440,14 +454,9 @@ function Painel({
         Consenso e realizado
       </h2>
 
-      {/* Cinco colunas quando há plano de compra, quatro quando não há: o plano
-          não existe para todo item, e uma coluna vazia ficaria pior que a
-          ausência. */}
-      <div
-        className={`grid gap-4 sm:grid-cols-2 ${
-          dados.planoCompra !== null ? "xl:grid-cols-5" : "xl:grid-cols-4"
-        }`}
-      >
+      {/* Cinco colunas fixas, iguais às da linha de abertura: as duas linhas
+          se leem em paralelo, e isso só funciona se as colunas coincidirem. */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <Kpi
           icone={Target}
           rotulo="Consenso S&OP"
@@ -466,21 +475,23 @@ function Painel({
           }
           tom="turquesa"
         />
-        {/* Só aparece quando o item tem plano na competência. Plano ausente é
-            diferente de plano zerado, e mostrar "0" onde não há plano sugeriria
-            uma decisão que ninguém tomou. */}
-        {dados.planoCompra !== null ? (
-          <Kpi
-            icone={ClipboardList}
-            rotulo="Plano de compra"
-            valor={num(dados.planoCompra)}
-            apoio={
-              dados.planoCompra > 0
+        {/* Sempre presente, inclusive zerado: a linha some e volta conforme o
+            item, e card que aparece e desaparece faz a pessoa procurar onde ele
+            foi parar. Plano ausente continua sendo diferente de plano zerado —
+            a distinção migrou do card inteiro para a linha de apoio, que diz
+            qual dos dois é. */}
+        <Kpi
+          icone={ClipboardList}
+          rotulo="Plano de compra"
+          valor={num(dados.planoCompra ?? 0)}
+          apoio={
+            dados.planoCompra === null
+              ? "sem plano nesta competência"
+              : dados.planoCompra > 0
                 ? `${pct(dados.vendas.total / dados.planoCompra, 0)} do plano vendido`
                 : "plano zerado no mês"
-            }
-          />
-        ) : null}
+          }
+        />
 
         {/* Os dois forecasts num card só, partido ao meio por uma linha
             pontilhada: são a mesma previsão antes e depois do ajuste, e o que
