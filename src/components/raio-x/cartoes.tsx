@@ -9,6 +9,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import type { ReactNode } from "react";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { faixaAcuracidade } from "@/utils/acuracidade";
 import type { Medida, MesAnterior } from "@/lib/sop/consultas";
@@ -44,6 +46,11 @@ export const TOM_KPI = {
     disco: "bg-violet-500/15 text-violet-700 dark:text-violet-400",
     brilho: "bg-violet-500/15",
   },
+  neutro: {
+    borda: "border-t-4 border-t-slate-400",
+    disco: "bg-slate-400/15 text-slate-600 dark:text-slate-300",
+    brilho: "bg-slate-400/15",
+  },
 } as const;
 
 export function Kpi({
@@ -52,12 +59,23 @@ export function Kpi({
   valor,
   apoio,
   tom = "petrol",
+  children,
 }: {
   icone: LucideIcon;
   rotulo: string;
-  valor: string;
+  /** O número grande. Omitido quando `children` desenha o corpo. */
+  valor?: string;
   apoio: string;
   tom?: keyof typeof TOM_KPI;
+  /**
+   * Corpo alternativo, para o indicador que não é um número grande.
+   *
+   * Existe porque o card de cobertura mostrava um badge e, para isso, repetia
+   * o cabeçalho à mão — sem o disco do ícone. Com altura diferente dos vizinhos,
+   * o título ficava noutra linha e o card inteiro saía do padrão. Agora o
+   * cabeçalho é o mesmo por construção, e não por disciplina.
+   */
+  children?: ReactNode;
 }) {
   const t = TOM_KPI[tom];
   return (
@@ -77,9 +95,13 @@ export function Kpi({
             <Icone className="size-4.5" />
           </span>
         </div>
-        <p className="mt-2 font-mono text-4xl font-semibold tracking-tight text-(--brand-petrol) tabular-nums dark:text-foreground">
-          {valor}
-        </p>
+        {children ? (
+          <div className="mt-2">{children}</div>
+        ) : (
+          <p className="mt-2 font-mono text-4xl font-semibold tracking-tight text-(--brand-petrol) tabular-nums dark:text-foreground">
+            {valor}
+          </p>
+        )}
         <p className="mt-1 text-xs text-muted-foreground">{apoio}</p>
       </CardContent>
     </Card>
@@ -102,6 +124,7 @@ const TOM_STATUS = {
     brilho: "bg-amber-500/20",
     numero: "text-amber-700 dark:text-amber-400",
     selo: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+    barra: "bg-amber-500 dark:bg-amber-400",
   },
   no_ritmo: {
     rotulo: "No ritmo",
@@ -111,6 +134,7 @@ const TOM_STATUS = {
     brilho: "bg-emerald-500/20",
     numero: "text-emerald-700 dark:text-emerald-400",
     selo: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+    barra: "bg-emerald-500 dark:bg-emerald-400",
   },
   atrasada: {
     rotulo: "Abaixo",
@@ -120,6 +144,7 @@ const TOM_STATUS = {
     brilho: "bg-sky-500/20",
     numero: "text-sky-700 dark:text-sky-400",
     selo: "bg-sky-500/15 text-sky-700 dark:text-sky-400",
+    barra: "bg-sky-500 dark:bg-sky-400",
   },
 } as const;
 
@@ -131,6 +156,70 @@ const TOM_STATUS = {
  * tela precisa reparar antes de ler o resto.
  */
 const LIMITE_ATENCAO = 2;
+
+/**
+ * A venda do mês contra o previsto, em forma de carga de bateria.
+ *
+ * A barra inteira vale o maior entre previsto e realizado, e um traço marca
+ * onde ficava o plano. Com isso os dois casos se leem sem trocar de régua:
+ * vendendo menos, o plano fica no fim da barra e o que faltou aparece como
+ * espaço vazio; vendendo mais, a barra enche e o excedente sai em vermelho
+ * depois do traço.
+ *
+ * A alternativa — fixar a barra no previsto e deixar o excedente transbordar —
+ * não tem para onde crescer: 200% e 400% desenhariam a mesma barra cheia.
+ */
+export function cargaBateria(indice: number): {
+  /** Largura, em %, do trecho dentro do plano. */
+  dentro: number;
+  /** Largura, em %, do que passou do plano. Zero quando vendeu até o previsto. */
+  excedente: number;
+} {
+  // Índice negativo não existe (venda líquida negativa seria devolução acima da
+  // venda), mas largura negativa quebraria o desenho em silêncio.
+  const i = Math.max(0, indice);
+  const escala = Math.max(1, i);
+  return {
+    dentro: (Math.min(1, i) / escala) * 100,
+    excedente: (Math.max(0, i - 1) / escala) * 100,
+  };
+}
+
+function Bateria({
+  indice,
+  tom,
+}: {
+  indice: number;
+  /** Classe de fundo do trecho dentro do plano, na cor do status. */
+  tom: string;
+}) {
+  const { dentro, excedente } = cargaBateria(indice);
+
+  return (
+    <div
+      className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-muted"
+      // O papel de medidor precisa estar na semântica, não só no desenho: quem
+      // usa leitor de tela recebe o número, que é o que a barra representa.
+      role="meter"
+      aria-valuenow={Math.round(indice * 100)}
+      aria-valuemin={0}
+      aria-label="realizado sobre o previsto"
+    >
+      <div className={tom} style={{ width: `${dentro}%` }} />
+      {excedente > 0 ? (
+        <>
+          {/* O traço separa plano de excedente. Sem ele, barra cheia de 110% e
+              de 300% pareceriam a mesma coisa. */}
+          <div className="w-px shrink-0 bg-background" />
+          <div
+            className="bg-rose-500 dark:bg-rose-400"
+            style={{ width: `${excedente}%` }}
+          />
+        </>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * O mês anterior, já fechado, com o status de quem vendeu bem ou mal.
@@ -165,7 +254,7 @@ export function Fechamento({
       <CardContent className="relative pt-6">
         <div className="flex items-start justify-between gap-2">
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            Mês anterior
+            Vendido mês anterior
           </p>
           <span
             className={`grid size-9 shrink-0 place-items-center rounded-xl ${
@@ -186,6 +275,10 @@ export function Fechamento({
 
         {/* Sem previsão, a venda ainda vale — o que não existe é o julgamento.
             Mostrar "no ritmo" sem ter contra o que comparar seria inventar. */}
+        {t && dados.indice !== null ? (
+          <Bateria indice={dados.indice} tom={t.barra} />
+        ) : null}
+
         {t ? (
           <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <span

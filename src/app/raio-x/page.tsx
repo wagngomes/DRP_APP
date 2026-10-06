@@ -5,6 +5,7 @@ import {
   Boxes,
   ClipboardList,
   Flag,
+  Gauge,
   Handshake,
   Info,
   Landmark,
@@ -417,27 +418,20 @@ function Painel({
                 diário do forecast do mês. Mesma fórmula e mesmas cores da tela
                 de Disponibilidade, pela mesma função — duas contas do mesmo
                 número acabariam divergindo. */}
-            <Card className="relative overflow-hidden border-t-4 border-t-slate-400">
-              <CardContent className="relative pt-6">
-                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Dias de estoque total
-                </p>
-                <div className="mt-2">
-                  <BadgeDias
-                    dias={diasDeEstoque(
-                      abertura.estoque +
-                        abertura.transferencias +
-                        abertura.compras,
-                      dados.forecast.m0,
-                    )}
-                    rotulo="Cobertura"
-                  />
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {`${num(abertura.estoque + abertura.transferencias + abertura.compras)} un sobre forecast de ${num(dados.forecast.m0)}`}
-                </p>
-              </CardContent>
-            </Card>
+            <Kpi
+              icone={Gauge}
+              tom="neutro"
+              rotulo="Dias de estoque total"
+              apoio={`${num(abertura.estoque + abertura.transferencias + abertura.compras)} un sobre forecast de ${num(dados.forecast.m0)}`}
+            >
+              <BadgeDias
+                dias={diasDeEstoque(
+                  abertura.estoque + abertura.transferencias + abertura.compras,
+                  dados.forecast.m0,
+                )}
+                rotulo="Cobertura"
+              />
+            </Kpi>
 
             {/* O mês anterior fecha a linha: ela descreve o ponto de partida, e
                 como o mês passado terminou é parte dele. Também é o que alinha
@@ -671,9 +665,7 @@ function Painel({
                     ]
                   }`}
                 >
-                  {acerto.consenso.erro === null
-                    ? "—"
-                    : `erro ${pct(acerto.consenso.erro, 0)}`}
+                  {pct(acerto.consenso.atingimento, 0)}
                 </span>
               </div>
             </div>
