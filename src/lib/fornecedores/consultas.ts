@@ -198,13 +198,25 @@ export async function carregarFornecedores(
     // A primeira a chegar define a categoria; as demais são redundantes para
     // a pergunta "quando esta ruptura acaba".
     const primeira = lista[0];
-    const saldoComprar = saldos.get(r.codigo)?.saldo ?? 0;
+    const plano = saldos.get(r.codigo);
+    const saldoComprar = plano?.saldo ?? 0;
 
     const categoria: Categoria = primeira
       ? primeira.origem
       : saldoComprar > 0
         ? "a_comprar"
         : "sem_cobertura";
+
+    // Item sem linha em `plano_compra` nem entra no mapa de saldos, e plano
+    // zerado conta como não planejado — zero não é uma decisão de comprar nada,
+    // é a ausência de decisão. Só quem tem plano positivo e consumiu tudo é
+    // "gasto", que é a situação em que já existe verba reconhecida.
+    const motivoSemCobertura =
+      categoria === "sem_cobertura"
+        ? plano && plano.plano > 0
+          ? ("plano_gasto" as const)
+          : ("sem_plano" as const)
+        : null;
 
     return {
       codigo: r.codigo,
@@ -218,6 +230,7 @@ export async function carregarFornecedores(
       forecast: r.forecast,
       vendido: r.vendido,
       categoria,
+      motivoSemCobertura,
       quantidade: primeira?.quantidade ?? null,
       chegada: primeira?.chegada ?? null,
       reposicoes: lista,

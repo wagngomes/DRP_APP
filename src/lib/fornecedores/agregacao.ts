@@ -76,6 +76,16 @@ export type PosicaoRompida = {
    */
   vendido: number;
   categoria: Categoria;
+  /**
+   * Por que não há saldo a comprar — só faz sentido em `sem_cobertura`.
+   *
+   * São duas situações com ações opostas, e a coluna as somava numa só.
+   * `sem_plano` é item que não entrou no plano do mês: quem decide é o
+   * planejamento, e a conversa é sobre incluir. `plano_gasto` é item planejado
+   * cujo saldo acabou: o plano reconheceu a necessidade, e a conversa é sobre
+   * verba adicional. Confundir as duas manda o analista à mesa errada.
+   */
+  motivoSemCobertura: MotivoSemCobertura | null;
   /** Quantidade e chegada da reposição que define a categoria. */
   quantidade: number | null;
   chegada: Date | null;
@@ -103,6 +113,10 @@ export type ResumoFornecedor = {
   transferencia: number;
   aComprar: number;
   semCobertura: number;
+  /** Das `semCobertura`: itens que nem entraram no plano do mês. */
+  semPlano: number;
+  /** Das `semCobertura`: itens planejados cujo saldo já acabou. */
+  planoGasto: number;
   /**
    * Quantas posições deste fornecedor tiveram o nome deduzido da marca.
    *
@@ -112,6 +126,9 @@ export type ResumoFornecedor = {
    */
   porMarca: number;
 };
+
+/** Por que a posição ficou sem saldo no plano de compra. */
+export type MotivoSemCobertura = "sem_plano" | "plano_gasto";
 
 /** De onde veio o nome do fornecedor de uma posição. */
 export type OrigemFornecedor = "simulador" | "marca" | "grupo" | "sem";
@@ -133,6 +150,8 @@ export function agregarPorFornecedor(
       transferencia: 0,
       aComprar: 0,
       semCobertura: 0,
+      semPlano: 0,
+      planoGasto: 0,
       porMarca: 0,
     };
     atual.total += 1;
@@ -142,7 +161,11 @@ export function agregarPorFornecedor(
     if (p.categoria === "compra") atual.compra += 1;
     else if (p.categoria === "transferencia") atual.transferencia += 1;
     else if (p.categoria === "a_comprar") atual.aComprar += 1;
-    else atual.semCobertura += 1;
+    else {
+      atual.semCobertura += 1;
+      if (p.motivoSemCobertura === "plano_gasto") atual.planoGasto += 1;
+      else atual.semPlano += 1;
+    }
 
     const porAnalista =
       analistas.get(p.fornecedor) ?? new Map<string, number>();

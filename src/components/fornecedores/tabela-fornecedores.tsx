@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertOctagon,
+  BatteryWarning,
+  CalendarX,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -91,6 +93,75 @@ const ORDEM: Categoria[] = [
   "a_comprar",
   "sem_cobertura",
 ];
+
+/**
+ * Os dois motivos de não haver saldo a comprar, cada um com seu ícone.
+ *
+ * A coluna continua sendo uma, porque a pergunta que ela responde é uma —
+ * "quantas rupturas não têm nada a caminho nem verba". O que faltava era saber
+ * *por quê*, e são dois porquês com donos diferentes: item fora do plano do mês
+ * é conversa com o planejamento; item planejado com saldo esgotado é conversa
+ * sobre verba adicional. Somados, mandavam o analista à mesa errada.
+ */
+const MOTIVOS = {
+  semPlano: {
+    icone: CalendarX,
+    // Na prática são itens com linha em `plano_compra` e quantidade zero —
+    // nenhum dos 55 medidos estava ausente da tabela. Zero é a ausência de
+    // decisão de comprar, que é o que o ícone comunica.
+    rotulo: "não entrou no plano de compra do mês",
+  },
+  planoGasto: {
+    icone: BatteryWarning,
+    // "ou ultrapassado" não é detalhe: 8 das 26 posições medidas têm saldo
+    // negativo, ou seja, já se colocou mais do que o plano previa.
+    rotulo:
+      "tinha plano no mês, mas o saldo já foi consumido ou ultrapassado",
+  },
+} as const;
+
+function MotivosSemCobertura({
+  semPlano,
+  planoGasto,
+}: {
+  semPlano: number;
+  planoGasto: number;
+}) {
+  // Só o que existe aparece: mostrar "0" ao lado de um ícone em toda linha
+  // treinaria o olho a ignorar os dois.
+  const partes = [
+    { chave: "semPlano" as const, valor: semPlano },
+    { chave: "planoGasto" as const, valor: planoGasto },
+  ].filter((p) => p.valor > 0);
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {partes.map((p, i) => {
+        const m = MOTIVOS[p.chave];
+        return (
+          <span key={p.chave} className="inline-flex items-center gap-1">
+            {i > 0 ? (
+              <span aria-hidden className="text-foreground/25">
+                ·
+              </span>
+            ) : null}
+            <m.icone className="size-3.5 shrink-0" aria-label={m.rotulo} />
+            {numero(p.valor)}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/** O texto do `title`, descrevendo os motivos que a célula mostra. */
+function tituloMotivos(r: ResumoFornecedor): string {
+  const partes: string[] = [];
+  if (r.semPlano > 0) partes.push(`${r.semPlano} ${MOTIVOS.semPlano.rotulo}`);
+  if (r.planoGasto > 0)
+    partes.push(`${r.planoGasto} ${MOTIVOS.planoGasto.rotulo}`);
+  return partes.length > 0 ? `Sendo ${partes.join("; e ")}.` : "";
+}
 
 const POR_PAGINA = 25;
 const POR_PAGINA_DETALHE = 12;
@@ -458,7 +529,11 @@ export function TabelaFornecedores({
                           ) : (
                             <button
                               type="button"
-                              title={`${info.rotulo} — clique para ver só estes itens`}
+                              title={
+                                c === "sem_cobertura"
+                                  ? `${info.rotulo}. ${tituloMotivos(r)} Clique para ver só estes itens.`
+                                  : `${info.rotulo} — clique para ver só estes itens`
+                              }
                               onClick={(e) => {
                                 // Sem isto o clique também dispara a linha, que
                                 // abre o fornecedor inteiro.
@@ -469,8 +544,24 @@ export function TabelaFornecedores({
                                 selecionada ? "ring-2 ring-foreground/60" : ""
                               }`}
                             >
-                              <info.icone className="size-3.5 shrink-0" />
-                              {numero(valor)}
+                              {/* Na coluna sem cobertura, os dois motivos
+                                  aparecem lado a lado em vez de um total só:
+                                  item fora do plano e item com plano esgotado
+                                  levam a conversas diferentes — uma com o
+                                  planejamento, outra sobre verba. O clique
+                                  continua filtrando a categoria inteira, que é
+                                  o que a coluna sempre fez. */}
+                              {c === "sem_cobertura" ? (
+                                <MotivosSemCobertura
+                                  semPlano={r.semPlano}
+                                  planoGasto={r.planoGasto}
+                                />
+                              ) : (
+                                <>
+                                  <info.icone className="size-3.5 shrink-0" />
+                                  {numero(valor)}
+                                </>
+                              )}
                             </button>
                           )}
                         </TableCell>
