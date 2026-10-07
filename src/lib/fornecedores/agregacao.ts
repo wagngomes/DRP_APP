@@ -52,6 +52,14 @@ export type PosicaoRompida = {
   descricao: string | null;
   filial: string;
   fornecedor: string;
+  /**
+   * De onde saiu o nome: do simulador, ou da marca/grupo do cadastro.
+   *
+   * A tela marca a diferença porque marca não é fornecedor — elas coincidem em
+   * 91% dos itens, e nos outros 9% a divergência é real (quem distribui o quê,
+   * aquisição de empresa, granularidade). Ver `OrigemFornecedor`.
+   */
+  origemFornecedor: OrigemFornecedor;
   /** Unidade de negócio do forecast (coluna b_u); `VAZIO` quando ausente. */
   bu: string;
   /** Classificação ABC do forecast (coluna curva); `VAZIO` quando ausente. */
@@ -95,7 +103,18 @@ export type ResumoFornecedor = {
   transferencia: number;
   aComprar: number;
   semCobertura: number;
+  /**
+   * Quantas posições deste fornecedor tiveram o nome deduzido da marca.
+   *
+   * Zero na imensa maioria. Acima de zero, a tela avisa — é a diferença entre
+   * "este fornecedor tem N rupturas" e "N rupturas foram atribuídas a ele por
+   * semelhança de marca".
+   */
+  porMarca: number;
 };
+
+/** De onde veio o nome do fornecedor de uma posição. */
+export type OrigemFornecedor = "simulador" | "marca" | "grupo" | "sem";
 
 /** Conta as posições por fornecedor e categoria, do maior total para o menor. */
 export function agregarPorFornecedor(
@@ -114,8 +133,12 @@ export function agregarPorFornecedor(
       transferencia: 0,
       aComprar: 0,
       semCobertura: 0,
+      porMarca: 0,
     };
     atual.total += 1;
+    if (p.origemFornecedor === "marca" || p.origemFornecedor === "grupo") {
+      atual.porMarca += 1;
+    }
     if (p.categoria === "compra") atual.compra += 1;
     else if (p.categoria === "transferencia") atual.transferencia += 1;
     else if (p.categoria === "a_comprar") atual.aComprar += 1;

@@ -9,6 +9,7 @@ import {
   ChevronRight,
   PackageSearch,
   ShoppingCart,
+  Tag,
   Truck,
   Warehouse,
   X,
@@ -417,6 +418,26 @@ export function TabelaFornecedores({
                             {r.outrosAnalistas > 0
                               ? ` +${r.outrosAnalistas}`
                               : ""}
+                          </span>
+                        ) : null}
+                        {/* Marca não é fornecedor: coincidem em 91% dos itens,
+                            e nos outros 9% a diferença é real — quem distribui
+                            o quê, aquisição de empresa, granularidade. Sem o
+                            aviso, essas posições se somariam às demais como se
+                            tivessem a mesma procedência. */}
+                        {r.porMarca > 0 ? (
+                          <span
+                            title={
+                              r.porMarca === r.total
+                                ? "Fornecedor deduzido da marca do produto: o simulador não traz fornecedor para estes itens"
+                                : `${r.porMarca} de ${r.total} posição(ões) com fornecedor deduzido da marca do produto`
+                            }
+                            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+                          >
+                            <Tag className="size-2.5" />
+                            {r.porMarca === r.total
+                              ? "pela marca"
+                              : `${r.porMarca} pela marca`}
                           </span>
                         ) : null}
                       </span>
