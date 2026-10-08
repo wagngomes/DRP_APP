@@ -90,6 +90,20 @@ export function LegendaElemento() {
               {f.rotulo}
             </span>
           ))}
+          {/* A célula neutra não pertence à escala, e por isso vem depois de
+              todas, separada: é estoque que existe sem previsão para dividir,
+              então a cobertura não é alta nem baixa — é incalculável. Sem esta
+              linha, o tracejado na grade viraria adivinhação. */}
+          <span className="flex items-center gap-1.5">
+            <span
+              className="size-3 shrink-0 rounded-sm bg-muted"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(135deg, transparent 0 3px, rgba(0,0,0,0.12) 3px 4px)",
+              }}
+            />
+            Sem previsão no mês
+          </span>
         </div>
       </div>
     </div>

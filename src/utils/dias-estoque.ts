@@ -163,9 +163,18 @@ export function faixaDe(dias: number | null): FaixaId | null {
   return "excesso";
 }
 
-/** Mesma classificação da `faixaDe`, em SQL, sobre uma expressão de dias. */
+/**
+ * Mesma classificação da `faixaDe`, em SQL, sobre uma expressão de dias.
+ *
+ * O ramo de nulo vem primeiro e é o que espelha `faixaDe`, que devolve `null`
+ * para dias nulo. Sem ele todas as comparações com nulo falham e a expressão
+ * cai no `ELSE`, pintando de "excesso" — a faixa mais folgada — justamente a
+ * posição cuja cobertura é **indefinida** por não haver previsão. É o pior
+ * resultado possível: o desconhecido se disfarçaria de confortável.
+ */
 export function faixaSql(expressaoDias: string): string {
   return `CASE
+    WHEN ${expressaoDias} IS NULL THEN NULL
     WHEN ${expressaoDias} <= 0 THEN 'zero'
     WHEN ${expressaoDias} < 10 THEN 'critico'
     WHEN ${expressaoDias} < 20 THEN 'baixo'

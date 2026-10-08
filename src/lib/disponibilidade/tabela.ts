@@ -32,8 +32,16 @@ const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
 const EST_TOTAL = somaSql(COLUNAS_ESTOQUE_TOTAL, "s");
 const VENDIDO = somaSql(COLUNAS_VENDIDO_M0, "s");
 
-/** Consumo diário previsto, a régua de todos os "dias de". */
-const POR_DIA = `(f.forecast_m0 / ${DIAS_NO_MES}.0)`;
+/**
+ * Consumo diário previsto, a régua de todos os "dias de".
+ *
+ * `NULLIF` porque a grade passou a mostrar posição com estoque e sem previsão:
+ * sem ele a divisão estoura (`division_by_zero`), e com `COALESCE` no lugar
+ * dela a cobertura viraria zero — que é a cor da ruptura. Estoque parado sem
+ * previsão é o oposto de ruptura, e dividir por nulo devolve nulo, que é a
+ * resposta certa: a cobertura é **indefinida**, não é zero nem infinita.
+ */
+const POR_DIA = `(NULLIF(fc.forecast_m0, 0) / ${DIAS_NO_MES}.0)`;
 const DIAS_CHAO = `(COALESCE(${EST_CHAO},0) / ${POR_DIA})`;
 
 export type CelulaTabela = {
@@ -43,14 +51,20 @@ export type CelulaTabela = {
   estoqueTotal: number;
   forecast: number;
   vendido: number;
-  /** Cobertura do estoque de chão, em dias. */
-  diasChao: number;
+  /**
+   * Cobertura do estoque de chão, em dias. `null` sem previsão para dividir.
+   *
+   * Nulo não é zero: zero é "acabou", nulo é "não dá para saber quanto dura,
+   * porque ninguém previu consumo". A grade pinta os dois de forma diferente
+   * de propósito.
+   */
+  diasChao: number | null;
   /** Cobertura contando o que já está comprado e em trânsito. */
-  diasTotal: number;
+  diasTotal: number | null;
   /** Quanto do forecast do mês já saiu; `null` quando não há forecast. */
   percentualVendido: number | null;
-  /** Faixa de cobertura — é ela que dá a cor da célula. */
-  faixa: FaixaId;
+  /** Faixa de cobertura — é ela que dá a cor da célula. `null` sem previsão. */
+  faixa: FaixaId | null;
   /**
    * O estoque de chão aberto por armazém.
    *
@@ -120,9 +134,9 @@ export async function carregarTabela(
       total: number;
       forecast: number;
       vendido: number;
-      dias_chao: number;
-      dias_total: number;
-      faixa: FaixaId;
+      dias_chao: number | null;
+      dias_total: number | null;
+      faixa: FaixaId | null;
     } & Record<string, number>)[]
   >(
     // O fornecedor sai de um CTE, resolvido uma vez por item, e não de
@@ -134,13 +148,39 @@ export async function carregarTabela(
          FROM simulador s2 ${joinFornecedor("s2")}
         WHERE s2.data_snapshot = $1::date AND s2.fornecedor IS NOT NULL
         ORDER BY s2.codigo
+     ),
+     -- O forecast que vale: com previsao e com a torre mandando considerar.
+     -- Continua sendo ele que da cobertura e cor as celulas.
+     fc AS (
+       SELECT f.codigo, f.filial, f.forecast_m0
+         FROM forecast f
+        WHERE ${snapshotMensalSql("forecast", "f", "$1")}
+          AND f.forecast_m0 > 0
+          AND ${torreValidaSql("f")}
+          AND f.filial IS NOT NULL
+     ),
+     sim AS (
+       SELECT s.* FROM ${simuladorPorCd("s.data_snapshot = $1::date")} s
+        WHERE s.data_snapshot = $1::date AND s.filial IS NOT NULL
+     ),
+     -- As posicoes que existem.
+     --
+     -- Antes era so o forecast, e a grade escondia 4.982 posicoes com estoque
+     -- de chao - quase tanto quanto as 5.677 que mostrava. Estoque sem previsao
+     -- e informacao: ou sobra parada, ou previsao faltando. As duas leituras
+     -- interessam, e nenhuma aparecia.
+     pos AS (
+       SELECT codigo, filial FROM fc
+       UNION
+       SELECT s.codigo, s.filial FROM sim s
+        WHERE COALESCE(${EST_CHAO}, 0) <> 0 OR COALESCE(${EST_TOTAL}, 0) <> 0
      )
-     SELECT f.codigo,
+     SELECT p.codigo,
             pr.descricao,
-            f.filial,
+            p.filial,
             COALESCE(${EST_CHAO}, 0)::float8   AS chao,
             COALESCE(${EST_TOTAL}, 0)::float8  AS total,
-            f.forecast_m0::float8              AS forecast,
+            COALESCE(fc.forecast_m0, 0)::float8 AS forecast,
             COALESCE(${VENDIDO}, 0)::float8    AS vendido,
             ${DIAS_CHAO}::float8               AS dias_chao,
             (COALESCE(${EST_TOTAL},0) / ${POR_DIA})::float8 AS dias_total,
@@ -148,23 +188,19 @@ export async function carregarTabela(
             ${COLUNAS_ESTOQUE_CHAO.map(
               (c) => `COALESCE(s."${c}", 0)::float8 AS "${c}"`,
             ).join(", ")}
-       FROM forecast f
-       LEFT JOIN ${simuladorPorCd("s.data_snapshot = $1::date")} s
-         ON s.codigo = f.codigo AND s.filial = f.filial AND s.data_snapshot = $1::date
-       LEFT JOIN produtos pr ON pr.codigo = f.codigo
+       FROM pos p
+       LEFT JOIN fc ON fc.codigo = p.codigo AND fc.filial = p.filial
+       LEFT JOIN sim s ON s.codigo = p.codigo AND s.filial = p.filial
+       LEFT JOIN produtos pr ON pr.codigo = p.codigo
        -- LEFT JOIN quando nao ha filtro de laboratorio: a busca por produto nao
        -- deve excluir item que esta sem fornecedor no simulador.
-       LEFT JOIN forn ON forn.codigo = f.codigo
-      WHERE ${snapshotMensalSql("forecast", "f", "$1")}
-        AND f.forecast_m0 > 0
-        AND ${torreValidaSql("f")}
-        AND f.filial IS NOT NULL
-        AND ($2::text IS NULL OR forn.nome = $2)
+       LEFT JOIN forn ON forn.codigo = p.codigo
+      WHERE ($2::text IS NULL OR forn.nome = $2)
         -- Codigo exato ou trecho da descricao, como nas outras telas. O exato
         -- vem primeiro porque e o caso comum: quem tem o codigo quer aquele
         -- item, nao todos os que o contem no texto.
-        AND ($3::text IS NULL OR f.codigo = $3 OR pr.descricao ILIKE '%' || $3 || '%')
-      ORDER BY f.codigo, f.filial`,
+        AND ($3::text IS NULL OR p.codigo = $3 OR pr.descricao ILIKE '%' || $3 || '%')
+      ORDER BY p.codigo, p.filial`,
     data,
     fornecedor ?? null,
     produto ?? null,
@@ -260,7 +296,10 @@ function somarCelulas(celulas: CelulaTabela[]): CelulaTabela | null {
   const vendido = celulas.reduce((a, c) => a + c.vendido, 0);
   const porDia = forecast / DIAS_NO_MES;
 
-  const diasChao = porDia > 0 ? estoqueChao / porDia : 0;
+  // Sem previsão na Cia inteira, a cobertura é nula e não zero. Antes era zero,
+  // e zero é a faixa preta — item com estoque e sem forecast apareceria como
+  // ruptura, que é o contrário do que ele é.
+  const diasChao = porDia > 0 ? estoqueChao / porDia : null;
 
   return {
     codigo: celulas[0].codigo,
@@ -270,16 +309,23 @@ function somarCelulas(celulas: CelulaTabela[]): CelulaTabela | null {
     forecast,
     vendido,
     diasChao,
-    diasTotal: porDia > 0 ? estoqueTotal / porDia : 0,
+    diasTotal: porDia > 0 ? estoqueTotal / porDia : null,
     percentualVendido: forecast > 0 ? vendido / forecast : null,
-    // `faixaDe` devolve nulo só para dias nulo ou NaN, e aqui o número é
-    // sempre finito — mas o fallback evita um `!` que esconderia a hipótese.
-    faixa: faixaDe(diasChao) ?? "zero",
+    faixa: faixaDe(diasChao),
     porArmazem,
   };
 }
 
-/** Cobertura da companhia, para ordenar. Sem posição vai para o fim. */
+/**
+ * Cobertura da companhia, para ordenar. Sem cobertura vai para o fim.
+ *
+ * Vale tanto para item sem posição quanto para item sem previsão: nos dois
+ * casos não há cobertura a comparar, e jogá-los para o começo — que é o que um
+ * zero faria — encheria o topo da grade de itens que não precisam de decisão,
+ * empurrando para baixo justamente os que precisam.
+ */
 function coberturaCia(linha: LinhaTabela): number {
-  return linha.celulas.get(COLUNA_CIA)?.diasChao ?? Number.POSITIVE_INFINITY;
+  return (
+    linha.celulas.get(COLUNA_CIA)?.diasChao ?? Number.POSITIVE_INFINITY
+  );
 }

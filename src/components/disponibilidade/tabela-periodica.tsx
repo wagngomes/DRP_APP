@@ -55,7 +55,16 @@ function curto(v: number): string {
   return String(n);
 }
 
-function dias(v: number): string {
+/**
+ * Dias de cobertura, curtos o bastante para caber no elemento.
+ *
+ * Nulo vira travessão, e não zero: a posição com estoque e sem previsão não
+ * tem cobertura calculável, e um zero ali diria "acabou" sobre o que está
+ * cheio. Infinito continua "∞" — é outro caso, o de previsão tão pequena que
+ * o estoque dura para sempre.
+ */
+function dias(v: number | null): string {
+  if (v === null) return "—";
   if (!Number.isFinite(v)) return "∞";
   return v >= 100 ? "99+" : String(Math.round(v));
 }
@@ -413,8 +422,22 @@ export function TabelaPeriodica({
                         fixada === chave ? "ring-2 ring-foreground/50" : ""
                       }`}
                       style={{
-                        backgroundColor: `var(--faixa-${c.faixa})`,
-                        color: `var(--faixa-${c.faixa}-ink)`,
+                        // Sem faixa, a célula fica neutra e hachurada: ela não
+                        // pertence à escala de cobertura, e pintá-la de
+                        // qualquer cor da escala afirmaria algo que não se
+                        // sabe. O tracejado diz "existe, mas não é comparável".
+                        ...(c.faixa === null
+                          ? {
+                              backgroundColor: "var(--muted)",
+                              color: "var(--muted-foreground)",
+                              backgroundImage:
+                                "repeating-linear-gradient(135deg, " +
+                                "transparent 0 6px, rgba(0,0,0,0.06) 6px 7px)",
+                            }
+                          : {
+                              backgroundColor: `var(--faixa-${c.faixa})`,
+                              color: `var(--faixa-${c.faixa}-ink)`,
+                            }),
                         // Relevo de cubo, em três camadas: luz no topo, sombra
                         // na base e uma sombra projetada curta. Tudo em branco e
                         // preto translúcidos, para funcionar sobre as seis cores
