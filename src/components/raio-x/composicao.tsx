@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Users } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type {
+  DetalheContratos,
   DetalheSpot,
   DivisaoSop,
   GrupoContrato,
@@ -133,47 +134,75 @@ export function LinhaDivisao({
       {aberta && spot ? <TabelaSpot spot={spot} /> : null}
 
       {aberta && contratos ? (
-        <div className="border-t bg-card px-3 py-3">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="secondary" className="gap-1">
-              <Users className="size-3" />
-              {`${contratos.clientes} cliente(s) em ${contratos.grupos.length} grupo(s)`}
-            </Badge>
-            {confere ? (
-              <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
-                confere com o S&amp;OP
-              </Badge>
-            ) : (
-              <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-400">
-                {`difere do S&OP em ${num(Math.abs(contratos.total - consensoContratos))} un`}
-              </Badge>
-            )}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-xs text-muted-foreground">
-                  <th className="py-2 text-left font-medium">Grupo</th>
-                  <th className="py-2 text-left font-medium">Representante</th>
-                  <th className="py-2 text-right font-medium">Clientes</th>
-                  <th className="py-2 text-right font-medium">Qtd inicial</th>
-                  <th className="py-2 text-right font-medium">Qtd final</th>
-                  <th className="py-2 text-right font-medium">Vendido</th>
-                  <th className="py-2 text-right font-medium">
-                    Fora do contrato
-                  </th>
-                  <th className="py-2 text-right font-medium">Atingimento</th>
-                </tr>
-              </thead>
-              <tbody>
-                {contratos.grupos.map((g) => (
-                  <LinhaGrupo key={g.grupo} grupo={g} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <TabelaContratos
+          contratos={contratos}
+          consensoContratos={consensoContratos}
+        />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Os grupos de contrato de um item, com o realizado de cada um.
+ *
+ * Extraída de `LinhaDivisao` para a tela poder mostrá-la também quando não há
+ * divisão de contrato no S&OP sob a qual pendurá-la. Eram 26 produtos com
+ * contrato cujos clientes não apareciam em lugar nenhum — nem aqui, porque não
+ * havia divisão, nem no spot, que exclui CNPJ contratado de propósito.
+ */
+export function TabelaContratos({
+  contratos,
+  consensoContratos,
+}: {
+  contratos: DetalheContratos;
+  /** Consenso da divisão, para dizer se o contrato fecha com ele. */
+  consensoContratos: number;
+}) {
+  const confere = Math.abs(contratos.total - consensoContratos) < 0.5;
+
+  return (
+    <div className="border-t bg-card px-3 py-3">
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+        <Badge variant="secondary" className="gap-1">
+          <Users className="size-3" />
+          {`${contratos.clientes} cliente(s) em ${contratos.grupos.length} grupo(s)`}
+        </Badge>
+        {/* Sem consenso a comparar, a conferência não tem o que dizer — e um
+            "difere em X" contra zero acusaria uma divergência inventada. */}
+        {consensoContratos > 0 ? (
+          confere ? (
+            <Badge className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
+              confere com o S&amp;OP
+            </Badge>
+          ) : (
+            <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-400">
+              {`difere do S&OP em ${num(Math.abs(contratos.total - consensoContratos))} un`}
+            </Badge>
+          )
+        ) : null}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-xs text-muted-foreground">
+              <th className="py-2 text-left font-medium">Grupo</th>
+              <th className="py-2 text-left font-medium">Representante</th>
+              <th className="py-2 text-right font-medium">Clientes</th>
+              <th className="py-2 text-right font-medium">Qtd inicial</th>
+              <th className="py-2 text-right font-medium">Qtd final</th>
+              <th className="py-2 text-right font-medium">Vendido</th>
+              <th className="py-2 text-right font-medium">Fora do contrato</th>
+              <th className="py-2 text-right font-medium">Atingimento</th>
+            </tr>
+          </thead>
+          <tbody>
+            {contratos.grupos.map((g) => (
+              <LinhaGrupo key={g.grupo} grupo={g} />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

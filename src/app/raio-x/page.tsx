@@ -25,7 +25,13 @@ import {
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { exigirSessao } from "@/lib/autorizacao";
 import { CurvaAcumulada } from "@/components/aceleracao/curva-acumulada";
@@ -47,8 +53,13 @@ import {
   type SaldoAbertura,
 } from "@/lib/sop/consultas";
 import { Acerto, Fechamento, Kpi } from "@/components/raio-x/cartoes";
-import { BarraComposicao, LinhaDivisao } from "@/components/raio-x/composicao";
+import {
+  BarraComposicao,
+  LinhaDivisao,
+  TabelaContratos,
+} from "@/components/raio-x/composicao";
 import { mesBr, num, pct, TOM_FAIXA } from "@/components/raio-x/formato";
+import { TabelaSpot } from "@/components/raio-x/spot";
 import { PoliticaDoCd } from "@/components/raio-x/politica-cd";
 import { faixaAcuracidade } from "@/utils/acuracidade";
 import { BadgeDias } from "@/components/produto/badge-dias";
@@ -347,6 +358,18 @@ function Painel({
   // forecast e recebimento incluídos, mesmo existindo. Um item que só entra no
   // S&OP em setembro tem agosto inteiro de história para mostrar.
   const temConsenso = dados.divisoes.length > 0;
+
+  // A lista de clientes mora pendurada na divisão que a explica. Quando a
+  // divisão não existe, ela precisa de outro lugar — senão a venda aparece e o
+  // cliente não, que é a pergunta seguinte de quem está olhando.
+  const temDivisao = (nome: string) =>
+    dados.divisoes.some((d) => d.divisao.toLowerCase().includes(nome));
+
+  const mostrarSpotAvulso =
+    (spot?.clientes.length ?? 0) > 0 && !temDivisao("spot");
+  const mostrarContratosAvulsos =
+    dados.contratos.grupos.length > 0 && !temDivisao("contrato");
+  const clientesAvulsos = mostrarSpotAvulso || mostrarContratosAvulsos;
   const temMovimento =
     dados.vendas.total !== 0 ||
     dados.forecast.filiais > 0 ||
@@ -669,6 +692,43 @@ function Painel({
                 </span>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Quem comprou, quando não há divisão do S&OP para hospedar a lista.
+
+          A composição inteira só aparece com consenso, e o painel de clientes
+          mora pendurado na divisão que o explica — "Spot" para quem não tem
+          contrato, "Contratos" para quem tem. Faltando a divisão, os clientes
+          não tinham onde aparecer, e sumiam. Eram 1.460 produtos com venda e
+          sem S&OP nenhum, mais 152 com S&OP e sem divisão Spot, e 26 com
+          contrato e sem divisão de contrato: 70% dos itens que venderam no mês.
+
+          Aqui não há consenso a comparar, então é só a lista — e a condição
+          exclui o caso que já aparece acima, para a mesma informação não sair
+          duas vezes na mesma tela. */}
+      {clientesAvulsos ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <UserRoundSearch className="size-4 text-(--brand-turquoise)" />
+              Quem comprou no mês
+            </CardTitle>
+            <CardDescription>
+              {temConsenso
+                ? "O consenso do mês não tem divisão que descreva estas vendas, então os clientes aparecem aqui."
+                : "Este produto não tem consenso de S&OP no mês, mas teve venda — e é para estes clientes que ela foi."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 p-0 pt-0">
+            {mostrarContratosAvulsos ? (
+              <TabelaContratos
+                contratos={dados.contratos}
+                consensoContratos={dados.consensoContratos}
+              />
+            ) : null}
+            {mostrarSpotAvulso && spot ? <TabelaSpot spot={spot} /> : null}
           </CardContent>
         </Card>
       ) : null}

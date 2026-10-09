@@ -79,6 +79,21 @@ export type DivisaoSop = {
   vies: number | null;
 };
 
+/**
+ * Os contratos de um item no mês, agrupados.
+ *
+ * Tinha nome só dentro de `RaioXProduto`; ganhou um próprio quando a tabela que
+ * o desenha passou a ser usada também fora da composição do consenso — em item
+ * que tem contrato mas não tem divisão de contrato no S&OP.
+ */
+export type DetalheContratos = {
+  grupos: GrupoContrato[];
+  total: number;
+  /** Soma de `reserva_final_contrato`: com quanto os contratos começaram. */
+  quantidadeInicial: number;
+  clientes: number;
+};
+
 export type GrupoContrato = {
   grupo: string;
   clientes: number;
@@ -140,13 +155,7 @@ export type RaioXProduto = {
   consensoTotal: number;
   /** A divisão "Contratos" do S&OP, se existir. */
   consensoContratos: number;
-  contratos: {
-    grupos: GrupoContrato[];
-    total: number;
-    /** Soma de `reserva_final_contrato`: com quanto os contratos começaram. */
-    quantidadeInicial: number;
-    clientes: number;
-  };
+  contratos: DetalheContratos;
   vendas: {
     /** O que saiu para CNPJs com contrato deste item no mês. */
     comContrato: number;
