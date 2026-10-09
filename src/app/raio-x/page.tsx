@@ -47,6 +47,7 @@ import {
   carregarSpot,
   listarMesesSop,
   type DetalheSpot,
+  type DivisaoSop,
   type RaioXProduto,
   type RecebimentoDia,
   type MesAnterior,
@@ -370,6 +371,33 @@ function Painel({
   const mostrarContratosAvulsos =
     dados.contratos.grupos.length > 0 && !temDivisao("contrato");
   const clientesAvulsos = mostrarSpotAvulso || mostrarContratosAvulsos;
+
+  /**
+   * Venda que aconteceu sem divisão do consenso que a descreva.
+   *
+   * É o número que faltava explicar na composição: o total do mês mostrava 4
+   * realizados com todas as divisões em zero, e a resposta estava num card
+   * solto embaixo. Somadas aqui, elas viram uma linha da própria composição.
+   */
+  const outrasVendas =
+    (mostrarSpotAvulso ? dados.vendas.spot : 0) +
+    (mostrarContratosAvulsos ? dados.vendas.comContrato : 0);
+
+  /**
+   * A linha "Outras vendas", montada como se fosse uma divisão.
+   *
+   * Consenso zero porque ninguém as previu — é justamente o ponto. Sem
+   * atingimento nem erro pelo mesmo motivo: não há previsão contra a qual medir,
+   * e qualquer percentual ali seria divisão por zero disfarçada de informação.
+   */
+  const divisaoOutras: DivisaoSop = {
+    divisao: "Outras vendas",
+    consenso: 0,
+    realizado: outrasVendas,
+    erro: null,
+    atingimento: null,
+    vies: null,
+  };
   const temMovimento =
     dados.vendas.total !== 0 ||
     dados.forecast.filiais > 0 ||
@@ -657,6 +685,24 @@ function Painel({
                 />
               ))}
 
+              {/* "Outras vendas" fecha a lista, antes do total: é venda sem
+                  divisão que a descreva, e era o que sobrava inexplicado entre
+                  as divisões zeradas e o realizado do total. Abre do mesmo
+                  jeito das outras e mostra os mesmos clientes. */}
+              {clientesAvulsos ? (
+                <LinhaDivisao
+                  divisao={divisaoOutras}
+                  total={dados.consensoTotal}
+                  contratos={mostrarContratosAvulsos ? dados.contratos : null}
+                  spot={mostrarSpotAvulso ? spot : null}
+                  aberta={abrir === divisaoOutras.divisao}
+                  href={hrefAbrir(dados, abrir, divisaoOutras.divisao)}
+                  // Zero: fora da divisão de contrato não há consenso a
+                  // comparar, e o selo de conferência se cala.
+                  consensoContratos={0}
+                />
+              ) : null}
+
               {/* Fecha a lista somando tudo, no mesmo desenho das linhas acima
                   para a soma ser lida na mesma coluna de cada parcela. O
                   realizado do total inclui o Spot, que não tem linha própria
@@ -708,7 +754,7 @@ function Painel({
           Aqui não há consenso a comparar, então é só a lista — e a condição
           exclui o caso que já aparece acima, para a mesma informação não sair
           duas vezes na mesma tela. */}
-      {clientesAvulsos ? (
+      {clientesAvulsos && !temConsenso ? (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
@@ -716,9 +762,8 @@ function Painel({
               Quem comprou no mês
             </CardTitle>
             <CardDescription>
-              {temConsenso
-                ? "O consenso do mês não tem divisão que descreva estas vendas, então os clientes aparecem aqui."
-                : "Este produto não tem consenso de S&OP no mês, mas teve venda — e é para estes clientes que ela foi."}
+              Este produto não tem consenso de S&amp;OP no mês, mas teve venda —
+              e é para estes clientes que ela foi.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 p-0 pt-0">
