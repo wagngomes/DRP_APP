@@ -722,3 +722,151 @@ model Sop {
   @@index([competencia, codigo], map: "sop_competencia_codigo_idx")
   @@map("sop")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Diagnóstico de ruptura
+//
+// Tabelas de resultado: o motor lê as bases existentes e grava aqui. Nenhuma
+// tabela acima é alterada, e nenhuma relação aponta para elas — pelo mesmo
+// motivo das bases de snapshot, que o comentário de `Contratos` explica: uma
+// chave estrangeira para Produtos viraria `SetNull` em cascata no próximo
+// import e apagaria o código em silêncio.
+//
+// A granularidade é o **evento**: uma sequência de snapshots consecutivos em
+// que a posição item × CD ficou sem estoque disponível tendo forecast. Não é
+// uma linha por dia — isso multiplicaria o volume sem responder nada que o
+// par (início, fim) não responda.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model RupturaEvento {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+
+  codigo String
+  filial String
+
+  /**
+   * Fornecedor no momento da ruptura, já normalizado.
+   *
+   * Guardado no evento, e não resolvido na consulta, por duas razões. A tela
+   * filtra por fornecedor, e um join por item a cada listagem é o padrão que
+   * já custou 23 segundos nesta base. E o fornecedor de um item muda: o que
+   * interessa na análise de setembro é quem fornecia em setembro, não quem
+   * fornece hoje.
+   *
+   * Vem da mesma cadeia da tela de fornecedores — simulador, depois marca,
+   * depois grupo de marca —, para as duas telas somarem no mesmo nome.
+   */
+  fornecedor String?
+
+  /// Descrição do produto, congelada junto pelo mesmo motivo.
+  descricao String?
+
+  /// Primeiro snapshot em ruptura.
+  inicio DateTime  @db.Date
+  /// Primeiro snapshot com estoque de volta; nulo enquanto a ruptura dura.
+  fim    DateTime? @db.Date
+  /// Dias corridos entre início e fim (ou a data de referência, se aberto).
+  dias   Int
+
+  /// Dias × consumo diário × custo. A custo, não a preço de venda.
+  valor_perdido Decimal @db.Decimal(24, 10)
+
+  /// alta | media | baixa — ver `confianca.ts`.
+  confianca       String
+  /// Quantos dos `dias` as causas conseguiram explicar.
+  dias_explicados Decimal @db.Decimal(10, 2)
+
+  /**
+   * O balanço dia a dia não fechou com o estoque dos snapshots.
+   *
+   * Medido na validação: no grão Cia, 88% dos itens fecham dentro de 10%
+   * quando o estoque em trânsito entra na conta. Os demais ficam marcados —
+   * um diagnóstico sobre um replay que não reproduz a realidade não vale, e é
+   * mais honesto dizer isso do que atribuir causa.
+   */
+  aviso_replay Boolean @default(false)
+
+  /// Foto de abertura usada como âncora do replay.
+  abertura_data   DateTime? @db.Date
+  /// marcada | primeira-do-mes | ausente — palpite limita a confiança a média.
+  abertura_origem String?
+
+  /**
+   * A ruptura já estava contratada quando o mês abriu.
+   *
+   * Medido na base: 86% das posições rompidas abriram o mês zeradas ou abaixo
+   * da política. Separar as duas situações é o ponto da tela — o que nasceu no
+   * mês se corrige com ação no mês; o que veio da abertura, não.
+   */
+  herdada_abertura Boolean @default(false)
+
+  /// Versão do conjunto de regras e limites que produziu este diagnóstico.
+  versao_regras String
+  /// Hash das entradas da janela: mesma entrada e mesma versão, mesmo resultado.
+  entrada_hash  String
+  calculado_em  DateTime @default(now())
+
+  /// pendente | confirmado | corrigido
+  revisao_status String @default("pendente")
+
+  causas   RupturaCausa[]
+  revisoes RupturaRevisao[]
+
+  /// A versão entra na chave: recalcular com regra nova não apaga o histórico.
+  @@unique([codigo, filial, inicio, versao_regras])
+  @@index([filial, inicio])
+  @@index([inicio])
+  @@index([herdada_abertura])
+  @@index([codigo, filial])
+  @@index([fornecedor])
+  @@map("ruptura_evento")
+}
+
+model RupturaCausa {
+  id       Int           @id @default(autoincrement())
+  eventoId Int
+  evento   RupturaEvento @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  /// Identificador fixo da causa, do catálogo em `catalogo.ts`.
+  causa String
+
+  /**
+   * causa | oportunidade | observacao
+   *
+   * Só `causa` leva dias. `observacao` é a regra que falhou sem mudar o
+   * resultado — o ajuste contrafactual não reduziu a ruptura — e existe para
+   * a tela poder dizer "isto também estava errado, mas não foi o que causou".
+   */
+  papel String
+
+  dias       Decimal @db.Decimal(10, 2)
+  percentual Decimal @db.Decimal(6, 2)
+
+  /// { registros: [...], valores: {...}, cenarios: [...] } — a prova.
+  evidencias Json
+
+  @@index([eventoId])
+  @@index([causa])
+  @@map("ruptura_causa")
+}
+
+model RupturaRevisao {
+  id        Int           @id @default(autoincrement())
+  createdAt DateTime      @default(now())
+  eventoId  Int
+  evento    RupturaEvento @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  usuario String
+  /// confirmar | corrigir
+  acao    String
+
+  /// O que o motor disse, congelado: a taxa de acerto se mede contra isto.
+  causas_motor    Json
+  /// O que o analista disse, quando corrigiu.
+  causas_analista Json?
+  comentario      String?
+
+  @@index([eventoId])
+  @@map("ruptura_revisao")
+}

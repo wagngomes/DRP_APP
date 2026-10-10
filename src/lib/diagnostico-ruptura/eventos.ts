@@ -1,0 +1,320 @@
+/**
+ * Detecção de eventos de ruptura.
+ *
+ * Um **evento** é uma sequência de snapshots consecutivos em que a posição
+ * item × CD esteve sem estoque disponível tendo forecast. Não é uma linha por
+ * dia: "rompeu em 03/09 e voltou em 11/09" responde tudo que oito linhas
+ * diárias responderiam, e é o que a tela mostra.
+ *
+ * O módulo só lê. Nenhuma base existente é alterada, nenhuma consulta de outra
+ * tela é tocada.
+ *
+ * **O que conta como ruptura** vem de `parametros.ts`: estoque nos armazéns de
+ * venda ≤ 0 com `forecast_m0 > 0` e torre mandando considerar. Q40 e RC ficam
+ * de fora da disponibilidade de propósito — estoque retido é causa, não
+ * ausência de ruptura.
+ */
+import { prisma } from "@/lib/prisma";
+import { simuladorPorCd } from "@/utils/cds-virtuais";
+import { snapshotMensalSql, torreValidaSql } from "@/utils/dias-estoque";
+import { COLUNAS_DISPONIVEL, COLUNAS_RETIDO, SANIDADE } from "./parametros";
+
+const soma = (colunas: readonly string[], alias: string) =>
+  `(${colunas.map((c) => `COALESCE(${alias}.${c},0)`).join(" + ")})`;
+
+const DISPONIVEL = soma(COLUNAS_DISPONIVEL, "s");
+const RETIDO = soma(COLUNAS_RETIDO, "s");
+
+/** A posição num dia, como o motor a enxerga. */
+export type PosicaoDia = {
+  data: string;
+  codigo: string;
+  filial: string;
+  /** Soma dos armazéns de venda. */
+  disponivel: number;
+  /** Q40 e RC: existe no CD, não vende. */
+  retido: number;
+  emTransito: number;
+  forecastMensal: number;
+  /** Dias de cobertura que a política pede na abertura do mês. */
+  politica: number;
+  rompida: boolean;
+};
+
+/** Um evento fechado ou em aberto. */
+export type Evento = {
+  codigo: string;
+  filial: string;
+  inicio: string;
+  /** Nulo enquanto a ruptura dura. */
+  fim: string | null;
+  /** Dias corridos entre início e fim, ou até a data de referência. */
+  dias: number;
+  /** Quantos snapshots da janela confirmaram a ruptura. */
+  snapshots: number;
+  valorPerdido: number;
+  /** A posição tinha estoque preso em Q40/RC durante a ruptura. */
+  tinhaRetido: boolean;
+};
+
+/**
+ * Cargas que não passam no teste de sanidade e não podem gerar diagnóstico.
+ *
+ * Devolvida junto com as posições para o motor marcar a lacuna em vez de
+ * tratar o dia como "sem ruptura" — que é o que aconteceria se simplesmente
+ * pulássemos a data.
+ */
+export type CargaSuspeita = {
+  data: string;
+  motivo: "forecast-sem-codigo" | "quase-tudo-rompido";
+  detalhe: string;
+};
+
+/**
+ * Lê as posições de todos os snapshots da janela, em uma consulta.
+ *
+ * Uma consulta e não uma por dia: são ~5.700 posições por snapshot, e perguntar
+ * por dia multiplica a ida ao banco por treze sem trazer nada novo. O volume
+ * medido para 60 dias é da ordem de 130 mil linhas — cabe em memória, e é o
+ * mesmo porte do que a importação diária já carrega.
+ */
+export async function carregarPosicoes(
+  de: string,
+  ate: string,
+): Promise<PosicaoDia[]> {
+  const linhas = await prisma.$queryRawUnsafe<
+    {
+      data: Date;
+      codigo: string;
+      filial: string;
+      disponivel: number;
+      retido: number;
+      transito: number;
+      forecast: number;
+      politica: number;
+    }[]
+  >(
+    // O forecast de cada dia é o da carga mensal vigente naquele dia — a mesma
+    // regra que todas as telas usam, via `snapshotMensalSql`. Sem isso, um dia
+    // sem carga de forecast ficaria sem universo e sumiria do diagnóstico.
+    `WITH dias AS (
+       SELECT DISTINCT data_snapshot::date AS d
+         FROM simulador
+        WHERE data_snapshot >= $1::date AND data_snapshot <= $2::date
+     )
+     SELECT dias.d AS data,
+            f.codigo,
+            f.filial,
+            COALESCE(sim.disponivel, 0)::float8 AS disponivel,
+            COALESCE(sim.retido, 0)::float8     AS retido,
+            COALESCE(sim.transito, 0)::float8   AS transito,
+            f.forecast_m0::float8               AS forecast,
+            COALESCE(f.politica, 0)::float8     AS politica
+       FROM dias
+       JOIN forecast f
+         ON f.data_snapshot = (
+              SELECT MAX(_f.data_snapshot) FROM forecast _f
+               WHERE _f.data_snapshot >= date_trunc('month', dias.d)
+                 AND _f.data_snapshot <= dias.d
+                 AND _f.codigo IS NOT NULL
+            )
+        AND f.forecast_m0 > 0
+        AND ${torreValidaSql("f")}
+        AND f.filial IS NOT NULL
+       LEFT JOIN LATERAL (
+         SELECT ${DISPONIVEL}::float8 AS disponivel,
+                ${RETIDO}::float8     AS retido,
+                COALESCE(s.total_trans, 0)::float8 AS transito
+           FROM ${simuladorPorCd("s.data_snapshot = dias.d")} s
+          WHERE s.codigo = f.codigo AND s.filial = f.filial
+            AND s.data_snapshot = dias.d
+          LIMIT 1
+       ) sim ON TRUE
+      ORDER BY f.codigo, f.filial, dias.d`,
+    de,
+    ate,
+  );
+
+  return linhas.map((l) => ({
+    data: l.data.toISOString().slice(0, 10),
+    codigo: l.codigo,
+    filial: l.filial,
+    disponivel: l.disponivel,
+    retido: l.retido,
+    emTransito: l.transito,
+    forecastMensal: l.forecast,
+    politica: l.politica,
+    rompida: l.disponivel <= 0,
+  }));
+}
+
+/**
+ * Cargas em que o dado não merece confiança.
+ *
+ * Duas perguntas, e as duas vêm de acidentes reais desta base. A primeira é
+ * código nulo em massa, que a reimportação de Produtos já produziu: as linhas
+ * existem, o forecast existe, e nada casa com o simulador — toda posição vira
+ * ruptura. A segunda é o sintoma, não a causa: quando quase tudo rompeu num
+ * dia, a hipótese mais provável não é catástrofe operacional, é carga ruim.
+ */
+export function cargasSuspeitas(posicoes: PosicaoDia[]): CargaSuspeita[] {
+  const porDia = new Map<string, { total: number; rompidas: number }>();
+  for (const p of posicoes) {
+    const d = porDia.get(p.data) ?? { total: 0, rompidas: 0 };
+    d.total += 1;
+    if (p.rompida) d.rompidas += 1;
+    porDia.set(p.data, d);
+  }
+
+  const suspeitas: CargaSuspeita[] = [];
+  for (const [data, d] of porDia) {
+    const fracao = d.total > 0 ? d.rompidas / d.total : 0;
+    if (fracao > SANIDADE.maxRompidasNoDia) {
+      suspeitas.push({
+        data,
+        motivo: "quase-tudo-rompido",
+        detalhe: `${d.rompidas} de ${d.total} posições rompidas (${Math.round(fracao * 100)}%)`,
+      });
+    }
+  }
+  return suspeitas.sort((a, b) => a.data.localeCompare(b.data));
+}
+
+/**
+ * Agrupa as posições diárias em eventos.
+ *
+ * Um snapshot com estoque fecha o evento. **Dia sem snapshot não fecha**: a
+ * ausência de carga não é prova de que o estoque voltou, e tratá-la como fim
+ * partiria um evento de nove dias em três de três, multiplicando a contagem de
+ * rupturas por uma falha de importação.
+ *
+ * `ate` é a data de referência, usada para medir os eventos que continuam
+ * abertos — sem ela, uma ruptura em curso teria duração zero.
+ */
+export function montarEventos(
+  posicoes: PosicaoDia[],
+  ate: string,
+  /**
+   * Custo unitário por item, de `custoPorItem`.
+   *
+   * De fora, e não do simulador: `cmv_unitario_1` mente exatamente na posição
+   * rompida, que é onde o motor precisa dele. Medido no snapshot de 11/09:
+   * 3.015 das 3.123 posições rompidas têm `cmv_unitario` nulo, e 1.137 têm
+   * `cmv_unitario_1` mais de três vezes acima do custo real de recebimento —
+   * contra 13 entre as posições com estoque. Um item de R$ 13,44 aparecia a
+   * R$ 1.482,83, e o valor perdido saía 110 vezes maior.
+   */
+  custos: Map<string, number> = new Map(),
+  /** Cargas a ignorar: o dia existe, mas o dado dele não vale. */
+  ignorar: Set<string> = new Set(),
+): Evento[] {
+  const porPosicao = new Map<string, PosicaoDia[]>();
+  for (const p of posicoes) {
+    if (ignorar.has(p.data)) continue;
+    const chave = `${p.codigo}|${p.filial}`;
+    const lista = porPosicao.get(chave);
+    if (lista) lista.push(p);
+    else porPosicao.set(chave, [p]);
+  }
+
+  const eventos: Evento[] = [];
+
+  for (const lista of porPosicao.values()) {
+    const dias = [...lista].sort((a, b) => a.data.localeCompare(b.data));
+    let atual: PosicaoDia[] = [];
+
+    const fechar = (fim: string | null) => {
+      if (atual.length === 0) return;
+      eventos.push(montarEvento(atual, fim, ate, custos));
+      atual = [];
+    };
+
+    for (const d of dias) {
+      if (d.rompida) atual.push(d);
+      else fechar(d.data);
+    }
+    // Sobrou sequência no fim da janela: a ruptura continua.
+    fechar(null);
+  }
+
+  return eventos.sort(
+    (a, b) =>
+      a.inicio.localeCompare(b.inicio) ||
+      a.codigo.localeCompare(b.codigo) ||
+      a.filial.localeCompare(b.filial),
+  );
+}
+
+function montarEvento(
+  seq: PosicaoDia[],
+  fim: string | null,
+  ate: string,
+  custos: Map<string, number>,
+): Evento {
+  const primeiro = seq[0];
+  // Aberto mede até a referência; fechado, até o dia em que o estoque voltou.
+  const limite = fim ?? ate;
+  const dias = Math.max(
+    1,
+    Math.round(
+      (Date.parse(`${limite}T00:00:00Z`) -
+        Date.parse(`${primeiro.data}T00:00:00Z`)) /
+        86_400_000,
+    ),
+  );
+
+  // O consumo diário é o do forecast, a mesma régua do resto do sistema.
+  const consumoDiario = primeiro.forecastMensal / 30;
+  const custo = custos.get(primeiro.codigo) ?? 0;
+
+  return {
+    codigo: primeiro.codigo,
+    filial: primeiro.filial,
+    inicio: primeiro.data,
+    fim,
+    dias,
+    snapshots: seq.length,
+    valorPerdido: dias * consumoDiario * custo,
+    tinhaRetido: seq.some((d) => d.retido > 0),
+  };
+}
+
+/**
+ * Custo unitário por item, a partir do que de fato foi pago.
+ *
+ * Vem de `recebimento` e não do simulador porque o campo do simulador mente
+ * justamente onde o motor precisa dele. Conferido em dois itens: o custo médio
+ * de recebimento devolve R$ 13,44 e R$ 0,41, exatamente o `cmv_unitario` que o
+ * simulador mostra nos CDs **com** estoque — e nada parecido com os R$ 1.482,83
+ * que ele mostra no CD rompido do mesmo item.
+ *
+ * Ponderado pela quantidade, não média das linhas: uma entrada de 10 mil
+ * unidades e outra de 10 descrevem o custo em proporções diferentes.
+ */
+export async function custoPorItem(): Promise<Map<string, number>> {
+  const linhas = await prisma.$queryRawUnsafe<
+    { codigo: string; custo: number }[]
+  >(
+    `SELECT codigo, (SUM(custo) / SUM(quantidade))::float8 AS custo
+       FROM recebimento
+      WHERE codigo IS NOT NULL AND quantidade > 0 AND custo IS NOT NULL
+      GROUP BY codigo
+     HAVING SUM(quantidade) > 0`,
+  );
+  return new Map(linhas.map((l) => [l.codigo, l.custo]));
+}
+
+/**
+ * Só o que está rompido na data de referência.
+ *
+ * O recorte é do negócio: a tela existe para explicar as rupturas de agora, na
+ * reunião semanal. Uma ruptura que já se resolveu não tem ação pendente — ela
+ * interessa como estatística, não como pauta.
+ *
+ * O evento continua medido desde o início: é isso que diz há quantos dias a
+ * posição está parada e dá a janela para investigar a causa. O que o filtro
+ * tira são os eventos que fecharam antes da referência.
+ */
+export function apenasEmRuptura(eventos: Evento[]): Evento[] {
+  return eventos.filter((e) => e.fim === null);
+}
