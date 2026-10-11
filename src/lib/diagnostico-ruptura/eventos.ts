@@ -332,3 +332,38 @@ export async function custoPorItem(): Promise<Map<string, number>> {
 export function apenasEmRuptura(eventos: Evento[]): Evento[] {
   return eventos.filter((e) => e.fim === null);
 }
+
+/**
+ * Quanto cada item tem de sobra na rede, para doar sem se comprometer.
+ *
+ * O limite não é escolhido aqui: vem do **Alvo** do Painel, o mesmo parâmetro
+ * que a tela de sugestão de transferência usa. Duas réguas para a mesma
+ * pergunta acabariam dizendo que cabia transferência onde a outra tela nunca
+ * sugeriu — e a primeira versão disto usava o estoque bruto, contando como
+ * disponível o que o CD doador precisava para si.
+ *
+ * Sobra de um CD = estoque − consumo diário × Alvo. Nunca negativa: CD que
+ * está no limite não doa, mas também não "deve".
+ *
+ * Posição sem forecast entra com o estoque inteiro: sem previsão de consumo,
+ * não há cobertura a preservar, e é exatamente o caso do estoque ocioso que o
+ * balanceamento deveria pegar.
+ */
+export function sobraPorItem(
+  posicoes: PosicaoDia[],
+  data: string,
+  alvoDias: number,
+): Map<string, number> {
+  const sobra = new Map<string, number>();
+
+  for (const p of posicoes) {
+    if (p.data !== data || p.disponivel <= 0) continue;
+    const consumoDiario = p.forecastMensal / 30;
+    const reservado = consumoDiario > 0 ? consumoDiario * alvoDias : 0;
+    const disponivelParaDoar = Math.max(0, p.disponivel - reservado);
+    if (disponivelParaDoar <= 0) continue;
+    sobra.set(p.codigo, (sobra.get(p.codigo) ?? 0) + disponivelParaDoar);
+  }
+
+  return sobra;
+}

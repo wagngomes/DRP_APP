@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cargasSuspeitas,
   montarEventos,
+  sobraPorItem,
   type PosicaoDia,
 } from "@/lib/diagnostico-ruptura/eventos";
 
@@ -181,5 +182,44 @@ describe("cargasSuspeitas", () => {
       dia("2026-09-11", i < 2 ? 0 : 100, { codigo: String(i) }),
     );
     expect(cargasSuspeitas(posicoes)).toEqual([]);
+  });
+});
+
+describe("sobraPorItem", () => {
+  const p = (filial: string, disponivel: number, forecastMensal: number) =>
+    dia("2026-09-11", disponivel, { filial, forecastMensal });
+
+  it("desconta o que o CD doador precisa para o próprio alvo", () => {
+    // 300 em estoque, forecast 300/mês (10/dia), alvo de 30 dias: precisa de
+    // 300 para si e não tem nada a doar. A versão anterior usava o estoque
+    // bruto e teria oferecido os 300.
+    expect(sobraPorItem([p("1002", 300, 300)], "2026-09-11", 30).size).toBe(0);
+  });
+
+  it("devolve só o excedente acima do alvo", () => {
+    // 500 em estoque, precisa de 300: sobram 200.
+    const s = sobraPorItem([p("1002", 500, 300)], "2026-09-11", 30);
+    expect(s.get("100")).toBeCloseTo(200, 6);
+  });
+
+  it("soma a sobra de vários CDs do mesmo item", () => {
+    const s = sobraPorItem(
+      [p("1002", 500, 300), p("1006", 400, 300)],
+      "2026-09-11",
+      30,
+    );
+    expect(s.get("100")).toBeCloseTo(300, 6);
+  });
+
+  it("oferece o estoque inteiro de posição sem forecast", () => {
+    // Estoque parado sem previsão de consumo é exatamente o que o
+    // balanceamento existe para mover: não há cobertura a preservar.
+    const s = sobraPorItem([p("1002", 500, 0)], "2026-09-11", 30);
+    expect(s.get("100")).toBeCloseTo(500, 6);
+  });
+
+  it("ignora dias que não são o pedido", () => {
+    const outro = dia("2026-09-10", 500, { filial: "1002", forecastMensal: 0 });
+    expect(sobraPorItem([outro], "2026-09-11", 30).size).toBe(0);
   });
 });

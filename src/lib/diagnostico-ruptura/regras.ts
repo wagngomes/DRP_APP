@@ -142,18 +142,41 @@ function vendaAceleradaMesAnterior(c: Contexto): Candidata | null {
  * consumo diário × dias de política. É a definição que o negócio usa: a
  * política é quantos dias de estoque o item deve ter para abrir o mês.
  */
-function aberturaDescoberta(c: Contexto): Candidata | null {
+function aberturaDescoberta(
+  c: Contexto,
+  /**
+   * Estoque de abertura que a causa mais profunda já devolveu.
+   *
+   * A precedência do PRD: a venda acelerada do mês anterior **explica** a
+   * abertura descoberta, não concorre com ela. Sem isto as duas disputam os
+   * mesmos dias e Shapley divide ao meio — o que é matematicamente correto e
+   * diz a coisa errada, porque uma é consequência da outra.
+   *
+   * Medindo a abertura a partir do estoque que o mês anterior teria deixado,
+   * ela fica com o resíduo: o quanto faltava **além** do que a aceleração
+   * explica. As duas passam a ser aditivas por construção.
+   */
+  jaDevolvido = 0,
+): Candidata | null {
   const a = c.abertura;
   if (!a || !a.abaixoDaPolitica || a.consumoDiario <= 0) return null;
 
   const alvo = a.consumoDiario * a.politicaDias;
   const real = cenarioReal(c);
+  const base: Cenario = {
+    ...real,
+    estoqueInicial: real.estoqueInicial + jaDevolvido,
+  };
+  // Nada a explicar: a causa mais profunda já colocaria o estoque na política.
+  if (base.estoqueInicial >= alvo) return null;
+
   return {
     slug: "abertura_descoberta",
-    diasEvitados: diasEvitados(real, { ...real, estoqueInicial: alvo }),
+    diasEvitados: diasEvitados(base, { ...base, estoqueInicial: alvo }),
     evidencias: {
       valores: {
         estoque_na_abertura: a.disponivel,
+        ja_explicado_pelo_mes_anterior: jaDevolvido,
         politica_dias: a.politicaDias,
         estoque_que_a_politica_pede: alvo,
         cobertura_na_abertura: a.coberturaDias,
@@ -361,17 +384,25 @@ function somarDias(iso: string, dias: number): string {
  * Ela existe para a leitura do código acompanhar a leitura da tela.
  */
 export function candidatas(c: Contexto): Candidata[] {
-  const regras = [
-    vendaAceleradaMesAnterior,
-    aberturaDescoberta,
+  // A dupla do ponto de partida é encadeada, não paralela: o mês anterior
+  // acelerado explica a abertura descoberta, e a abertura fica com o resto.
+  // Ver `aberturaDescoberta`.
+  const mesAnterior = vendaAceleradaMesAnterior(c);
+  const devolvido =
+    mesAnterior && mesAnterior.diasEvitados > 0
+      ? (c.mesAnterior?.excedente ?? 0)
+      : 0;
+  const abertura = aberturaDescoberta(c, devolvido);
+
+  const demais = [
     novaAbertura,
     vendaAcimaForecast,
     planoDeCompra,
     leadTimeEstourou,
     transferenciaNaoFeita,
-  ];
+  ].map((r) => r(c));
 
-  return regras
-    .map((r) => r(c))
-    .filter((x): x is Candidata => x !== null);
+  return [mesAnterior, abertura, ...demais].filter(
+    (x): x is Candidata => x !== null,
+  );
 }

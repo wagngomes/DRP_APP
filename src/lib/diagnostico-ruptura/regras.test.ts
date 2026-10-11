@@ -114,31 +114,41 @@ describe("candidatas", () => {
     ).toBe(false);
   });
 
-  it("o mês anterior acelerado explica parte da abertura", () => {
-    // As duas falham: o mês abriu com pouco, e abriu com pouco porque o mês
-    // passado vendeu além. Shapley divide entre elas sem estourar o total.
+  it("o mês anterior acelerado ABSORVE a abertura quando a explica inteira", () => {
+    // A precedência do PRD. O mês abriu com 50 e a política pedia 150; o mês
+    // passado vendeu 150 além do previsto. Devolvido o excedente, a abertura
+    // estaria exatamente na política — ela não tem nada de próprio a explicar,
+    // e acusá-la seria cobrar duas vezes a mesma falha.
     const c = contexto({
-      abertura: {
-        ...contexto().abertura!,
-        disponivel: 50,
-        abaixoDaPolitica: true,
-      },
+      abertura: { ...contexto().abertura!, disponivel: 50, abaixoDaPolitica: true },
       mesAnterior: {
-        codigo: "100",
-        filial: "1006",
-        vendido: 450,
-        forecast: 300,
-        indice: 1.5,
-        excedente: 150,
+        codigo: "100", filial: "1006",
+        vendido: 450, forecast: 300, indice: 1.5, excedente: 150,
+      },
+    });
+    const slugs = candidatas(c).map((x) => x.slug);
+    expect(slugs).toContain("venda_acelerada_mes_anterior");
+    expect(slugs).not.toContain("abertura_descoberta");
+  });
+
+  it("a abertura fica com o resíduo quando o mês anterior explica só parte", () => {
+    // Mesmo caso, com excedente menor: devolvidos 40, a abertura sobe para 90
+    // e a política pede 150. Faltam 60 que a aceleração não explica, e é isso
+    // que a abertura leva — nem tudo, nem nada.
+    const c = contexto({
+      abertura: { ...contexto().abertura!, disponivel: 50, abaixoDaPolitica: true },
+      mesAnterior: {
+        codigo: "100", filial: "1006",
+        vendido: 340, forecast: 300, indice: 1.13 + 0.1, excedente: 40,
       },
     });
     const lista = candidatas(c);
-    expect(lista.map((x) => x.slug)).toContain("venda_acelerada_mes_anterior");
-    expect(lista.map((x) => x.slug)).toContain("abertura_descoberta");
+    const slugs = lista.map((x) => x.slug);
+    expect(slugs).toContain("venda_acelerada_mes_anterior");
+    expect(slugs).toContain("abertura_descoberta");
 
     const r = dividirDias(lista, 15);
-    const soma = r.reduce((a, x) => a + x.dias, 0);
-    expect(soma).toBeCloseTo(15, 6);
+    expect(r.reduce((a, x) => a + x.dias, 0)).toBeCloseTo(15, 6);
   });
 
   it("não cobra compra de forecast aberto ontem", () => {
