@@ -81,6 +81,19 @@ export type CargaSuspeita = {
 export async function carregarPosicoes(
   de: string,
   ate: string,
+  /**
+   * Data de referência: é o mês dela que define o forecast de toda a janela.
+   *
+   * Uma resolução para a janela inteira, e não uma por dia. A versão anterior
+   * resolvia o snapshot mensal dia a dia e, nos primeiros dias do mês, não
+   * achava nada — a primeira carga de forecast de setembro é do dia 4. A
+   * posição simplesmente não existia em 01, 02 e 03, e a ruptura que começou
+   * no dia 1º aparecia começando no dia 4.
+   *
+   * O efeito era grande e silencioso: o replay dizia 11 dias, o evento dizia 7,
+   * e a divergência parecia defeito do replay. Era do evento.
+   */
+  dataReferencia: string = ate,
 ): Promise<PosicaoDia[]> {
   const linhas = await prisma.$queryRawUnsafe<
     {
@@ -114,8 +127,8 @@ export async function carregarPosicoes(
        JOIN forecast f
          ON f.data_snapshot = (
               SELECT MAX(_f.data_snapshot) FROM forecast _f
-               WHERE _f.data_snapshot >= date_trunc('month', dias.d)
-                 AND _f.data_snapshot <= dias.d
+               WHERE _f.data_snapshot >= date_trunc('month', $3::date)
+                 AND _f.data_snapshot <= $3::date
                  AND _f.codigo IS NOT NULL
             )
         AND f.forecast_m0 > 0
@@ -133,6 +146,7 @@ export async function carregarPosicoes(
       ORDER BY f.codigo, f.filial, dias.d`,
     de,
     ate,
+    dataReferencia,
   );
 
   return linhas.map((l) => ({

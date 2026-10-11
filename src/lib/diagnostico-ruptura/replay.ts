@@ -122,3 +122,64 @@ export function consumoLimitado(
   }
   return limitado;
 }
+
+/**
+ * Em que dias a posição esteve sem estoque, incluindo os dias sem carga.
+ *
+ * Os snapshots não são diários — a cobertura medida é de 28% aqui e 33% em
+ * produção. Entre uma carga e a seguinte, o estado não é desconhecido: ele é o
+ * da última carga, até que outra o contradiga. Tratar o vão como "tinha
+ * estoque" faria a falta desaparecer justamente nos buracos de importação.
+ */
+export function rompidaPorDia(
+  de: string,
+  ate: string,
+  /** Dias com carga e o estado observado nela. */
+  observado: Map<string, boolean>,
+): Set<string> {
+  const dias = diasDaJanela(de, ate);
+  const rompida = new Set<string>();
+  let ultimo = false;
+
+  for (const d of dias) {
+    const visto = observado.get(d);
+    if (visto !== undefined) ultimo = visto;
+    if (ultimo) rompida.add(d);
+  }
+  return rompida;
+}
+
+/**
+ * O consumo do replay: demanda, não venda realizada.
+ *
+ * **A correção mais importante do motor.** Usar a venda realizada era circular:
+ * a posição rompida não vende *porque* está rompida, então o consumo caía a
+ * zero exatamente nos dias da falta, o estoque simulado nunca descia, e o
+ * replay concluía que não houve ruptura. Medido nos 452 eventos, ele só
+ * reproduzia a duração real em 19% deles.
+ *
+ * A regra agora distingue o que se observou do que se estima:
+ *
+ *   **Dia com estoque** — a venda realizada *é* a demanda. Ela foi atendida, e
+ *   vender zero naquele dia é um fato sobre a demanda, não uma lacuna.
+ *
+ *   **Dia sem estoque** — a demanda é inobservável, e o forecast é a melhor
+ *   estimativa dela. O `max` com a venda do dia cobre a venda parcial, de
+ *   quem conseguiu atender uma parte antes de acabar.
+ */
+export function consumoComoDemanda(params: {
+  de: string;
+  ate: string;
+  vendas: Map<string, number>;
+  rompidaEm: Set<string>;
+  forecastMensal: number;
+}): Map<string, number> {
+  const porDia = params.forecastMensal / 30;
+  const consumo = new Map<string, number>();
+
+  for (const d of diasDaJanela(params.de, params.ate)) {
+    const vendido = params.vendas.get(d) ?? 0;
+    consumo.set(d, params.rompidaEm.has(d) ? Math.max(vendido, porDia) : vendido);
+  }
+  return consumo;
+}

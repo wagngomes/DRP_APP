@@ -6,6 +6,8 @@ import {
   diasDaJanela,
   diasEmRuptura,
   diasEvitados,
+  consumoComoDemanda,
+  rompidaPorDia,
   type Cenario,
 } from "@/lib/diagnostico-ruptura/replay";
 
@@ -197,5 +199,107 @@ describe("consumoLimitado", () => {
   it("mantém o dia sem teto definido", () => {
     const real = consumo(["d1", 50]);
     expect(consumoLimitado(real, new Map()).get("d1")).toBe(50);
+  });
+});
+
+describe("rompidaPorDia", () => {
+  it("carrega o estado para os dias sem carga", () => {
+    // A cobertura de snapshot é de 28%: o vão entre cargas é a regra, não a
+    // exceção. Tratá-lo como "tinha estoque" faria a falta sumir justamente
+    // nos buracos de importação.
+    const r = rompidaPorDia(
+      "2026-09-01",
+      "2026-09-06",
+      new Map([
+        ["2026-09-01", true],
+        ["2026-09-05", false],
+      ]),
+    );
+    expect([...r].sort()).toEqual([
+      "2026-09-01",
+      "2026-09-02",
+      "2026-09-03",
+      "2026-09-04",
+    ]);
+  });
+
+  it("não inventa ruptura antes da primeira carga", () => {
+    const r = rompidaPorDia(
+      "2026-09-01",
+      "2026-09-04",
+      new Map([["2026-09-03", true]]),
+    );
+    expect([...r].sort()).toEqual(["2026-09-03", "2026-09-04"]);
+  });
+});
+
+describe("consumoComoDemanda", () => {
+  const janela = { de: "2026-09-01", ate: "2026-09-04" };
+
+  it("usa a venda realizada no dia em que havia estoque", () => {
+    const c = consumoComoDemanda({
+      ...janela,
+      vendas: new Map([["2026-09-01", 7]]),
+      rompidaEm: new Set(),
+      forecastMensal: 300, // 10/dia
+    });
+    expect(c.get("2026-09-01")).toBe(7);
+    // Vender zero com estoque é um fato sobre a demanda, não uma lacuna.
+    expect(c.get("2026-09-02")).toBe(0);
+  });
+
+  it("usa o forecast no dia sem estoque", () => {
+    // É a correção que conserta a circularidade: a posição rompida não vende
+    // porque está rompida, e sem isto o consumo some justamente na falta.
+    const c = consumoComoDemanda({
+      ...janela,
+      vendas: new Map(),
+      rompidaEm: new Set(["2026-09-03"]),
+      forecastMensal: 300,
+    });
+    expect(c.get("2026-09-03")).toBe(10);
+    expect(c.get("2026-09-02")).toBe(0);
+  });
+
+  it("respeita a venda parcial maior que o forecast", () => {
+    // Atendeu parte antes de acabar: a demanda foi pelo menos isso.
+    const c = consumoComoDemanda({
+      ...janela,
+      vendas: new Map([["2026-09-03", 25]]),
+      rompidaEm: new Set(["2026-09-03"]),
+      forecastMensal: 300,
+    });
+    expect(c.get("2026-09-03")).toBe(25);
+  });
+
+  it("faz o replay reproduzir a ruptura que a venda realizada escondia", () => {
+    // O caso que motivou a correção, em miniatura: posição abre zerada, não
+    // vende nada (porque não tem o que vender) e o snapshot a mostra rompida.
+    // Com venda realizada, o estoque simulado nunca cai e uma unidade
+    // "resolveria". Com demanda, a falta aparece do tamanho que é.
+    const rompida = rompidaPorDia(
+      janela.de,
+      janela.ate,
+      new Map([["2026-09-01", true]]),
+    );
+    const comVendaReal = diasEmRuptura({
+      ...janela,
+      estoqueInicial: 0,
+      consumo: new Map(),
+      chegadas: [{ data: "2026-09-01", quantidade: 1 }],
+    });
+    const comDemanda = diasEmRuptura({
+      ...janela,
+      estoqueInicial: 0,
+      consumo: consumoComoDemanda({
+        ...janela,
+        vendas: new Map(),
+        rompidaEm: rompida,
+        forecastMensal: 300,
+      }),
+      chegadas: [{ data: "2026-09-01", quantidade: 1 }],
+    });
+    expect(comVendaReal).toBe(0); // uma unidade "resolvia" — ficção
+    expect(comDemanda).toBe(4); // a falta aparece inteira
   });
 });
