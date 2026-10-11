@@ -23,6 +23,7 @@ import {
   BarraCausas,
   tomDaEtapa,
 } from "@/components/diagnostico/barra-causas";
+import { BotaoRecalcular } from "@/components/diagnostico/botao-recalcular";
 import {
   carregarDetalhe,
   carregarDiagnostico,
@@ -92,6 +93,7 @@ export default async function DiagnosticoRuptura({
   const herdadas = primeiro(params.herdadas) === "1";
   const pagina = Number(primeiro(params.pagina) ?? 1) || 1;
   const abrir = Number(primeiro(params.abrir) ?? 0) || null;
+  const ehAdmin = sessao.usuario.papel === "admin";
 
   const [dados, detalhe] = await Promise.all([
     carregarDiagnostico({ produto, fornecedor, causa, herdadas, pagina }),
@@ -149,6 +151,17 @@ export default async function DiagnosticoRuptura({
                 Por que cada posição está sem estoque, com a prova de cada
                 causa. Só o que está rompido na data de referência.
               </p>
+              {/* Quando a rodada foi calculada, ao lado do botão: sem isso
+                  ninguém sabe se está olhando o retrato de hoje ou o da
+                  semana passada. */}
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                {ehAdmin ? <BotaoRecalcular /> : null}
+                <span className="text-xs text-muted-foreground">
+                  {dados.calculadoEm
+                    ? `calculado em ${dados.calculadoEm.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`
+                    : "nunca calculado"}
+                </span>
+              </div>
             </div>
 
             {!vazio ? (
@@ -202,9 +215,16 @@ export default async function DiagnosticoRuptura({
               </p>
               <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
                 O diagnóstico é calculado sob demanda, para a importação diária
-                continuar com a duração de sempre. Peça a um administrador para
-                recalcular.
+                continuar com a duração de sempre.
+                {ehAdmin
+                  ? " Clique em recalcular — leva alguns segundos."
+                  : " Peça a um administrador para recalcular."}
               </p>
+              {ehAdmin ? (
+                <div className="mt-4 flex justify-center">
+                  <BotaoRecalcular />
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         ) : (

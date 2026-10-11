@@ -34,7 +34,14 @@ export type EventoSeguranca =
   /** Importação que substituiu o conteúdo de uma tabela. */
   | "importacao"
   /** Consulta SQL executada no console administrativo. */
-  | "consulta_sql";
+  | "consulta_sql"
+  /**
+   * Rodada do motor de diagnóstico de ruptura.
+   *
+   * Entra na auditoria porque substitui o retrato inteiro: quem recalculou e
+   * quando é o que explica a tela ter mudado entre duas reuniões.
+   */
+  | "diagnostico_recalculado";
 
 type Detalhes = {
   /** Quem agiu, quando há sessão. */
