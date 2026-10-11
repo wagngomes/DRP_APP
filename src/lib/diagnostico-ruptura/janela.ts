@@ -166,3 +166,139 @@ export async function carregarFatos(
 
   return { vendas, chegadas };
 }
+
+/** Um pedido que entrou no CD, com o prazo que levou e o que estava combinado. */
+export type Entrega = {
+  posicao: string;
+  pedido: string | null;
+  /** Quando o pedido foi colocado — início do lead time. */
+  pedidoEm: string;
+  /** Quando entrou no CD. */
+  chegouEm: string;
+  quantidade: number;
+  /** Dias corridos entre a colocação e a entrada. */
+  leadReal: number;
+};
+
+/**
+ * Entregas da janela, com o prazo que cada uma levou.
+ *
+ * As três datas de `recebimento` significam, conferido contra a própria coluna
+ * `lead_time` da tabela — que bate com `data − data_pedido` em 100% das 20.231
+ * linhas e com `data_emissao` em 8%:
+ *
+ *   `data_pedido`   colocação do pedido, início do prazo
+ *   `data_emissao`  emissão da NF pelo fornecedor, sempre depois
+ *   `data`          entrada no nosso CD, fim do prazo
+ *
+ * A nomenclatura engana, e por isso a conferência ficou registrada aqui: um
+ * `data − data_emissao` pareceria razoável e mediria outra coisa.
+ */
+export async function carregarEntregas(
+  de: string,
+  ate: string,
+): Promise<Map<string, Entrega[]>> {
+  const linhas = await prisma.$queryRawUnsafe<
+    {
+      codigo: string;
+      filial: string;
+      pedido: string | null;
+      pedido_em: Date;
+      chegou_em: Date;
+      qtd: number;
+      lead: number;
+    }[]
+  >(
+    `SELECT codigo, filial, pedido,
+            data_pedido::date AS pedido_em,
+            data::date        AS chegou_em,
+            SUM(quantidade)::float8 AS qtd,
+            MAX(lead_time)::int     AS lead
+       FROM recebimento
+      WHERE codigo IS NOT NULL AND filial IS NOT NULL
+        AND quantidade > 0 AND lead_time IS NOT NULL AND lead_time >= 0
+        -- data_pedido é nula em 39% das linhas, mesmo com lead_time
+        -- preenchido. Sem ela não há início de prazo, e medir atraso contra
+        -- uma data que não existe produziria acusação a partir de nada.
+        AND data_pedido IS NOT NULL
+        AND data >= $1::date AND data <= $2::date
+      GROUP BY 1, 2, 3, 4, 5`,
+    de,
+    ate,
+  );
+
+  const mapa = new Map<string, Entrega[]>();
+  for (const l of linhas) {
+    const posicao = chave(l.codigo, l.filial);
+    const e: Entrega = {
+      posicao,
+      pedido: l.pedido,
+      pedidoEm: l.pedido_em.toISOString().slice(0, 10),
+      chegouEm: l.chegou_em.toISOString().slice(0, 10),
+      quantidade: l.qtd,
+      leadReal: l.lead,
+    };
+    const lista = mapa.get(posicao);
+    if (lista) lista.push(e);
+    else mapa.set(posicao, [e]);
+  }
+  return mapa;
+}
+
+/**
+ * Lead time cadastrado por fornecedor e CD, e o real medido.
+ *
+ * Os dois juntos porque a comparação entre eles é o que separa duas causas
+ * diferentes: fornecedor que atrasou numa entrega, e cadastro que está errado
+ * há meses. Medido nos 228 pares com seis ou mais recebimentos, **56% têm o
+ * cadastro abaixo da mediana real** — e há casos de 4 dias cadastrados contra
+ * 35 reais, com 23 entregas confirmando.
+ */
+export type PrazoFornecedor = {
+  /** O que está no cadastro. */
+  cadastrado: number | null;
+  /** Mediana dos prazos de fato cumpridos. */
+  realMediano: number | null;
+  /** Entregas que sustentam a mediana. */
+  entregas: number;
+};
+
+export async function carregarPrazos(): Promise<Map<string, PrazoFornecedor>> {
+  const linhas = await prisma.$queryRawUnsafe<
+    {
+      fornecedor: string;
+      cd: string;
+      cadastrado: number | null;
+      real: number | null;
+      n: number;
+    }[]
+  >(
+    `WITH real AS (
+       SELECT nome_grupo_marca AS fornecedor, filial AS cd,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY lead_time)::float8 AS real,
+              count(*)::int AS n
+         FROM recebimento
+        WHERE lead_time IS NOT NULL AND lead_time >= 0
+          AND nome_grupo_marca IS NOT NULL AND filial IS NOT NULL
+        GROUP BY 1, 2
+     )
+     SELECT COALESCE(real.fornecedor, l.fornecedor) AS fornecedor,
+            COALESCE(real.cd, l.cd)                 AS cd,
+            l.lead_time::float8                     AS cadastrado,
+            real.real,
+            COALESCE(real.n, 0)                     AS n
+       FROM real
+       FULL JOIN lead_time_fornecedor l
+         ON l.fornecedor = real.fornecedor AND l.cd = real.cd`,
+  );
+
+  const mapa = new Map<string, PrazoFornecedor>();
+  for (const l of linhas) {
+    mapa.set(chave(l.fornecedor, l.cd), {
+      cadastrado: l.cadastrado,
+      realMediano: l.real,
+      entregas: l.n,
+    });
+  }
+  return mapa;
+}

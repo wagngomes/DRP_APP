@@ -240,3 +240,70 @@ describe("candidatas", () => {
     }
   });
 });
+
+describe("lead time", () => {
+  const comEntrega = (leadReal: number, cadastrado: number, entregas = 1) =>
+    contexto({
+      abertura: { ...contexto().abertura!, disponivel: 0, abaixoDaPolitica: true },
+      entregas: [
+        {
+          posicao: "100|1006",
+          pedido: "P1",
+          pedidoEm: "2026-09-01",
+          chegouEm: "2026-09-12",
+          quantidade: 500,
+          leadReal,
+        },
+      ],
+      chegadas: [{ data: "2026-09-12", quantidade: 500 }],
+      prazo: { cadastrado, realMediano: leadReal, entregas },
+    });
+
+  it("credita o atraso quando ele custou dias de prateleira vazia", () => {
+    // Pedido em 01/09 com prazo de 4 dias chegou em 11 — sete dias tarde, e a
+    // posição estava zerada desde a abertura.
+    const r = candidatas(comEntrega(11, 4));
+    const atraso = r.find(
+      (x) => x.slug === "fornecedor_atrasou" || x.slug === "lead_time_cadastro",
+    );
+    expect(atraso).toBeDefined();
+    expect(atraso!.diasEvitados).toBeGreaterThan(0);
+  });
+
+  it("não acusa atraso dentro da tolerância", () => {
+    // Dois dias além do cadastrado é a tolerância; não é atraso.
+    const r = candidatas(comEntrega(10, 8)).map((x) => x.slug);
+    expect(r).not.toContain("fornecedor_atrasou");
+    expect(r).not.toContain("lead_time_cadastro");
+  });
+
+  it("culpa o cadastro, e não o fornecedor, quando o estouro é o padrão", () => {
+    // A distinção importa: o prazo cadastrado alimenta toda data limite de
+    // compra do sistema. Chamar de "atraso do fornecedor" o que acontece em
+    // metade das entregas esconde um número errado no cadastro.
+    const recorrente = candidatas(comEntrega(30, 4, 23)).map((x) => x.slug);
+    expect(recorrente).toContain("lead_time_cadastro");
+    expect(recorrente).not.toContain("fornecedor_atrasou");
+
+    const isolado = candidatas(comEntrega(30, 4, 2)).map((x) => x.slug);
+    expect(isolado).toContain("fornecedor_atrasou");
+    expect(isolado).not.toContain("lead_time_cadastro");
+  });
+
+  it("guarda o pedido e as datas como prova", () => {
+    // Pelo slug, não por índice: as regras rodam na ordem da cadeia e a
+    // abertura vem antes do fornecedor.
+    const atraso = candidatas(comEntrega(11, 4)).find(
+      (x) => x.slug === "fornecedor_atrasou" || x.slug === "lead_time_cadastro",
+    )!;
+    const registros = (atraso.evidencias as { registros: Record<string, unknown>[] })
+      .registros;
+    expect(registros[0]).toMatchObject({
+      tabela: "recebimento",
+      chave: "P1",
+      pedido_em: "2026-09-01",
+      chegou_em: "2026-09-12",
+      atraso: 7,
+    });
+  });
+});

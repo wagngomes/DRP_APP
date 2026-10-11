@@ -16,6 +16,7 @@
  * chama cuida de banco.
  */
 import type { PosicaoAbertura, MesAnterior, AberturaForecast } from "./abertura";
+import type { Entrega, PrazoFornecedor } from "./janela";
 import type { Candidata } from "./contrafactual";
 import type { Evento } from "./eventos";
 import {
@@ -51,6 +52,10 @@ export type Contexto = {
   leadTime: number;
   /** Estoque disponível em outros CDs quando a ruptura ficou previsível. */
   excedenteOutrosCds: number;
+  /** Entregas que chegaram na janela, com o prazo que levaram. */
+  entregas?: Entrega[];
+  /** Prazo cadastrado e real do par fornecedor × CD desta posição. */
+  prazo?: PrazoFornecedor;
 };
 
 /** O cenário real, que todas as correções modificam em um ponto só. */
@@ -278,6 +283,71 @@ function transferenciaNaoFeita(c: Contexto): Candidata | null {
   };
 }
 
+/**
+ * Lead time estourado: o pedido saiu, e chegou depois do combinado.
+ *
+ * Correção: a entrega chegou no prazo — `data_pedido + prazo cadastrado`. Tudo
+ * o mais permanece real, inclusive a quantidade: a pergunta é sobre o atraso,
+ * não sobre o tamanho do pedido.
+ *
+ * **O dono depende da recorrência, e a diferença não é detalhe.** Um atraso
+ * isolado é do fornecedor. Um prazo que estoura sempre não é atraso: é
+ * cadastro errado, e a cobrança vai para quem mantém o cadastro — porque todo
+ * cálculo de data limite de compra do sistema usa esse número. Medido na base,
+ * 56% dos pares fornecedor × CD têm o cadastro abaixo da mediana real, com
+ * casos de 4 dias cadastrados contra 35 cumpridos em 23 entregas.
+ *
+ * A régua da recorrência é a mediana real contra o cadastrado: se **a metade
+ * das entregas** já estoura o prazo, o prazo é que está errado.
+ */
+function leadTimeEstourou(c: Contexto): Candidata | null {
+  const entregas = c.entregas ?? [];
+  const cadastrado = c.prazo?.cadastrado;
+  if (!cadastrado || cadastrado <= 0 || entregas.length === 0) return null;
+
+  // Só as entregas que de fato estouraram, e por mais que a tolerância.
+  const atrasadas = entregas.filter(
+    (e) => e.leadReal > cadastrado + LIMITES.diasTolerenciaPedido,
+  );
+  if (atrasadas.length === 0) return null;
+
+  const real = cenarioReal(c);
+  // Cada entrega atrasada volta para a data em que deveria ter chegado.
+  const noPrazo = real.chegadas.filter(
+    (ch) => !atrasadas.some((a) => a.chegouEm === ch.data && a.quantidade === ch.quantidade),
+  );
+  for (const a of atrasadas) {
+    noPrazo.push({
+      data: somarDias(a.pedidoEm, cadastrado),
+      quantidade: a.quantidade,
+    });
+  }
+
+  const recorrente =
+    (c.prazo?.realMediano ?? 0) > cadastrado && (c.prazo?.entregas ?? 0) >= 6;
+
+  return {
+    slug: recorrente ? "lead_time_cadastro" : "fornecedor_atrasou",
+    diasEvitados: diasEvitados(real, { ...real, chegadas: noPrazo }),
+    evidencias: {
+      valores: {
+        prazo_cadastrado: cadastrado,
+        prazo_real_mediano: c.prazo?.realMediano,
+        entregas_que_sustentam: c.prazo?.entregas,
+        recorrente,
+      },
+      registros: atrasadas.map((a) => ({
+        tabela: "recebimento",
+        chave: a.pedido ?? `${c.evento.codigo}|${a.chegouEm}`,
+        pedido_em: a.pedidoEm,
+        chegou_em: a.chegouEm,
+        prazo_real: a.leadReal,
+        atraso: a.leadReal - cadastrado,
+      })),
+    },
+  };
+}
+
 function somarDias(iso: string, dias: number): string {
   return new Date(Date.parse(`${iso}T00:00:00Z`) + dias * 86_400_000)
     .toISOString()
@@ -297,6 +367,7 @@ export function candidatas(c: Contexto): Candidata[] {
     novaAbertura,
     vendaAcimaForecast,
     planoDeCompra,
+    leadTimeEstourou,
     transferenciaNaoFeita,
   ];
 

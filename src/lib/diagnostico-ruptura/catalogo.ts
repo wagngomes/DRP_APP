@@ -108,6 +108,22 @@ export const CAUSAS: Causa[] = [
     regra: "havia plano, mas abaixo da necessidade do período",
   },
   {
+    slug: "fornecedor_atrasou",
+    rotulo: "Fornecedor atrasou a entrega",
+    etapa: "fornecedor",
+    dono: "Fornecedor e Compras",
+    regra:
+      "a entrega chegou depois do prazo cadastrado, de forma isolada — não é o padrão deste fornecedor neste CD",
+  },
+  {
+    slug: "lead_time_cadastro",
+    rotulo: "Prazo cadastrado desatualizado",
+    etapa: "compra",
+    dono: "Planejamento",
+    regra:
+      "o prazo real estoura o cadastrado na maioria das entregas — não é atraso, é cadastro errado, e ele alimenta toda data limite de compra do sistema",
+  },
+  {
     slug: "transferencia_nao_feita",
     rotulo: "Transferência não feita",
     etapa: "movimentacao",
