@@ -24,6 +24,7 @@ const TOM: Record<Etapa, { barra: string; texto: string }> = {
   plano: { barra: "bg-violet-500", texto: "text-violet-700 dark:text-violet-400" },
   compra: { barra: "bg-rose-500", texto: "text-rose-700 dark:text-rose-400" },
   fornecedor: { barra: "bg-orange-500", texto: "text-orange-700 dark:text-orange-400" },
+  recebimento: { barra: "bg-teal-500", texto: "text-teal-700 dark:text-teal-400" },
   movimentacao: { barra: "bg-sky-500", texto: "text-sky-700 dark:text-sky-400" },
 };
 

@@ -23,6 +23,7 @@ export type Etapa =
   | "plano"
   | "compra"
   | "fornecedor"
+  | "recebimento"
   | "movimentacao";
 
 export type Causa = {
@@ -42,6 +43,7 @@ export const ETAPAS: { id: Etapa; rotulo: string }[] = [
   { id: "plano", rotulo: "Plano" },
   { id: "compra", rotulo: "Compra" },
   { id: "fornecedor", rotulo: "Fornecedor" },
+  { id: "recebimento", rotulo: "Recebimento" },
   { id: "movimentacao", rotulo: "Movimentação interna" },
 ];
 
@@ -130,6 +132,99 @@ export const CAUSAS: Causa[] = [
     dono: "Planejamento e Logística",
     regra:
       "outro CD tinha cobertura folgada quando a ruptura ficou previsível, e nenhuma transferência saiu",
+  },
+  {
+    slug: "estoque_retido",
+    rotulo: "Estoque retido",
+    etapa: "recebimento",
+    dono: "Logistica e Qualidade",
+    regra:
+      "o estoque existe no CD mas nao esta disponivel para venda - quarentena, conferencia, bloqueio ou reserva",
+  },
+  {
+    slug: "sem_plano_mes_anterior",
+    rotulo: "Sem plano no mes anterior",
+    etapa: "plano",
+    dono: "Planejamento",
+    regra: "o item nao tinha plano de compra no mes que antecedeu a ruptura",
+  },
+  {
+    slug: "plano_insuficiente_mes_anterior",
+    rotulo: "Plano insuficiente no mes anterior",
+    etapa: "plano",
+    dono: "Planejamento",
+    regra: "havia plano no mes anterior, mas abaixo do que a necessidade pedia",
+  },
+  {
+    slug: "sem_saldo_plano",
+    rotulo: "Sem saldo de plano",
+    etapa: "plano",
+    dono: "Planejamento e Diretoria",
+    regra:
+      "na data limite o saldo do plano ja estava esgotado - o pedido nao saiu por falta de verba, nao por esquecimento",
+  },
+  {
+    slug: "pedido_tarde",
+    rotulo: "Pedido colocado tarde",
+    etapa: "compra",
+    dono: "Compras",
+    regra:
+      "havia plano e havia saldo, e mesmo assim o pedido saiu depois da data limite",
+  },
+  {
+    slug: "comprou_pouco",
+    rotulo: "Comprou pouco",
+    etapa: "compra",
+    dono: "Compras",
+    regra:
+      "o pedido saiu no prazo, mas a quantidade nao cobria a necessidade do periodo",
+  },
+  {
+    slug: "pedido_cancelado",
+    rotulo: "Pedido cancelado ou cortado",
+    etapa: "compra",
+    dono: "Compras",
+    regra:
+      "o pedido existia e desapareceu da base sem recebimento correspondente",
+  },
+  {
+    slug: "triangulacao_lenta",
+    rotulo: "Triangulacao lenta",
+    etapa: "movimentacao",
+    dono: "Logistica",
+    regra: "o trecho entre CDs internos levou mais que o SLA de transferencia",
+  },
+  {
+    slug: "parada_hub",
+    rotulo: "Parada no hub",
+    etapa: "movimentacao",
+    dono: "Planejamento e Logistica",
+    regra:
+      "a mercadoria entrou no hub e a nota para o CD final demorou a sair",
+  },
+  {
+    slug: "entrega_parcial",
+    rotulo: "Entrega parcial ou backorder",
+    etapa: "fornecedor",
+    dono: "Fornecedor e Compras",
+    regra:
+      "o fornecedor entregou no prazo, mas nao a quantidade inteira",
+  },
+  {
+    slug: "saida_nao_usual",
+    rotulo: "Baixa de estoque nao usual",
+    etapa: "recebimento",
+    dono: "Logistica e TI",
+    regra:
+      "o estoque saiu sem venda nem transferencia que explique - inventario, perda ou ajuste",
+  },
+  {
+    slug: "indefinida",
+    rotulo: "Indefinida",
+    etapa: "dados",
+    dono: "TI e Planejamento",
+    regra:
+      "nenhuma das perguntas da arvore encontrou explicacao - terminal explicito, mais honesto que forcar uma causa",
   },
   {
     slug: "sem_evidencia",

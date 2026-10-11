@@ -16,15 +16,15 @@ flowchart TD
     I["item × CD rompido<br/>na data de referência"] --> D0
 
     D0{"A carga do dia<br/>é confiável?"}
-    D0 -->|não| C0["BASE INCONSISTENTE<br/>nenhum dono"]
+    D0 -->|não| base_inconsistente["BASE INCONSISTENTE<br/>nenhum dono"]
     D0 -->|sim| D1
 
     D1{"O estoque existe,<br/>mas está retido?<br/>Q40 · RC · bloqueio · reserva"}
-    D1 -->|sim| C1["ESTOQUE RETIDO<br/>Logística e Qualidade"]
+    D1 -->|sim| estoque_retido["ESTOQUE RETIDO<br/>Logística e Qualidade"]
     D1 -->|não| D2
 
     D2{"O forecast deste CD abriu<br/>contra o snapshot anterior,<br/>há menos de um lead time?"}
-    D2 -->|sim| C2["NOVA ABERTURA DE FORECAST<br/>Comercial e Planejamento"]
+    D2 -->|sim| nova_abertura["NOVA ABERTURA DE FORECAST<br/>Comercial e Planejamento"]
     D2 -->|não| D3
 
     D3{"Abrimos o mês já rompido<br/>ou abaixo da política<br/>do item × CD?"}
@@ -32,27 +32,27 @@ flowchart TD
     D3 -->|não| B1
 
     A1{"A venda do mês anterior<br/>superou o forecast<br/>daquele mês?"}
-    A1 -->|sim| CA1["VENDA ACELERADA<br/>NO MÊS ANTERIOR<br/>Demanda e Comercial"]
+    A1 -->|sim| venda_acelerada_mes_anterior["VENDA ACELERADA<br/>NO MÊS ANTERIOR<br/>Demanda e Comercial"]
     A1 -->|não| A2
 
     A2{"Havia plano de compra<br/>no mês anterior?"}
-    A2 -->|não| CA2["SEM PLANO NO MÊS ANTERIOR<br/>Planejamento"]
+    A2 -->|não| sem_plano_mes_anterior["SEM PLANO NO MÊS ANTERIOR<br/>Planejamento"]
     A2 -->|sim| A3
 
     A3{"O plano do mês anterior<br/>cobria a necessidade?"}
-    A3 -->|não| CA3["PLANO INSUFICIENTE<br/>NO MÊS ANTERIOR<br/>Planejamento"]
+    A3 -->|não| plano_insuficiente_mes_anterior["PLANO INSUFICIENTE<br/>NO MÊS ANTERIOR<br/>Planejamento"]
     A3 -->|sim| A4
 
     A4{"A compra do mês anterior<br/>chegou no prazo?"}
     A4 -->|não| F1
-    A4 -->|sim| CA4["ABERTURA DESCOBERTA<br/>Planejamento"]
+    A4 -->|sim| abertura_descoberta["ABERTURA DESCOBERTA<br/>Planejamento"]
 
     B1{"Havia plano de compra<br/>no mês atual?"}
-    B1 -->|não| CB1["FORA DO PLANO<br/>Planejamento"]
+    B1 -->|não| fora_do_plano["FORA DO PLANO<br/>Planejamento"]
     B1 -->|sim| B2
 
     B2{"O plano cobria<br/>a necessidade?"}
-    B2 -->|não| CB2["PLANO INSUFICIENTE<br/>Planejamento"]
+    B2 -->|não| plano_insuficiente["PLANO INSUFICIENTE<br/>Planejamento"]
     B2 -->|sim| B3
 
     B3{"O pedido foi colocado<br/>até a data limite?"}
@@ -60,15 +60,15 @@ flowchart TD
     B3 -->|sim| B4
 
     B3a{"Havia saldo no plano<br/>na data limite?"}
-    B3a -->|não| CB3a["SEM SALDO DE PLANO<br/>Planejamento e Diretoria"]
-    B3a -->|sim| CB3["PEDIDO COLOCADO TARDE<br/>Compras"]
+    B3a -->|não| sem_saldo_plano["SEM SALDO DE PLANO<br/>Planejamento e Diretoria"]
+    B3a -->|sim| pedido_tarde["PEDIDO COLOCADO TARDE<br/>Compras"]
 
     B4{"A quantidade pedida<br/>cobria a necessidade?"}
-    B4 -->|não| CB4["COMPROU POUCO<br/>Compras"]
+    B4 -->|não| comprou_pouco["COMPROU POUCO<br/>Compras"]
     B4 -->|sim| B5
 
     B5{"O pedido ainda existe?<br/>não sumiu da base<br/>sem recebimento"}
-    B5 -->|não| CB5["PEDIDO CANCELADO<br/>OU CORTADO<br/>Compras"]
+    B5 -->|não| pedido_cancelado["PEDIDO CANCELADO<br/>OU CORTADO<br/>Compras"]
     B5 -->|sim| T1
 
     T1{"O pedido era triangulado?"}
@@ -80,11 +80,11 @@ flowchart TD
     T2 -->|não| T3
 
     T3{"O trecho entre CDs<br/>estourou o SLA<br/>de transferência?"}
-    T3 -->|sim| CT3["TRIANGULAÇÃO LENTA<br/>Logística"]
+    T3 -->|sim| triangulacao_lenta["TRIANGULAÇÃO LENTA<br/>Logística"]
     T3 -->|não| T4
 
     T4{"A mercadoria parou no hub?<br/>entrou e a NF seguinte<br/>demorou a sair"}
-    T4 -->|sim| CT4["PARADA NO HUB<br/>Planejamento e Logística"]
+    T4 -->|sim| parada_hub["PARADA NO HUB<br/>Planejamento e Logística"]
     T4 -->|não| V1
 
     F1{"O fornecedor entregou<br/>além do prazo cadastrado?"}
@@ -92,20 +92,20 @@ flowchart TD
     F1 -->|não| F3
 
     F2{"O estouro é recorrente<br/>neste par fornecedor × CD?"}
-    F2 -->|sim| CF2a["LEAD TIME CADASTRADO<br/>DESATUALIZADO<br/>Planejamento"]
-    F2 -->|não| CF2b["ATRASO DO FORNECEDOR<br/>Fornecedor e Compras"]
+    F2 -->|sim| lead_time_cadastro["LEAD TIME CADASTRADO<br/>DESATUALIZADO<br/>Planejamento"]
+    F2 -->|não| fornecedor_atrasou["ATRASO DO FORNECEDOR<br/>Fornecedor e Compras"]
 
     F3{"O fornecedor entregou<br/>a quantidade inteira?"}
-    F3 -->|não| CF3["ENTREGA PARCIAL<br/>OU BACKORDER<br/>Fornecedor e Compras"]
+    F3 -->|não| entrega_parcial["ENTREGA PARCIAL<br/>OU BACKORDER<br/>Fornecedor e Compras"]
     F3 -->|sim| V1
 
     V1{"A venda do mês<br/>superou o forecast?"}
-    V1 -->|sim| CV1["VENDA ACELERADA NO MÊS<br/>Demanda e Comercial"]
+    V1 -->|sim| venda_acima_forecast["VENDA ACELERADA NO MÊS<br/>Demanda e Comercial"]
     V1 -->|não| V2
 
     V2{"Houve saída que não foi<br/>venda nem transferência?"}
-    V2 -->|sim| CV2["BAIXA DE ESTOQUE<br/>NÃO USUAL<br/>Logística e TI"]
-    V2 -->|não| CV3["INDEFINIDA<br/>TI e Planejamento"]
+    V2 -->|sim| saida_nao_usual["BAIXA DE ESTOQUE<br/>NÃO USUAL<br/>Logística e TI"]
+    V2 -->|não| indefinida["INDEFINIDA<br/>TI e Planejamento"]
 ```
 
 ### O modificador do balanceamento
