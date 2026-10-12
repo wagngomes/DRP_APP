@@ -33,7 +33,7 @@ import {
   carregarDetalhe,
   carregarDiagnostico,
 } from "@/lib/diagnostico-ruptura/consultas";
-import { carregarSerie } from "@/lib/diagnostico-ruptura/serie";
+import { carregarSerie } from "@/lib/diagnostico-ruptura/serie.server";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { exigirSessao } from "@/lib/autorizacao";
 
@@ -66,8 +66,7 @@ type SearchParams = {
 const primeiro = (v: string | string[] | undefined) =>
   (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
 
-const num = (v: number) =>
-  Math.round(v).toLocaleString("pt-BR");
+const num = (v: number) => Math.round(v).toLocaleString("pt-BR");
 
 const moeda = (v: number) =>
   v.toLocaleString("pt-BR", {
@@ -211,22 +210,6 @@ export default async function DiagnosticoRuptura({
                     {num(dados.resumo.eventos)}
                   </p>
                 </div>
-                <div className="min-w-24 text-right">
-                  <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                    Dias sem estoque
-                  </p>
-                  <p className="font-mono text-2xl font-bold tabular-nums">
-                    {num(dados.resumo.dias)}
-                  </p>
-                </div>
-                <div className="min-w-32 text-right">
-                  <p className="text-xs tracking-wide text-muted-foreground uppercase">
-                    Valor a custo
-                  </p>
-                  <p className="font-mono text-2xl font-bold text-rose-600 tabular-nums dark:text-rose-400">
-                    {moeda(dados.resumo.valorPerdido)}
-                  </p>
-                </div>
                 <div className="min-w-28 text-right">
                   <p className="text-xs tracking-wide text-muted-foreground uppercase">
                     Herdadas
@@ -278,6 +261,7 @@ export default async function DiagnosticoRuptura({
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Link
                     href={href({ causa: undefined, pagina: undefined })}
+                    scroll={false}
                     className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
                       causa
                         ? "hover:bg-muted"
@@ -295,6 +279,7 @@ export default async function DiagnosticoRuptura({
                           causa: ativa ? undefined : c.slug,
                           pagina: undefined,
                         })}
+                        scroll={false}
                         className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
                           ativa
                             ? "border-foreground/40 bg-muted font-medium"
@@ -337,6 +322,7 @@ export default async function DiagnosticoRuptura({
                         incompletas: incompletas ? undefined : "1",
                         pagina: undefined,
                       })}
+                      scroll={false}
                       className={`ml-auto rounded border px-2 py-0.5 transition-colors ${
                         incompletas
                           ? "border-(--brand-petrol) bg-(--brand-petrol)/10 font-medium text-(--brand-petrol) dark:border-(--brand-turquoise) dark:text-(--brand-turquoise)"
@@ -389,6 +375,7 @@ export default async function DiagnosticoRuptura({
                       herdadas: herdadas ? undefined : "1",
                       pagina: undefined,
                     })}
+                    scroll={false}
                     className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors ${
                       herdadas
                         ? "border-(--brand-petrol) bg-(--brand-petrol)/10 font-medium text-(--brand-petrol) dark:border-(--brand-turquoise) dark:text-(--brand-turquoise)"
@@ -410,6 +397,7 @@ export default async function DiagnosticoRuptura({
                         balanceamento: balanceamento ? undefined : "1",
                         pagina: undefined,
                       })}
+                      scroll={false}
                       className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors ${
                         balanceamento
                           ? "border-sky-500 bg-sky-500/10 font-medium text-sky-700 dark:text-sky-400"
@@ -468,6 +456,7 @@ export default async function DiagnosticoRuptura({
                     <Link
                       key={l.id}
                       href={href({ abrir: aberta ? undefined : String(l.id) })}
+                      scroll={false}
                       className={`grid grid-cols-1 items-center gap-x-4 gap-y-2 rounded-md border p-3 transition-colors hover:bg-muted/40 sm:grid-cols-[minmax(0,14rem)_4rem_5rem_7rem_minmax(0,1fr)] ${
                         aberta ? "border-foreground/30 bg-muted/50" : ""
                       }`}
@@ -527,6 +516,7 @@ export default async function DiagnosticoRuptura({
                   {dados.pagina > 1 ? (
                     <Link
                       href={href({ pagina: String(dados.pagina - 1) })}
+                      scroll={false}
                       className="rounded-md border px-3 py-1.5 hover:bg-muted"
                     >
                       Anterior
@@ -535,6 +525,7 @@ export default async function DiagnosticoRuptura({
                   {dados.pagina < dados.paginas ? (
                     <Link
                       href={href({ pagina: String(dados.pagina + 1) })}
+                      scroll={false}
                       className="rounded-md border px-3 py-1.5 hover:bg-muted"
                     >
                       Próxima

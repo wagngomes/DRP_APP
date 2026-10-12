@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  faixasSemEstoque,
   mesesDaJanela,
   projetarEstoque,
   somarDias,
@@ -146,5 +147,70 @@ describe("somarDias", () => {
     expect(somarDias("2026-10-31", 1)).toBe("2026-11-01");
     expect(somarDias("2026-10-01", -1)).toBe("2026-09-30");
     expect(somarDias("2026-12-31", 1)).toBe("2027-01-01");
+  });
+});
+
+describe("faixasSemEstoque", () => {
+  /**
+   * O caso que fez esta função existir.
+   *
+   * Zerado no dia 4 e zerado no dia 8, com três dias sem importação no meio: o
+   * agrupamento ingênuo via duas rupturas de quatro dias e afirmava uma
+   * recuperação que ninguém observou — além de discordar dos nove dias que o
+   * próprio diagnóstico atribuiu ao evento.
+   */
+  it("carrega a ruptura através do buraco de carga", () => {
+    const pontos = [
+      ponto("2026-09-01", 0, 0),
+      ponto("2026-09-02", 0, 0),
+      ponto("2026-09-03", 0),
+      ponto("2026-09-04", 0),
+      ponto("2026-09-05", 0, 0),
+    ];
+    const faixas = faixasSemEstoque(pontos, "2026-09-05");
+
+    expect(faixas).toEqual([{ de: 0, ate: 4 }]);
+  });
+
+  it("estoque de volta fecha a faixa", () => {
+    const pontos = [
+      ponto("2026-09-01", 0, 0),
+      ponto("2026-09-02", 0, 500),
+      ponto("2026-09-03", 0, 0),
+    ];
+    expect(faixasSemEstoque(pontos, "2026-09-03")).toEqual([
+      { de: 0, ate: 0 },
+      { de: 2, ate: 2 },
+    ]);
+  });
+
+  it("carrega até a data de referência, mesmo sem carga nos últimos dias", () => {
+    // É o que faz o gráfico contar os mesmos dias que a tabela: o motor conta
+    // até a referência, e parar na última carga mostraria dois dias a menos.
+    const pontos = [
+      ponto("2026-10-08", 0, 0),
+      ponto("2026-10-09", 0),
+      ponto("2026-10-10", 0),
+    ];
+    expect(faixasSemEstoque(pontos, "2026-10-10")).toEqual([
+      { de: 0, ate: 2 },
+    ]);
+  });
+
+  it("não avança sobre o futuro projetado", () => {
+    // Projeção zerada é alerta, não ruptura consumada: pintar a faixa ali
+    // diria que a prateleira já está vazia num dia que ainda não chegou.
+    const pontos = [
+      ponto("2026-10-11", 0, 0),
+      ponto("2026-10-12", 0, 0),
+      ponto("2026-10-13", 0),
+      ponto("2026-10-14", 0),
+    ];
+    expect(faixasSemEstoque(pontos, "2026-10-12")).toEqual([{ de: 0, ate: 1 }]);
+  });
+
+  it("sem nenhum dia medido não desenha faixa nenhuma", () => {
+    const pontos = dias("2026-10-01", 3).map((d) => ponto(d, 0));
+    expect(faixasSemEstoque(pontos, "2026-10-03")).toEqual([]);
   });
 });

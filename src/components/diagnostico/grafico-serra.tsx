@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 
+import { faixasSemEstoque } from "@/lib/diagnostico-ruptura/serie";
 import type { SerieItem } from "@/lib/diagnostico-ruptura/serie";
 
 /**
@@ -105,14 +106,30 @@ export function GraficoSerra({
     .map((p, i) => ({ i, v: p.projetado }))
     .filter((p): p is { i: number; v: number } => p.v !== null);
 
-  // Faixas de ruptura: dias medidos com estoque zerado, agrupados em blocos.
-  const faixas: { de: number; ate: number }[] = [];
-  pontos.forEach((p, i) => {
-    if (p.estoque !== 0) return;
-    const ultima = faixas.at(-1);
-    if (ultima && i <= ultima.ate + 1) ultima.ate = i;
-    else faixas.push({ de: i, ate: i });
-  });
+  const faixas = faixasSemEstoque(pontos, serie.referencia);
+
+  /**
+   * Quais faixas ganham rótulo.
+   *
+   * Duas rupturas próximas escreviam "3d sem estoque" e "9d sem estoque" uma
+   * por cima da outra, e as duas ficavam ilegíveis. A varredura é gulosa, da
+   * esquerda para a direita: quem chega primeiro fica, e quem invadiria o
+   * espaço do anterior perde o rótulo — a faixa continua pintada, e o número
+   * aparece no tooltip.
+   *
+   * A largura do texto é estimada em 5,6 unidades por caractere, que é o que
+   * 11px rende neste viewBox de mil unidades.
+   */
+  const comRotulo = new Set<number>();
+  let ocupadoAte = -Infinity;
+  for (const f of faixas) {
+    const texto = `${f.ate - f.de + 1}d sem estoque`;
+    const meio = (x(f.de) + x(f.ate)) / 2;
+    const metade = (texto.length * 5.6) / 2;
+    if (meio - metade < ocupadoAte + 6) continue;
+    comRotulo.add(f.de);
+    ocupadoAte = meio + metade;
+  }
 
   const traco = (t: { i: number; v: number }[], escala: (v: number) => number) =>
     t.map((p, k) => `${k === 0 ? "M" : "L"} ${x(p.i)} ${escala(p.v)}`).join(" ");
@@ -275,15 +292,19 @@ export function GraficoSerra({
               width={Math.max(x(f.ate) - x(f.de) + larguraDia, 3)}
               height={ALT_A}
               className="fill-rose-500/12"
-            />
-            <text
-              x={(x(f.de) + x(f.ate)) / 2}
-              y={TOPO_A + 13}
-              textAnchor="middle"
-              className="fill-rose-600 text-[11px] font-medium dark:fill-rose-400"
             >
-              {`${f.ate - f.de + 1}d sem estoque`}
-            </text>
+              <title>{`${f.ate - f.de + 1} dias sem estoque, de ${dataBr(pontos[f.de].data)} a ${dataBr(pontos[f.ate].data)}`}</title>
+            </rect>
+            {comRotulo.has(f.de) ? (
+              <text
+                x={(x(f.de) + x(f.ate)) / 2}
+                y={TOPO_A + 13}
+                textAnchor="middle"
+                className="fill-rose-600 text-[11px] font-medium dark:fill-rose-400"
+              >
+                {`${f.ate - f.de + 1}d sem estoque`}
+              </text>
+            ) : null}
           </g>
         ))}
 
@@ -462,23 +483,37 @@ export function GraficoSerra({
           const i = indiceDe(c.data);
           if (i < 0) return null;
           const compra = c.tipo === "compra";
+          const vencida = Boolean(c.prometidaPara);
           // Classes escritas por extenso: o Tailwind varre o código-fonte, e
           // `fill-${cor}-500` nunca entra no CSS gerado — o marcador sairia
           // sem cor nenhuma, em produção, sem erro em lugar nenhum.
-          const tom = c.prevista
-            ? compra
-              ? "fill-background stroke-emerald-500"
-              : "fill-background stroke-sky-500"
+          //
+          // Três estados, três aparências: cheio é o que entrou, vazado é o
+          // que vem, e âmbar tracejado é o que já era para ter entrado. Sem o
+          // terceiro, as entradas vencidas — 19 das 21 medidas nas maiores
+          // rupturas — ficavam com cara de boa notícia.
+          const tom = vencida
+            ? "fill-amber-500/20 stroke-amber-500"
+            : c.prevista
+              ? compra
+                ? "fill-background stroke-emerald-500"
+                : "fill-background stroke-sky-500"
+              : compra
+                ? "fill-emerald-500 stroke-emerald-500"
+                : "fill-sky-500 stroke-sky-500";
+          const corTexto = vencida
+            ? "fill-amber-600 dark:fill-amber-400"
             : compra
-              ? "fill-emerald-500 stroke-emerald-500"
-              : "fill-sky-500 stroke-sky-500";
+              ? "fill-emerald-600 dark:fill-emerald-400"
+              : "fill-sky-600 dark:fill-sky-400";
           return (
             <g key={`${c.tipo}${c.data}${k}`}>
               <circle
                 cx={x(i)}
                 cy={LINHA_ENTRADAS}
-                r={5}
+                r={5.5}
                 strokeWidth={2}
+                strokeDasharray={vencida ? "3 2" : undefined}
                 // Vazado quando é previsão: a forma diz o grau de certeza, sem
                 // depender de ler a legenda.
                 className={tom}
@@ -489,7 +524,11 @@ export function GraficoSerra({
                     dataBr(c.data),
                     `${curto(c.quantidade)} un.`,
                     c.notas && c.notas > 1 ? `${c.notas} notas` : null,
-                    c.prevista ? `previsto · ${c.origem}` : null,
+                    c.prometidaPara
+                      ? `era para ter entrado em ${dataBr(c.prometidaPara)}`
+                      : c.prevista
+                        ? `previsto · ${c.origem}`
+                        : null,
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -497,12 +536,22 @@ export function GraficoSerra({
               </circle>
               <text
                 x={x(i)}
-                y={LINHA_ENTRADAS - 10}
+                y={LINHA_ENTRADAS - 11}
                 textAnchor="middle"
-                className={`text-[10px] tabular-nums ${compra ? "fill-emerald-600 dark:fill-emerald-400" : "fill-sky-600 dark:fill-sky-400"}`}
+                className={`text-[10px] tabular-nums ${corTexto}`}
               >
                 {`+${curto(c.quantidade)}`}
               </text>
+              {vencida ? (
+                <text
+                  x={x(i)}
+                  y={LINHA_ENTRADAS + 17}
+                  textAnchor="middle"
+                  className="fill-amber-600 text-[9px] dark:fill-amber-400"
+                >
+                  {`venc. ${dataBr(c.prometidaPara!)}`}
+                </text>
+              ) : null}
             </g>
           );
         })}
@@ -652,6 +701,10 @@ export function GraficoSerra({
         <span className="flex items-center gap-1.5">
           <span className="size-2.5 rounded-full border-2 border-muted-foreground bg-background" />
           entrada prevista
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-2.5 rounded-full border-2 border-dashed border-amber-500 bg-amber-500/20" />
+          prevista e vencida
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-4 rounded-sm bg-rose-500/20" />
