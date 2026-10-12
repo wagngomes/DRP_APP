@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   CalendarClock,
   CircleHelp,
   GitBranch,
@@ -19,8 +20,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
-import { FiltroLista } from "@/components/ui/filtro-lista";
+import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
 import { tomDaEtapa } from "@/components/diagnostico/tons-etapa";
+import { GraficoSerra } from "@/components/diagnostico/grafico-serra";
 import {
   ProvaDaCausa,
   SeloArvore,
@@ -31,6 +33,8 @@ import {
   carregarDetalhe,
   carregarDiagnostico,
 } from "@/lib/diagnostico-ruptura/consultas";
+import { carregarSerie } from "@/lib/diagnostico-ruptura/serie";
+import { DIAS_ANTES_DA_RUPTURA } from "@/lib/diagnostico-ruptura/parametros";
 import { exigirSessao } from "@/lib/autorizacao";
 
 /**
@@ -50,10 +54,11 @@ export const metadata = { title: "Diagnóstico de ruptura · DRP_AI" };
 
 type SearchParams = {
   produto?: string | string[];
-  forn?: string | string[];
+  fornecedor?: string | string[];
   causa?: string | string[];
   herdadas?: string | string[];
   incompletas?: string | string[];
+  balanceamento?: string | string[];
   pagina?: string | string[];
   abrir?: string | string[];
 };
@@ -76,6 +81,13 @@ const dataBr = (iso: string) => {
   return `${d}/${m}/${a}`;
 };
 
+/** Anda no calendário a partir de uma data ISO. Negativo recua. */
+const somarDias = (iso: string, dias: number) => {
+  const d = new Date(`${iso}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+};
+
 /** Tom do selo de confiança. Baixa chama atenção; alta não precisa. */
 const TOM_CONFIANCA: Record<string, string> = {
   alta: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
@@ -92,10 +104,11 @@ export default async function DiagnosticoRuptura({
   const params = await searchParams;
 
   const produto = primeiro(params.produto);
-  const fornecedor = primeiro(params.forn);
+  const fornecedor = primeiro(params.fornecedor);
   const causa = primeiro(params.causa);
   const herdadas = primeiro(params.herdadas) === "1";
   const incompletas = primeiro(params.incompletas) === "1";
+  const balanceamento = primeiro(params.balanceamento) === "1";
   const pagina = Number(primeiro(params.pagina) ?? 1) || 1;
   const abrir = Number(primeiro(params.abrir) ?? 0) || null;
   const ehAdmin = sessao.usuario.papel === "admin";
@@ -107,20 +120,44 @@ export default async function DiagnosticoRuptura({
       causa,
       herdadas,
       incompletas,
+      balanceamento,
       pagina,
     }),
     abrir ? carregarDetalhe(abrir) : Promise.resolve(null),
   ]);
+
+  // A série só é consultada quando alguém abre uma linha, e é recortada a uma
+  // posição: quatro consultas por índice, de milissegundos. A janela é maior
+  // que a do diagnóstico de propósito — o dente de serra só conta a história
+  // com os ciclos anteriores à ruptura dentro do quadro.
+  // Fim da janela = início + dias da ruptura. Para ruptura aberta isso é a
+  // data de referência da rodada; para ruptura fechada é o dia em que o
+  // estoque voltou. Nos dois casos é o último dia sobre o qual o motor falou,
+  // e por isso é também a data que resolve qual forecast vale.
+  const fimDaJanela = detalhe
+    ? somarDias(detalhe.inicio, detalhe.dias)
+    : null;
+  const serie =
+    detalhe && fimDaJanela
+      ? await carregarSerie(
+          detalhe.codigo,
+          detalhe.filial,
+          somarDias(detalhe.inicio, -DIAS_ANTES_DA_RUPTURA),
+          fimDaJanela,
+          fimDaJanela,
+        )
+      : null;
 
   // URLs montadas aqui: função não atravessa a fronteira servidor→cliente.
   const href = (extra: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
     const base: Record<string, string | undefined> = {
       produto,
-      forn: fornecedor,
+      fornecedor,
       causa,
       herdadas: herdadas ? "1" : undefined,
       incompletas: incompletas ? "1" : undefined,
+      balanceamento: balanceamento ? "1" : undefined,
       pagina: pagina > 1 ? String(pagina) : undefined,
       abrir: abrir ? String(abrir) : undefined,
       ...extra,
@@ -330,7 +367,11 @@ export default async function DiagnosticoRuptura({
                     className="flex flex-wrap items-end gap-2"
                   >
                     {fornecedor ? (
-                      <input type="hidden" name="forn" value={fornecedor} />
+                      <input
+                        type="hidden"
+                        name="fornecedor"
+                        value={fornecedor}
+                      />
                     ) : null}
                     {causa ? (
                       <input type="hidden" name="causa" value={causa} />
@@ -370,17 +411,47 @@ export default async function DiagnosticoRuptura({
                     <CalendarClock className="size-4" />
                     Só herdadas da abertura
                   </Link>
+
+                  {/* Cabia transferência: modificador, não causa — por isso
+                      não disputa com os chips de cima. Vale em cima de
+                      qualquer veredito, porque ruptura por pedido tardio
+                      continua sendo pedido tardio ainda que uma transferência
+                      a tivesse salvo. */}
+                  {dados.resumo.comBalanceamento > 0 ? (
+                    <Link
+                      href={href({
+                        balanceamento: balanceamento ? undefined : "1",
+                        pagina: undefined,
+                      })}
+                      className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors ${
+                        balanceamento
+                          ? "border-sky-500 bg-sky-500/10 font-medium text-sky-700 dark:text-sky-400"
+                          : "hover:bg-muted"
+                      }`}
+                    >
+                      <ArrowLeftRight className="size-4" />
+                      Cabia transferência
+                      <span className="font-mono text-xs tabular-nums opacity-70">
+                        {num(dados.resumo.comBalanceamento)}
+                      </span>
+                    </Link>
+                  ) : null}
                 </div>
 
-                <FiltroLista
-                  rotulo="Fornecedor"
+                {/* Lista suspensa, como nas demais telas: são centenas de
+                    fornecedores, e em chips a tela virava um paredão de nomes
+                    antes de chegar ao conteúdo. */}
+                <FiltroFornecedor
+                  fornecedores={dados.fornecedores}
                   atual={fornecedor}
-                  hrefTodos={href({ forn: undefined, pagina: undefined })}
-                  opcoes={dados.fornecedores.map((f) => ({
-                    valor: f,
-                    rotulo: f,
-                    href: href({ forn: f, pagina: undefined }),
-                  }))}
+                  basePath="/diagnostico-ruptura"
+                  extras={{
+                    produto,
+                    causa,
+                    herdadas: herdadas ? "1" : undefined,
+                    incompletas: incompletas ? "1" : undefined,
+                    balanceamento: balanceamento ? "1" : undefined,
+                  }}
                 />
               </CardContent>
             </Card>
@@ -440,6 +511,12 @@ export default async function DiagnosticoRuptura({
                           <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
                             {l.resumo}
                           </p>
+                        ) : null}
+                        {l.balanceamento ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-400">
+                            <ArrowLeftRight className="size-3" />
+                            cabia transferência
+                          </span>
                         ) : null}
                       </div>
                     </Link>
@@ -521,6 +598,16 @@ export default async function DiagnosticoRuptura({
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* O gráfico primeiro: a história inteira num olhar — o
+                      estoque caindo, as entradas que o levantaram e as faixas
+                      em que a prateleira ficou vazia. */}
+                  {serie ? (
+                    <GraficoSerra
+                      serie={serie}
+                      inicioDaRuptura={detalhe.inicio}
+                    />
+                  ) : null}
+
                   {/* A prova primeiro: a frase e os números que a decidiram,
                       mais a prescrição quando havia estoque na rede. É o que
                       vai para a ata. */}

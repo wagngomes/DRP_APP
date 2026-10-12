@@ -105,7 +105,11 @@ flowchart TD
 
     V1{"A venda do mês<br/>superou o forecast?"}
     V1 -->|sim| venda_acima_forecast["VENDA ACELERADA NO MÊS<br/>Demanda e Comercial"]
-    V1 -->|não| V2
+    V1 -->|não| V1a
+
+    V1a{"Outro CD tinha sobra<br/>acima do Alvo?"}
+    V1a -->|sim| transferencia_nao_feita["TRANSFERENCIA NAO FEITA<br/>Planejamento"]
+    V1a -->|não| V2
 
     V2{"Houve saída que não foi<br/>venda nem transferência?"}
     V2 -->|sim| saida_nao_usual["BAIXA DE ESTOQUE<br/>NÃO USUAL<br/>Logística e TI"]
@@ -151,6 +155,7 @@ nunca sugeriu.
 | **D2** | forecast novo | `forecast` contra **o snapshot imediatamente anterior** | `forecast_m0` era zero ou a linha não existia |
 | **D3** | abertura descoberta | foto de abertura do `simulador` contra `forecast.politica` | disponível menor que consumo diário vezes política |
 | **A1 / V1** | venda acelerada | `historico_vendas` contra `forecast_m0` | mais de 20% acima do previsto proporcional |
+| **V1a** | transferencia nao feita | `sobraDetalhada`: estoque de outro CD acima do Alvo | qualquer sobra, quando nada mais explicou |
 | **A2 / B1** | sem plano | `plano_compra` do mês | ausente ou zero |
 | **A3 / B2** | plano insuficiente | plano contra necessidade | plano menor que 90% da necessidade |
 | **B3** | pedido tarde | `pedidosDoCiclo`: menor `data_emissao` do mes contra a data limite | mais de 2 dias além do limite; sem pedido responde "não" |
@@ -253,6 +258,24 @@ inexistentes, todas com confiança alta.
 **Pedido cancelado ou cortado**. Entre snapshots consecutivos, 667 linhas de
 pedido desaparecem e **107 não têm recebimento correspondente**. Nenhuma causa
 cobria isso, e só é detectável porque a base é cumulativa.
+
+### 12. O balanceamento, que e modificador, tambem precisa poder ser causa
+
+Medido na rodada de setembro: **204 das 458 posicoes (45%)** carregam o
+modificador "outro CD tinha sobra acima do Alvo e nada saiu". Nenhuma delas
+aparecia com "transferencia nao feita" como causa — e nao e erro, e desenho. Uma
+ruptura provocada por pedido tardio continua sendo pedido tardio ainda que uma
+transferencia a tivesse salvo; o modificador diz as duas coisas sem obrigar a
+escolher.
+
+O buraco estava no fim do percurso. Quando o plano existia e cobria, o pedido
+saiu no prazo e completo, o fornecedor cumpriu e a venda ficou dentro do
+previsto, nao ha mais com o que competir: se a rede tinha o estoque e ele nao se
+moveu, a distribuicao **e** a causa. O no **V1a** fecha isso.
+
+Dispara pouco hoje — na base de setembro, 400 dos 458 eventos param no eixo da
+abertura e so 2 chegam ao ramo do fornecedor. Mas o caminho existe, e um mes em
+que a compra funcionar vai encontra-lo.
 
 ### 10. Falta de dado nao acusa ninguem
 

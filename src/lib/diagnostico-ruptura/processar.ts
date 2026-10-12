@@ -425,6 +425,7 @@ async function gravar(linhas: Diagnostico[]) {
           // apontar "falta dado em V2" sobre um caso que não tem lacuna.
           arvore_no_travou:
             l.arvore.trilha.find((p) => p.resposta === null)?.no ?? null,
+          arvore_balanceamento: l.arvore.balanceamentoNaoRealizado,
           arvore_trilha: l.arvore.trilha as unknown as object,
           arvore_evidencias: l.evidencia as unknown as object,
           versao_regras: VERSAO_REGRAS,

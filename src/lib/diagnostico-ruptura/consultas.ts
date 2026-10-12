@@ -20,6 +20,8 @@ export type FiltrosDiagnostico = {
   herdadas?: boolean;
   /** Só os eventos em que a árvore parou por falta de dado. */
   incompletas?: boolean;
+  /** Só onde outro CD tinha sobra acima do Alvo e nada saiu. */
+  balanceamento?: boolean;
   pagina?: number;
 };
 
@@ -58,6 +60,8 @@ export type LinhaRuptura = {
   arvore: VereditoArvore | null;
   /** A frase da prova, para a linha não precisar do detalhe aberto. */
   resumo: string | null;
+  /** Outro CD tinha sobra acima do Alvo e nada saiu. */
+  balanceamento: boolean;
 };
 
 export const POR_PAGINA = 25;
@@ -83,6 +87,8 @@ export type DadosDiagnostico = {
     valorPerdido: number;
     herdadas: number;
     comAviso: number;
+    /** Posições em que cabia transferência, contadas sem o filtro dele. */
+    comBalanceamento: number;
   };
   contagens: ContagemCausa[];
   /**
@@ -112,6 +118,7 @@ function where(f: FiltrosDiagnostico) {
     ...(f.causa ? { arvore_causa: f.causa } : {}),
     ...(f.herdadas ? { herdada_abertura: true } : {}),
     ...(f.incompletas ? { arvore_incompleta: true } : {}),
+    ...(f.balanceamento ? { arvore_balanceamento: true } : {}),
     ...(termo
       ? {
           OR: [
@@ -152,11 +159,16 @@ export async function carregarDiagnostico(
       }),
     ]);
 
-  const [herdadas, comAviso] = await Promise.all([
+  const [herdadas, comAviso, comBalanceamento] = await Promise.all([
     prisma.rupturaEvento.count({
       where: { ...filtro, herdada_abertura: true },
     }),
     prisma.rupturaEvento.count({ where: { ...filtro, aviso_replay: true } }),
+    // Contado **sem** o próprio filtro: o número no chip tem de antecipar o
+    // resultado do clique, pela mesma razão dos chips de causa.
+    prisma.rupturaEvento.count({
+      where: { ...where({ ...filtros, balanceamento: undefined }), arvore_balanceamento: true },
+    }),
   ]);
 
   return {
@@ -173,8 +185,8 @@ export async function carregarDiagnostico(
       avisoReplay: e.aviso_replay,
       herdada: e.herdada_abertura,
       arvore: vereditoDe(e),
-      resumo:
-        (e.arvore_evidencias as Evidencia | null)?.resumo ?? null,
+      resumo: (e.arvore_evidencias as Evidencia | null)?.resumo ?? null,
+      balanceamento: e.arvore_balanceamento,
     })),
     total,
     pagina,
@@ -185,6 +197,7 @@ export async function carregarDiagnostico(
       valorPerdido: Number(agregado._sum.valor_perdido ?? 0),
       herdadas,
       comAviso,
+      comBalanceamento,
     },
     contagens,
     lacunas,
@@ -336,6 +349,7 @@ export async function carregarDetalhe(
     aberturaOrigem: e.abertura_origem,
     arvore: vereditoDe(e),
     resumo: evidencia?.resumo ?? null,
+    balanceamento: e.arvore_balanceamento,
     trilha: (e.arvore_trilha as PassoTrilha[] | null) ?? [],
     evidencia,
   };

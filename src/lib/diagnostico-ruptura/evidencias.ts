@@ -377,6 +377,22 @@ const POR_CAUSA: Record<string, Montador> = {
     };
   },
 
+  transferencia_nao_feita: (c, x) => {
+    const total = x.sobraPorCd.reduce((a, s) => a + s.sobra, 0);
+    const maior = x.sobraPorCd[0];
+    return {
+      resumo: `A cadeia de compra funcionou — plano, pedido no prazo, fornecedor em dia — e a venda ficou dentro do previsto. A rede tinha ${n1(total)} unidades acima do Alvo${maior ? `, ${n1(maior.sobra)} delas no CD ${maior.filial}` : ""}, e nada se moveu. A causa é a distribuição, não a compra.`,
+      valores: {
+        sobra_na_rede: total,
+        cds_com_sobra: x.sobraPorCd.length,
+        maior_doador: maior?.filial ?? null,
+        sobra_do_maior: maior?.sobra ?? 0,
+        consumo_diario: porDia(c),
+        dias_que_a_sobra_cobriria: emDias(c, total),
+      },
+    };
+  },
+
   saida_nao_usual: (c) => ({
     resumo: `O balanço do dia a dia não fecha e não há venda nem transferência que explique a saída. Vale conferir perda, ajuste de inventário ou nota de outra natureza.`,
     valores: {

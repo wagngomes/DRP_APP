@@ -520,6 +520,25 @@ export const ARVORE: No[] = [
       return v.indice > 1 + LIMITES.aceleracaoVenda ? sim(ev) : nao(ev);
     },
     sim: "venda_acima_forecast",
+    nao: "V1a",
+  },
+  {
+    id: "V1a",
+    pergunta: "Outro CD tinha sobra acima do Alvo?",
+    // Aqui, e não antes. O balanceamento é **modificador** em toda a árvore —
+    // uma ruptura provocada por pedido tardio continua sendo pedido tardio
+    // ainda que uma transferência a tivesse salvo, e por isso ele não compete
+    // com as outras causas. Mas neste ponto do percurso não há mais com o que
+    // competir: o plano existia e cobria, o pedido saiu no prazo e completo, o
+    // fornecedor cumpriu, e a venda ficou dentro do previsto. Se a rede tinha
+    // o estoque e ele não se moveu, a distribuição **é** a causa.
+    teste: (c) =>
+      c.podiaTransferirENaoTransferiu === undefined
+        ? semDado()
+        : c.podiaTransferirENaoTransferiu
+          ? sim({ excedente_outros_cds: c.excedenteOutrosCds })
+          : nao({ excedente_outros_cds: c.excedenteOutrosCds }),
+    sim: "transferencia_nao_feita",
     nao: "V2",
   },
   {

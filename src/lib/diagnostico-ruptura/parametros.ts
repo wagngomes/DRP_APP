@@ -57,6 +57,17 @@ export const LIMITES = {
 } as const;
 
 /**
+ * Quantos dias antes do início da ruptura o gráfico mostra.
+ *
+ * O dente de serra só conta a história com os ciclos anteriores dentro do
+ * quadro: ver o estoque chegar a zero diz pouco; ver de que altura ele caiu, e
+ * quando foi a última entrada, diz quase tudo. Quarenta e cinco dias cobrem o
+ * ciclo de reposição típico desta base com folga — o lead time mediano é 8
+ * dias e a política mais longa, 60.
+ */
+export const DIAS_ANTES_DA_RUPTURA = 45;
+
+/**
  * Sanidade da carga de um dia.
  *
  * Existe porque o motor atribui responsabilidade, e base quebrada vira acusação

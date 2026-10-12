@@ -848,6 +848,16 @@ model RupturaEvento {
   arvore_trilha Json?
 
   /**
+   * Outro CD tinha sobra acima do Alvo e nada saiu.
+   *
+   * Modificador, não causa: vale em cima de qualquer veredito, porque uma
+   * ruptura provocada por pedido tardio continua sendo pedido tardio ainda que
+   * uma transferência a tivesse salvo. Medido em setembro, **204 das 458
+   * posições**. Em coluna própria para a tela poder filtrar por ele.
+   */
+  arvore_balanceamento Boolean @default(false)
+
+  /**
    * A prova da causa: a frase para a ata e os números que a sustentam.
    *
    * Inclui a prescrição quando havia estoque na rede — *"transferir 180 até
@@ -866,6 +876,8 @@ model RupturaEvento {
   @@index([herdada_abertura])
   @@index([codigo, filial])
   @@index([fornecedor])
+  @@index([arvore_causa])
+  @@index([arvore_balanceamento])
   @@map("ruptura_evento")
 }
 
