@@ -34,7 +34,7 @@ import {
   carregarDiagnostico,
 } from "@/lib/diagnostico-ruptura/consultas";
 import { carregarSerie } from "@/lib/diagnostico-ruptura/serie";
-import { DIAS_ANTES_DA_RUPTURA } from "@/lib/diagnostico-ruptura/parametros";
+import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { exigirSessao } from "@/lib/autorizacao";
 
 /**
@@ -81,13 +81,6 @@ const dataBr = (iso: string) => {
   return `${d}/${m}/${a}`;
 };
 
-/** Anda no calendário a partir de uma data ISO. Negativo recua. */
-const somarDias = (iso: string, dias: number) => {
-  const d = new Date(`${iso}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + dias);
-  return d.toISOString().slice(0, 10);
-};
-
 /** Tom do selo de confiança. Baixa chama atenção; alta não precisa. */
 const TOM_CONFIANCA: Record<string, string> = {
   alta: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
@@ -130,23 +123,17 @@ export default async function DiagnosticoRuptura({
   // posição: quatro consultas por índice, de milissegundos. A janela é maior
   // que a do diagnóstico de propósito — o dente de serra só conta a história
   // com os ciclos anteriores à ruptura dentro do quadro.
-  // Fim da janela = início + dias da ruptura. Para ruptura aberta isso é a
-  // data de referência da rodada; para ruptura fechada é o dia em que o
-  // estoque voltou. Nos dois casos é o último dia sobre o qual o motor falou,
-  // e por isso é também a data que resolve qual forecast vale.
-  const fimDaJanela = detalhe
-    ? somarDias(detalhe.inicio, detalhe.dias)
+  // A série só é consultada quando alguém abre uma linha, e é recortada a uma
+  // posição. A janela é a do sistema — mês anterior fechado mais o corrente —,
+  // e não a da ruptura: o mês é a unidade em que esta operação pensa, e o
+  // gráfico precisa mostrar o ciclo inteiro, não só o pedaço que rompeu.
+  const serie = detalhe
+    ? await carregarSerie(
+        detalhe.codigo,
+        detalhe.filial,
+        await lerDataReferencia(),
+      )
     : null;
-  const serie =
-    detalhe && fimDaJanela
-      ? await carregarSerie(
-          detalhe.codigo,
-          detalhe.filial,
-          somarDias(detalhe.inicio, -DIAS_ANTES_DA_RUPTURA),
-          fimDaJanela,
-          fimDaJanela,
-        )
-      : null;
 
   // URLs montadas aqui: função não atravessa a fronteira servidor→cliente.
   const href = (extra: Record<string, string | undefined>) => {

@@ -1,46 +1,71 @@
 /**
- * A série diária de uma posição, para o gráfico de dente de serra.
+ * A série de uma posição: dois meses, com projeção até o fim do mês corrente.
  *
  * O estoque caindo pelo consumo e subindo a cada entrada, as faixas em que a
- * prateleira ficou vazia, a linha da política e a venda real contra a prevista
- * — o desenho que os livros de MRP usam para explicar reposição, aplicado a um
- * item × CD de verdade.
+ * prateleira ficou vazia, a linha da política e o ritmo de venda contra o
+ * previsto — o desenho que os livros de MRP usam para explicar reposição,
+ * aplicado a um item × CD de verdade.
  *
- * **Recortada a uma posição**, e carregada só quando alguém abre a linha. Os
- * módulos da rodada carregam a janela inteira para todas as posições porque
- * precisam; aqui são quatro consultas por índice, de uma posição só, e o custo
- * é de milissegundos. Carregar tudo para desenhar um gráfico seria o padrão
- * que já custou 23 segundos noutra tela desta base.
+ * **A janela é sempre mês anterior fechado + mês corrente**, e não uma contagem
+ * de dias para trás. O mês é a unidade em que esta operação pensa: o forecast é
+ * mensal, o plano de compra é mensal, e a abertura do mês é o eixo que mais
+ * explica ruptura nesta base. Uma janela de 45 dias corridos cortava agosto no
+ * meio e comparava maçã com meia laranja.
+ *
+ * **O futuro é projetado, não medido.** Do dia de referência em diante o
+ * estoque é simulado: consome o forecast diário, soma as entradas previstas dos
+ * pedidos e transferências em aberto, e não desce de zero. Sai desenhado em
+ * tracejado, porque é previsão.
+ *
+ * **Recortada a uma posição**, e carregada só quando alguém abre a linha. São
+ * consultas por índice, de uma posição só, e o custo é de milissegundos.
  *
  * Só lê.
  */
 import { prisma } from "@/lib/prisma";
+import { carregarFiliais, carregarSla } from "@/lib/transferencias/consultas";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
 import { torreValidaSql } from "@/utils/dias-estoque";
+import { limitesDoMes } from "@/utils/mes";
+import { projetar } from "@/utils/projecao-transferencias";
 import { COLUNAS_DISPONIVEL } from "./parametros";
 
 const DISPONIVEL = `(${COLUNAS_DISPONIVEL.map((c) => `COALESCE(s.${c},0)`).join(" + ")})`;
+
+/** Anda no calendário a partir de uma data ISO. Negativo recua. */
+export function somarDias(iso: string, dias: number): string {
+  const d = new Date(`${iso}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
 
 /** Um dia da janela. */
 export type PontoSerie = {
   data: string;
   /** Estoque disponível para venda. `null` em dia sem carga do simulador. */
   estoque: number | null;
+  /** Estoque simulado, do dia de referência em diante. */
+  projetado: number | null;
   /** Venda realizada no dia, pela nota. */
   venda: number;
 };
 
-/** Uma entrada, de compra ou de transferência. */
+/** Uma entrada, realizada ou prevista. */
 export type ChegadaSerie = {
   data: string;
   quantidade: number;
   tipo: "compra" | "transferencia";
+  /** Ainda não aconteceu: é previsão, não fato. */
+  prevista: boolean;
+  /** De onde vem a data, para o tooltip poder dizer. */
+  origem?: string;
+  /** Quantas notas ou pedidos a entrada reúne. */
+  notas?: number;
 };
 
-/** Um marco do ciclo do pedido, para a régua abaixo do gráfico. */
+/** Quando um pedido foi emitido, para a régua abaixo do gráfico. */
 export type MarcoPedido = {
   data: string;
-  tipo: "emitido" | "prometido";
   rotulo: string;
   quantidade: number;
 };
@@ -50,11 +75,17 @@ export type MesDaSerie = {
   mes: string;
   previsto: number;
   real: number;
+  /** Consumo diário do forecast daquele mês — a régua da linha de ritmo. */
+  consumoDiario: number;
+  /** O mês ainda não fechou. */
+  corrente: boolean;
 };
 
 export type SerieItem = {
   de: string;
   ate: string;
+  /** Data de referência do sistema: a fronteira entre medido e projetado. */
+  referencia: string;
   pontos: PontoSerie[];
   chegadas: ChegadaSerie[];
   marcos: MarcoPedido[];
@@ -64,118 +95,222 @@ export type SerieItem = {
   politicaDias: number;
   consumoDiario: number;
   forecastMensal: number;
+  /**
+   * O forecast do mês corrente ainda não foi importado, e o ritmo projetado é
+   * o do mês anterior.
+   *
+   * Acontece todo começo de mês — a primeira carga de forecast de setembro foi
+   * no dia 4. Sem a queda, a projeção ficaria parada numa reta horizontal,
+   * dizendo que o item não consome nada; com ela, e sem avisar, a tela
+   * afirmaria uma previsão que ninguém fez.
+   */
+  forecastHerdado: boolean;
 };
 
-/**
- * Monta a série de uma posição.
- *
- * As quatro consultas são independentes e vão juntas. Nenhuma varre a janela
- * inteira da base: todas filtram por `codigo` e `filial`, que são as colunas
- * dos índices existentes.
- */
 export async function carregarSerie(
   codigo: string,
   filial: string,
-  de: string,
-  ate: string,
-  /** Data de referência: é o mês dela que define qual forecast vale. */
-  dataReferencia: string,
+  /** Data de referência do sistema. Define os dois meses e o fim do medido. */
+  referencia: string,
 ): Promise<SerieItem> {
-  const [estoques, vendas, compras, transferencias, pedidos] =
+  const { inicio: inicioCorrente, fim: proximoMes } = limitesDoMes(referencia);
+  const de = limitesDoMes(somarDias(inicioCorrente, -1)).inicio;
+  const ate = somarDias(proximoMes, -1);
+
+  const [estoques, vendas, compras, transferencias, pedidos, previstas] =
     await Promise.all([
-      estoqueDiario(codigo, filial, de, ate, dataReferencia),
-      vendaDiaria(codigo, filial, de, ate),
-      chegadasDeCompra(codigo, filial, de, ate),
-      chegadasDeTransferencia(codigo, filial, de, ate),
-      marcosDoPedido(codigo, filial, de, ate),
+      estoqueDiario(codigo, filial, de, referencia),
+      vendaDiaria(codigo, filial, de, referencia),
+      chegadasDeCompra(codigo, filial, de, referencia),
+      chegadasDeTransferencia(codigo, filial, de, referencia),
+      pedidosEmitidos(codigo, filial, de, referencia),
+      chegadasPrevistas(codigo, filial, referencia, ate),
     ]);
 
   const vendaDe = new Map(vendas.map((v) => [v.data, v.quantidade]));
   const estoqueDe = new Map(estoques.linhas.map((e) => [e.data, e.estoque]));
+  const chegadas = juntarChegadas([
+    ...compras,
+    ...transferencias,
+    ...previstas,
+  ]);
+
+  const forecastHerdado =
+    estoques.forecastMensal <= 0 && estoques.forecastMesAnterior > 0;
+  const forecastMensal = forecastHerdado
+    ? estoques.forecastMesAnterior
+    : estoques.forecastMensal;
+  const consumoDiario = forecastMensal / 30;
+  const consumoAnterior = estoques.forecastMesAnterior / 30;
 
   // Um ponto por dia corrido, e não por snapshot: o eixo do tempo precisa ser
   // regular para a inclinação da reta significar velocidade de consumo. Dia
-  // sem carga fica com estoque nulo, e o desenho atravessa o buraco em vez de
-  // fingir um degrau que não houve.
+  // sem carga fica nulo, e o desenho atravessa o buraco em vez de fingir um
+  // degrau que não houve.
   const pontos: PontoSerie[] = [];
-  for (let d = new Date(`${de}T00:00:00Z`); ; d.setUTCDate(d.getUTCDate() + 1)) {
-    const data = d.toISOString().slice(0, 10);
-    if (data > ate) break;
+  for (let d = de; d <= ate; d = somarDias(d, 1)) {
     pontos.push({
-      data,
-      estoque: estoqueDe.get(data) ?? null,
-      venda: vendaDe.get(data) ?? 0,
+      data: d,
+      estoque: d <= referencia ? (estoqueDe.get(d) ?? null) : null,
+      projetado: null,
+      venda: vendaDe.get(d) ?? 0,
     });
   }
 
-  const forecastMensal = estoques.forecastMensal;
-  const consumoDiario = forecastMensal / 30;
+  projetarEstoque(pontos, referencia, consumoDiario, previstas);
 
   return {
     de,
     ate,
+    referencia,
     pontos,
-    chegadas: [...compras, ...transferencias].sort((a, b) =>
-      a.data.localeCompare(b.data),
-    ),
+    chegadas,
     marcos: pedidos,
-    meses: mesesDaJanela(pontos, consumoDiario),
+    meses: mesesDaJanela(pontos, referencia, consumoDiario, consumoAnterior),
     politicaDias: estoques.politicaDias,
     politicaUnidades: consumoDiario * estoques.politicaDias,
     consumoDiario,
     forecastMensal,
+    forecastHerdado,
   };
+}
+
+/**
+ * Junta as entradas do mesmo dia, tipo e natureza numa só.
+ *
+ * Sem isso, quatro transferências com SLA vencido viram quatro marcadores
+ * empilhados no mesmo pixel do dia de referência: a tela mostra um círculo e
+ * esconde três, e a soma que importa — quanto entra naquele dia — não aparece
+ * em lugar nenhum.
+ */
+function juntarChegadas(lista: ChegadaSerie[]): ChegadaSerie[] {
+  const porChave = new Map<string, ChegadaSerie>();
+  for (const c of lista) {
+    const k = `${c.data}|${c.tipo}|${c.prevista}`;
+    const atual = porChave.get(k);
+    if (atual) {
+      atual.quantidade += c.quantidade;
+      atual.notas = (atual.notas ?? 1) + 1;
+    } else {
+      porChave.set(k, { ...c, notas: 1 });
+    }
+  }
+  return [...porChave.values()].sort((a, b) => a.data.localeCompare(b.data));
+}
+
+/**
+ * Simula o estoque do dia de referência até o fim do mês.
+ *
+ * Parte do último estoque medido, consome o forecast diário e soma as entradas
+ * previstas. Não desce de zero: o replay do motor usa a mesma regra, porque
+ * prateleira vazia não acumula dívida — o que não se vendeu por falta de
+ * estoque não vira venda represada quando a mercadoria chega.
+ *
+ * Função pura, para a conta ficar testável sem banco. Altera `pontos` no lugar
+ * porque o chamador acabou de montá-los e ninguém mais os viu.
+ */
+export function projetarEstoque(
+  pontos: PontoSerie[],
+  referencia: string,
+  consumoDiario: number,
+  previstas: ChegadaSerie[],
+): void {
+  const medidos = pontos.filter(
+    (p) => p.data <= referencia && p.estoque !== null,
+  );
+  const ultimo = medidos.at(-1);
+  if (!ultimo) return;
+
+  const entraEm = new Map<string, number>();
+  for (const c of previstas) {
+    entraEm.set(c.data, (entraEm.get(c.data) ?? 0) + c.quantidade);
+  }
+
+  // A projeção começa no último dia medido, e não no seguinte: sem esse ponto
+  // em comum a linha tracejada nasce solta no ar, a um dia de distância da
+  // curva cheia.
+  let saldo = ultimo.estoque ?? 0;
+  for (const p of pontos) {
+    if (p.data < ultimo.data) continue;
+    if (p.data === ultimo.data) {
+      p.projetado = saldo;
+      continue;
+    }
+    saldo = Math.max(0, saldo + (entraEm.get(p.data) ?? 0) - consumoDiario);
+    p.projetado = saldo;
+  }
 }
 
 /**
  * Forecast contra venda, mês a mês.
  *
- * O previsto de um mês parcial é proporcional aos dias que a janela cobre
- * dele: comparar nove dias de venda com o forecast de trinta diria que a venda
- * desabou em todo item, todo mês.
+ * O previsto do mês corrente é proporcional aos dias **já decorridos**, e não
+ * ao mês inteiro: comparar doze dias de venda com o forecast de trinta diria
+ * que a venda desabou em todo item, todo mês.
+ *
+ * Cada mês usa o forecast que valia nele. Cobrar agosto pela previsão de
+ * setembro seria comparar com uma régua que ninguém tinha na mão.
  */
 export function mesesDaJanela(
   pontos: PontoSerie[],
-  consumoDiario: number,
+  referencia: string,
+  consumoCorrente: number,
+  consumoAnterior: number,
 ): MesDaSerie[] {
+  const mesCorrente = referencia.slice(0, 7);
   const porMes = new Map<string, { real: number; dias: number }>();
+
   for (const p of pontos) {
+    // Dia futuro não entra no realizado nem no previsto proporcional: ainda
+    // não aconteceu, e contá-lo afundaria o percentual de todo mês corrente.
+    if (p.data > referencia) continue;
     const mes = p.data.slice(0, 7);
     const atual = porMes.get(mes) ?? { real: 0, dias: 0 };
     atual.real += p.venda;
     atual.dias += 1;
     porMes.set(mes, atual);
   }
+
   return [...porMes.entries()]
-    .map(([mes, { real, dias }]) => ({
-      mes,
-      real,
-      previsto: consumoDiario * dias,
-    }))
+    .map(([mes, { real, dias }]) => {
+      const consumoDiario = mes === mesCorrente ? consumoCorrente : consumoAnterior;
+      return {
+        mes,
+        real,
+        previsto: consumoDiario * dias,
+        consumoDiario,
+        corrente: mes === mesCorrente,
+      };
+    })
     .sort((a, b) => a.mes.localeCompare(b.mes));
 }
 
 /**
- * Estoque disponível por dia de carga, mais a política e o forecast vigentes.
+ * Estoque por dia de carga, mais a política e os forecasts dos dois meses.
  *
- * Mesma regra do resto do motor: o forecast é o da carga mensal da data de
- * referência, uma resolução para a janela inteira. Resolver dia a dia faria a
- * posição sumir nos primeiros dias do mês, porque a primeira carga de forecast
- * de setembro é do dia 4.
+ * O forecast de cada mês é o da última carga daquele mês — a mesma regra de
+ * `snapshotMensalSql`. São dois porque a janela cobre dois meses, e a linha de
+ * ritmo de agosto tem de ser medida contra a previsão de agosto.
  */
 async function estoqueDiario(
   codigo: string,
   filial: string,
   de: string,
-  ate: string,
-  dataReferencia: string,
+  referencia: string,
 ): Promise<{
   linhas: { data: string; estoque: number }[];
   politicaDias: number;
   forecastMensal: number;
+  forecastMesAnterior: number;
 }> {
   const linhas = await prisma.$queryRawUnsafe<
-    { data: Date; estoque: number; politica: number; forecast: number }[]
+    {
+      data: Date;
+      estoque: number;
+      politica: number;
+      forecast: number;
+      forecast_anterior: number;
+    }[]
   >(
     `WITH dias AS (
        SELECT DISTINCT data_snapshot::date AS d
@@ -189,17 +324,30 @@ async function estoqueDiario(
         WHERE f.codigo = $1 AND f.filial = $2
           AND f.data_snapshot = (
                 SELECT MAX(_f.data_snapshot) FROM forecast _f
-                 WHERE _f.data_snapshot >= date_trunc('month', $5::date)
-                   AND _f.data_snapshot <= $5::date
+                 WHERE _f.data_snapshot >= date_trunc('month', $4::date)
+                   AND _f.data_snapshot <= $4::date
                    AND _f.codigo IS NOT NULL
               )
           AND ${torreValidaSql("f")}
+        LIMIT 1
+     ),
+     fc_ant AS (
+       SELECT forecast_m0::float8 AS forecast
+         FROM forecast f
+        WHERE f.codigo = $1 AND f.filial = $2
+          AND f.data_snapshot = (
+                SELECT MAX(_f.data_snapshot) FROM forecast _f
+                 WHERE _f.data_snapshot >= $3::date
+                   AND _f.data_snapshot < date_trunc('month', $4::date)
+                   AND _f.codigo IS NOT NULL
+              )
         LIMIT 1
      )
      SELECT dias.d AS data,
             COALESCE(sim.disponivel, 0)::float8 AS estoque,
             COALESCE((SELECT politica FROM fc), 0)::float8 AS politica,
-            COALESCE((SELECT forecast FROM fc), 0)::float8 AS forecast
+            COALESCE((SELECT forecast FROM fc), 0)::float8 AS forecast,
+            COALESCE((SELECT forecast FROM fc_ant), 0)::float8 AS forecast_anterior
        FROM dias
        LEFT JOIN LATERAL (
          SELECT ${DISPONIVEL}::float8 AS disponivel
@@ -212,8 +360,7 @@ async function estoqueDiario(
     codigo,
     filial,
     de,
-    ate,
-    dataReferencia,
+    referencia,
   );
 
   return {
@@ -223,6 +370,11 @@ async function estoqueDiario(
     })),
     politicaDias: linhas[0]?.politica ?? 0,
     forecastMensal: linhas[0]?.forecast ?? 0,
+    // Sem carga no mês anterior, a régua daquele mês é a atual: melhor que
+    // zero, que faria a linha de ritmo encostar no eixo e sugerir que não
+    // havia previsão nenhuma.
+    forecastMesAnterior:
+      linhas[0]?.forecast_anterior || (linhas[0]?.forecast ?? 0),
   };
 }
 
@@ -272,6 +424,7 @@ async function chegadasDeCompra(
     data: l.data.toISOString().slice(0, 10),
     quantidade: l.qtd,
     tipo: "compra" as const,
+    prevista: false,
   }));
 }
 
@@ -328,37 +481,135 @@ async function chegadasDeTransferencia(
     data: l.data.toISOString().slice(0, 10),
     quantidade: l.qtd,
     tipo: "transferencia" as const,
+    prevista: false,
   }));
 }
 
 /**
- * Os marcos do ciclo de compra: quando o pedido saiu e para quando foi
- * prometido.
+ * O que ainda está para entrar: pedidos de compra e transferências em aberto.
  *
- * A promessa é a `data_pedra`, que é a data que a operação usa — não
- * `data_entrega`, que é a do sistema de origem e diverge dela.
+ * Compra pela `data_pedra`, que é a data que a operação usa — não
+ * `data_entrega`, do sistema de origem, que diverge dela. Transferência pela
+ * projeção de `projetar`, a mesma função da tela de transferências: o
+ * diagnóstico não pode prometer uma data que a outra tela contradiz.
  *
- * O CD é `rota_final` com queda para `filial`, a mesma regra de
- * `pedidosDoCiclo`: pedido triangulado é colocado numa filial e entregue
- * noutra, e quem rompeu foi o destino.
+ * Entrada com data já vencida é trazida para o dia de referência. A alternativa
+ * — desenhá-la no passado — colocaria uma seta de "vai chegar" num dia que já
+ * passou sem ela ter chegado, que é a única leitura claramente errada.
  */
-async function marcosDoPedido(
+async function chegadasPrevistas(
+  codigo: string,
+  filial: string,
+  referencia: string,
+  ate: string,
+): Promise<ChegadaSerie[]> {
+  const [compras, transferencias, sla, siglaParaCodigo] = await Promise.all([
+    prisma.$queryRawUnsafe<{ data: Date | null; qtd: number }[]>(
+      `SELECT data_pedra::date AS data,
+              SUM(COALESCE(quantidade_receber, 0))::float8 AS qtd
+         FROM pedidos_de_compra
+        WHERE codigo = $1
+          AND COALESCE(NULLIF(trim(rota_final), ''), filial) = $2
+          AND COALESCE(quantidade_receber, 0) > 0
+          AND data_snapshot = (
+                SELECT MAX(data_snapshot) FROM pedidos_de_compra
+                 WHERE data_snapshot <= $3::date
+              )
+        GROUP BY 1`,
+      codigo,
+      filial,
+      referencia,
+    ),
+    prisma.$queryRawUnsafe<
+      {
+        saida: string | null;
+        entrada: string | null;
+        rota: string | null;
+        passo: number | null;
+        emissao: Date | null;
+        qtd: number;
+      }[]
+    >(
+      `SELECT filial_codigo_saida AS saida, filial_codigo_entrada AS entrada,
+              rota, passo::int AS passo, data_emissao::date AS emissao,
+              SUM(COALESCE(qtde, 0))::float8 AS qtd
+         FROM transferencias_abertas
+        WHERE codigo = $1
+          AND data_snapshot = (
+                SELECT MAX(data_snapshot) FROM transferencias_abertas
+                 WHERE data_snapshot <= $2::date
+              )
+          AND COALESCE(qtde, 0) > 0
+        GROUP BY 1, 2, 3, 4, 5`,
+      codigo,
+      referencia,
+    ),
+    carregarSla(),
+    carregarFiliais(),
+  ]);
+
+  const dentro = (iso: string) =>
+    iso < referencia ? referencia : iso > ate ? null : iso;
+
+  const previstas: ChegadaSerie[] = [];
+
+  for (const c of compras) {
+    if (!c.data || c.qtd <= 0) continue;
+    const data = dentro(c.data.toISOString().slice(0, 10));
+    if (!data) continue;
+    previstas.push({
+      data,
+      quantidade: c.qtd,
+      tipo: "compra",
+      prevista: true,
+      origem: "data pedra do pedido",
+    });
+  }
+
+  const dataReferencia = new Date(`${referencia}T00:00:00.000Z`);
+  for (const t of transferencias) {
+    const projecao = projetar({
+      rota: t.rota,
+      filialSaida: t.saida,
+      filialEntrada: t.entrada,
+      passo: t.passo,
+      dataEmissao: t.emissao,
+      siglaParaCodigo,
+      sla,
+      dataReferencia,
+      diasParaVencidas: 0,
+    });
+    // Só o que termina neste CD: transferência que passa por aqui a caminho de
+    // outro destino não vira estoque disponível.
+    if (projecao.cdFinal !== filial || !projecao.chegadaFinal) continue;
+    const data = dentro(projecao.chegadaFinal.toISOString().slice(0, 10));
+    if (!data) continue;
+    previstas.push({
+      data,
+      quantidade: t.qtd,
+      tipo: "transferencia",
+      prevista: true,
+      origem: projecao.reprojetada
+        ? "SLA vencido, trazida para hoje"
+        : "projeção pelo SLA da rota",
+    });
+  }
+
+  return previstas;
+}
+
+/** Quando cada pedido do período foi emitido. */
+async function pedidosEmitidos(
   codigo: string,
   filial: string,
   de: string,
   ate: string,
 ): Promise<MarcoPedido[]> {
   const linhas = await prisma.$queryRawUnsafe<
-    {
-      num_pedido: string | null;
-      emitido: Date | null;
-      pedra: Date | null;
-      qtd: number;
-    }[]
+    { num_pedido: string | null; emitido: Date | null; qtd: number }[]
   >(
     `SELECT num_pedido,
             MIN(data_emissao)::date AS emitido,
-            MIN(data_pedra)::date   AS pedra,
             SUM(COALESCE(quantidade_total, 0))::float8 AS qtd
        FROM pedidos_de_compra
       WHERE codigo = $1
@@ -375,28 +626,12 @@ async function marcosDoPedido(
     ate,
   );
 
-  const marcos: MarcoPedido[] = [];
-  for (const l of linhas) {
-    const pedido = l.num_pedido ? `nº ${l.num_pedido}` : "pedido";
-    if (l.emitido) {
-      marcos.push({
-        data: l.emitido.toISOString().slice(0, 10),
-        tipo: "emitido",
-        rotulo: `emitido · ${pedido}`,
-        quantidade: l.qtd,
-      });
-    }
-    // A promessa só entra quando cai dentro da janela desenhada; fora dela o
-    // marcador ficaria colado na borda, dizendo uma data que não é a dele.
-    const pedra = l.pedra?.toISOString().slice(0, 10);
-    if (pedra && pedra >= de && pedra <= ate) {
-      marcos.push({
-        data: pedra,
-        tipo: "prometido",
-        rotulo: `prometido · ${pedido}`,
-        quantidade: l.qtd,
-      });
-    }
-  }
-  return marcos.sort((a, b) => a.data.localeCompare(b.data));
+  return linhas
+    .filter((l) => l.emitido)
+    .map((l) => ({
+      data: l.emitido!.toISOString().slice(0, 10),
+      rotulo: l.num_pedido ? `pedido nº ${l.num_pedido}` : "pedido emitido",
+      quantidade: l.qtd,
+    }))
+    .sort((a, b) => a.data.localeCompare(b.data));
 }
