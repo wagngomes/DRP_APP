@@ -17,20 +17,53 @@
  * Os limites moram em `parametros.ts`, junto com os do motor — um diagnóstico
  * que usasse réguas diferentes do outro produziria duas verdades.
  */
+import type { PosicaoAbertura, MesAnterior, AberturaForecast } from "./abertura";
 import { causaPorSlug } from "./catalogo";
+import type { Entrega, PrazoFornecedor } from "./janela";
+import type { Evento } from "./eventos";
+import type { Chegada } from "./replay";
 import { LIMITES } from "./parametros";
-import type { Contexto } from "./regras";
 
 /**
- * O que a árvore precisa saber, além do que o motor já carrega.
+ * Tudo que uma posição precisa para ser diagnosticada.
  *
- * Campos opcionais são sinais que ainda não têm consulta. Um teste que não
- * consegue responder devolve `null`, o caminhante segue pelo "não" e marca a
- * classificação como **incompleta** — é mais honesto que fingir um "não" e
- * mais útil que travar, porque a tela consegue dizer em quantos casos faltou
- * dado e qual pergunta ficou sem resposta.
+ * Os primeiros campos vinham de `Contexto`, no módulo de regras do motor
+ * contrafactual. Aquele módulo saiu junto com a atribuição de dias, e o tipo
+ * veio morar aqui — é a árvore que consome tudo isto agora.
+ *
+ * Campos opcionais do segundo bloco são sinais que podem faltar. Um teste que
+ * não consegue responder devolve `null`, e o caminhante **para** e devolve
+ * "indefinida": seguir pelo "não" acusaria a partir de ausência de dado, que
+ * foi o erro medido em 196 dos 458 eventos de setembro.
  */
-export type ContextoArvore = Contexto & {
+export type ContextoArvore = {
+  evento: Evento;
+  /** Janela do replay: da foto de abertura até a data de referência. */
+  de: string;
+  ate: string;
+  /** Vendas reais por dia, já tratadas como demanda nos dias de ruptura. */
+  vendas: Map<string, number>;
+  /** Entradas reais, de compra e de transferência. */
+  chegadas: Chegada[];
+  /** Forecast mensal da posição. */
+  forecastMensal: number;
+  /** Como a posição estava na foto de abertura; ausente quando não havia. */
+  abertura?: PosicaoAbertura;
+  /** Venda do mês anterior contra o forecast daquele mês. */
+  mesAnterior?: MesAnterior;
+  /** Quando o forecast desta posição foi aberto, se foi recente. */
+  aberturaForecast?: AberturaForecast;
+  /** Plano de compra do item no mês, somado na rede. */
+  planoDoMes?: { plano: number; saldo: number };
+  /** Lead time em dias para repor esta posição. */
+  leadTime: number;
+  /** Estoque disponível em outros CDs quando a ruptura ficou previsível. */
+  excedenteOutrosCds: number;
+  /** Entregas que chegaram na janela, com o prazo que levaram. */
+  entregas?: Entrega[];
+  /** Prazo cadastrado e real do par fornecedor × CD desta posição. */
+  prazo?: PrazoFornecedor;
+
   /** A carga do dia falhou no teste de sanidade. */
   cargaSuspeita?: boolean;
   /** Estoque que existe no CD e não vende: Q40, RC, bloqueio, reserva. */

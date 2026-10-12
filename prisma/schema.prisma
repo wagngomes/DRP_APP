@@ -772,10 +772,18 @@ model RupturaEvento {
   /// Dias × consumo diário × custo. A custo, não a preço de venda.
   valor_perdido Decimal @db.Decimal(24, 10)
 
-  /// alta | media | baixa — ver `confianca.ts`.
-  confianca       String
-  /// Quantos dos `dias` as causas conseguiram explicar.
-  dias_explicados Decimal @db.Decimal(10, 2)
+  /// alta | media | baixa. Cai quando a árvore ficou sem dado ou o replay não fecha.
+  confianca String
+
+  /**
+   * Legado do motor contrafactual: a fração de dias que as causas explicavam.
+   *
+   * Não é mais escrita. A árvore devolve **uma** causa por evento, então não há
+   * atribuição de dias para medir. A coluna fica com os dados das rodadas
+   * antigas em vez de ser derrubada — derrubar é irreversível e não compra
+   * nada.
+   */
+  dias_explicados Decimal? @db.Decimal(10, 2)
 
   /**
    * O balanço dia a dia não fechou com o estoque dos snapshots.
@@ -839,6 +847,15 @@ model RupturaEvento {
   /// A trilha completa: cada pergunta, a resposta e a prova que a sustentou.
   arvore_trilha Json?
 
+  /**
+   * A prova da causa: a frase para a ata e os números que a sustentam.
+   *
+   * Inclui a prescrição quando havia estoque na rede — *"transferir 180 até
+   * 04/09 teria evitado"* —, com o CD doador nomeado. É o que o contrafactual
+   * calculava e que agora serve de evidência em vez de segundo veredito.
+   */
+  arvore_evidencias Json?
+
   causas   RupturaCausa[]
   revisoes RupturaRevisao[]
 
@@ -852,6 +869,20 @@ model RupturaEvento {
   @@map("ruptura_evento")
 }
 
+/**
+ * Legado do motor contrafactual: a divisão de dias entre várias causas.
+ *
+ * **Não é mais escrita.** A árvore de decisão passou a ser o veredito único, e
+ * duas réguas na mesma tela produziam duas verdades — o motor dizia "mês
+ * começou descoberto", a árvore dizia por quê, e a soma dos percentuais não
+ * fechava com nada. O que o contrafactual mede sobreviveu como evidência, em
+ * `arvore_evidencias`.
+ *
+ * O modelo fica porque a tabela existe no banco, e as linhas somem na próxima
+ * rodada: `ruptura_evento` é apagada por versão de regra e a cascata leva as
+ * causas. Derrubar a tabela é uma migration separada, se e quando alguém
+ * decidir.
+ */
 model RupturaCausa {
   id       Int           @id @default(autoincrement())
   eventoId Int

@@ -234,13 +234,6 @@ export const CAUSAS: Causa[] = [
     regra:
       "nenhuma das perguntas da arvore encontrou explicacao - terminal explicito, mais honesto que forcar uma causa",
   },
-  {
-    slug: "sem_evidencia",
-    rotulo: "Sem evidência suficiente",
-    etapa: "dados",
-    dono: "TI e Planejamento",
-    regra: "os dias que nenhuma causa testada conseguiu explicar",
-  },
 ];
 
 const PORSLUG = new Map(CAUSAS.map((c) => [c.slug, c]));

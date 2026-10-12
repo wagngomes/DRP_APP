@@ -354,16 +354,62 @@ export function sobraPorItem(
   data: string,
   alvoDias: number,
 ): Map<string, number> {
-  const sobra = new Map<string, number>();
+  const total = new Map<string, number>();
+  for (const [codigo, cds] of sobraDetalhada(posicoes, data, alvoDias)) {
+    total.set(
+      codigo,
+      cds.reduce((a, c) => a + c.sobra, 0),
+    );
+  }
+  return total;
+}
+
+/** Quanto um CD tinha para doar, e o que ele guardou para si. */
+export type SobraNoCd = {
+  filial: string;
+  /** Acima do Alvo: o que podia sair sem descobrir o próprio CD. */
+  sobra: number;
+  /** Estoque disponível no CD naquele dia. */
+  disponivel: number;
+  /** O que o Alvo manda reservar. Zero sem forecast. */
+  reservado: number;
+};
+
+/**
+ * A mesma sobra, aberta por CD.
+ *
+ * Existe porque "cabia transferência" não é acionável: a frase útil nomeia o
+ * CD, a quantidade e o dia — *"o 1006 tinha 340 acima do Alvo em 02/09"*. O
+ * total agregado dizia que havia estoque na rede em algum lugar, e quem lê
+ * precisava ir procurar onde.
+ *
+ * Ordenada da maior sobra para a menor: o primeiro da lista é o doador que a
+ * operação olharia primeiro.
+ */
+export function sobraDetalhada(
+  posicoes: PosicaoDia[],
+  data: string,
+  alvoDias: number,
+): Map<string, SobraNoCd[]> {
+  const porItem = new Map<string, SobraNoCd[]>();
 
   for (const p of posicoes) {
     if (p.data !== data || p.disponivel <= 0) continue;
     const consumoDiario = p.forecastMensal / 30;
     const reservado = consumoDiario > 0 ? consumoDiario * alvoDias : 0;
-    const disponivelParaDoar = Math.max(0, p.disponivel - reservado);
-    if (disponivelParaDoar <= 0) continue;
-    sobra.set(p.codigo, (sobra.get(p.codigo) ?? 0) + disponivelParaDoar);
+    const sobra = Math.max(0, p.disponivel - reservado);
+    if (sobra <= 0) continue;
+    const lista = porItem.get(p.codigo);
+    const entrada: SobraNoCd = {
+      filial: p.filial,
+      sobra,
+      disponivel: p.disponivel,
+      reservado,
+    };
+    if (lista) lista.push(entrada);
+    else porItem.set(p.codigo, [entrada]);
   }
 
-  return sobra;
+  for (const lista of porItem.values()) lista.sort((a, b) => b.sobra - a.sobra);
+  return porItem;
 }

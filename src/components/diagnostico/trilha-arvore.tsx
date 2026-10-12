@@ -1,23 +1,24 @@
-import { Check, CircleHelp, X } from "lucide-react";
+import { ArrowLeftRight, Check, CircleHelp, Truck, X } from "lucide-react";
 
-import { tomDaEtapa } from "@/components/diagnostico/barra-causas";
+import { tomDaEtapa } from "@/components/diagnostico/tons-etapa";
 import { Badge } from "@/components/ui/badge";
 import type {
   PassoTrilha,
   VereditoArvore,
 } from "@/lib/diagnostico-ruptura/consultas";
+import type { Evidencia } from "@/lib/diagnostico-ruptura/evidencias";
 
 /**
- * O veredito da árvore de decisão, e o caminho que levou até ele.
+ * O veredito, o caminho que levou até ele e a prova.
  *
- * A outra régua do diagnóstico. O motor contrafactual mede **quanto** cada
- * etapa explica e devolve várias causas com percentual; a árvore responde
- * **qual foi**, numa frase única. As duas aparecem juntas na tela de
- * propósito: quando discordam, é esse par que vale conferir à mão.
+ * A árvore responde **qual foi**, numa frase única. A trilha é o que dispensa
+ * confiança no motor: a pessoa lê as perguntas na ordem, vê a resposta e os
+ * números que cada uma olhou, e confere o veredito sozinha — é o mesmo fluxo
+ * de `docs/arvore-diagnostico.md`.
  *
- * A trilha é o que dispensa confiança no motor. A pessoa lê as perguntas na
- * ordem, vê a resposta e os números que cada uma olhou, e confere o veredito
- * sozinha — é o mesmo fluxo de `docs/arvore-diagnostico.md`.
+ * A prova vem logo acima, porque é o que vai para a ata: uma frase com os
+ * números dentro, a prescrição quando havia estoque na rede, e os CDs que
+ * tinham sobra naquele dia.
  */
 
 /** O selo compacto, para a linha da tabela. */
@@ -130,3 +131,129 @@ export function TrilhaArvore({
     </div>
   );
 }
+
+/**
+ * A prova da causa: a frase, os números e o que teria bastado.
+ *
+ * Vem antes da trilha na tela. Quem está na reunião quer a frase; quem
+ * discorda dela desce para o percurso e confere pergunta por pergunta.
+ *
+ * A prescrição é a parte acionável, e é o que sobrou do motor contrafactual:
+ * *"transferir 180 até 04/09 teria evitado"*, com o CD doador nomeado. Sem o
+ * nome do CD a frase não serve — quem lê teria de ir procurar onde havia
+ * estoque.
+ */
+export function ProvaDaCausa({ evidencia }: { evidencia: Evidencia | null }) {
+  if (!evidencia) return null;
+
+  const valores = Object.entries(evidencia.valores).filter(
+    ([, v]) => v !== null && v !== undefined,
+  );
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm leading-relaxed">{evidencia.resumo}</p>
+
+      {evidencia.prescricao ? (
+        <div
+          className={`rounded-md border p-3 ${
+            evidencia.prescricao.tipo === "evitaria"
+              ? "border-emerald-500/30 bg-emerald-500/5"
+              : "border-amber-500/30 bg-amber-500/5"
+          }`}
+        >
+          <p className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            <Truck className="size-3.5" />
+            {evidencia.prescricao.tipo === "evitaria"
+              ? "O que teria evitado"
+              : "O que teria reduzido"}
+          </p>
+          <p className="mt-1 text-sm leading-relaxed">
+            {`Transferir `}
+            <span className="font-mono font-semibold tabular-nums">
+              {num(evidencia.prescricao.quantidade)}
+            </span>
+            {` unidades até `}
+            <span className="font-semibold">
+              {dataBr(evidencia.prescricao.data)}
+            </span>
+            {evidencia.prescricao.cd ? (
+              <>
+                {`, do CD `}
+                <span className="font-mono font-semibold">
+                  {evidencia.prescricao.cd}
+                </span>
+                {evidencia.prescricao.sobraNoCd !== null
+                  ? ` — que tinha ${num(evidencia.prescricao.sobraNoCd)} acima do Alvo`
+                  : ""}
+              </>
+            ) : null}
+            {evidencia.prescricao.tipo === "evitaria"
+              ? ", e não teria rompido."
+              : `, deixando ${num(evidencia.prescricao.diasRestantes)} dia(s) de ruptura em vez de todos.`}
+          </p>
+        </div>
+      ) : null}
+
+      {valores.length > 0 ? (
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3">
+          {valores.map(([k, v]) => (
+            <div key={k} className="min-w-0">
+              <dt className="truncate text-muted-foreground">
+                {k.replaceAll("_", " ")}
+              </dt>
+              <dd className="truncate font-mono tabular-nums">
+                {typeof v === "number" ? num(v) : String(v)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+
+      {/* O modificador: vale em cima de qualquer veredito. Uma ruptura herdada
+          da abertura continua sendo da abertura, e ainda assim podia ter sido
+          evitada com o que estava parado noutro CD. */}
+      {evidencia.balanceamentoNaoRealizado ? (
+        <p className="flex items-start gap-1.5 text-xs text-sky-700 dark:text-sky-400">
+          <ArrowLeftRight className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            Além da causa acima, cabia transferência: outro CD tinha estoque
+            acima do Alvo e nada saiu.
+          </span>
+        </p>
+      ) : null}
+
+      {/* Os doadores, mesmo quando não há prescrição: saber que a rede tinha
+          estoque parado é informação, ainda que naquele prazo nada resolvesse. */}
+      {evidencia.doadores && evidencia.doadores.length > 0 ? (
+        <div>
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+            CDs com estoque acima do Alvo no dia
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {evidencia.doadores.map((d) => (
+              <span
+                key={d.cd}
+                className="rounded-full border px-2 py-0.5 text-xs"
+                title={`${num(d.disponivel)} disponíveis no CD ${d.cd}`}
+              >
+                <span className="font-mono">{d.cd}</span>
+                <span className="font-mono font-medium tabular-nums">
+                  {` +${num(d.sobra)}`}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const num = (v: number) =>
+  v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+
+const dataBr = (iso: string) => {
+  const [a, m, d] = iso.split("-");
+  return `${d}/${m}/${a}`;
+};

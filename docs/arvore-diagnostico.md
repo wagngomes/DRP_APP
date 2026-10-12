@@ -291,27 +291,34 @@ distribuir o resíduo entre causas conhecidas.
 
 ---
 
-## Como isto se relaciona com o motor já construído
+## A árvore é o veredito; o contrafactual virou prova
 
-O motor em `src/lib/diagnostico-ruptura/` decide por **contrafactual**: mede
-quantos dias de ruptura sumiriam se cada etapa tivesse funcionado, e só credita
-a causa que de fato reduz os dias. Ele devolve **várias** causas com percentual.
+Por um tempo as duas réguas conviveram na tela. O motor contrafactual media
+quantos dias de ruptura sumiriam se cada etapa tivesse funcionado e devolvia
+**várias** causas com percentual; a árvore devolvia **uma**.
 
-A árvore devolve **uma**. As duas respondem perguntas diferentes e não se
-anulam:
+Classificar os mesmos 458 eventos pelos dois métodos mostrou que a discordância
+era de 83% — e quase sempre por refinamento, não por contradição: o motor dizia
+"mês começou descoberto", a árvore dizia por quê. Duas verdades na mesma tela
+não davam uma conversa, porque a soma dos percentuais não fechava com nada que
+se pudesse cobrar de alguém.
 
-| | árvore | motor |
-|---|---|---|
-| resultado | uma causa | várias, com dias e percentual |
-| como decide | ordem das perguntas | o conserto reduz os dias? |
-| força | qualquer pessoa segue o fluxo | não credita regra que não causou nada |
-| fraqueza | pode atribuir causa que não mudaria nada | precisa confiar na conta |
+Então a árvore passou a ser o veredito único, e **o que o contrafactual mede
+sobreviveu como evidência**:
 
-A ordem da árvore já faz parte do trabalho do contrafactual — ela só chega ao
-nó da aceleração de venda depois de confirmar que havia plano e que a compra
-chegou. É um contrafactual embutido na sequência: mais grosseiro, muito mais
-legível.
+- a **prescrição** — *"transferir 180 até 04/09, do CD 1002, teria evitado"* —,
+  que é a parte acionável e vem de busca binária sobre o replay;
+- o **aviso de balanço**, quando o replay não reproduz a ruptura observada: um
+  veredito construído sobre um balanço que não fecha não merece a mesma
+  confiança, e a tela diz isso;
+- o **modificador do balanceamento**, que vale em cima de qualquer causa.
 
-O caminho barato para decidir entre as duas é **classificar os mesmos eventos
-pelos dois métodos e olhar onde discordam**. As discordâncias são exatamente os
-casos que valem conferir à mão.
+O que saiu foi a atribuição de dias entre causas — o valor de Shapley sobre os
+subconjuntos. Custava 58ms nos 458 eventos, contra 11s de carga das bases, então
+não saiu por peso: saiu porque era uma segunda resposta para uma pergunta que
+só admite uma.
+
+A prova de cada causa mora em `evidencias.ts`, uma tabela de causa → frase +
+números, no mesmo estilo editável desta árvore. Um teste garante que **toda
+causa alcançável tem prova própria**: acrescentar um nó aqui sem escrever a
+prova lá quebra a suíte.

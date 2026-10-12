@@ -20,11 +20,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { FiltroLista } from "@/components/ui/filtro-lista";
+import { tomDaEtapa } from "@/components/diagnostico/tons-etapa";
 import {
-  BarraCausas,
-  tomDaEtapa,
-} from "@/components/diagnostico/barra-causas";
-import {
+  ProvaDaCausa,
   SeloArvore,
   TrilhaArvore,
 } from "@/components/diagnostico/trilha-arvore";
@@ -54,7 +52,6 @@ type SearchParams = {
   produto?: string | string[];
   forn?: string | string[];
   causa?: string | string[];
-  arvore?: string | string[];
   herdadas?: string | string[];
   incompletas?: string | string[];
   pagina?: string | string[];
@@ -97,7 +94,6 @@ export default async function DiagnosticoRuptura({
   const produto = primeiro(params.produto);
   const fornecedor = primeiro(params.forn);
   const causa = primeiro(params.causa);
-  const arvore = primeiro(params.arvore);
   const herdadas = primeiro(params.herdadas) === "1";
   const incompletas = primeiro(params.incompletas) === "1";
   const pagina = Number(primeiro(params.pagina) ?? 1) || 1;
@@ -109,7 +105,6 @@ export default async function DiagnosticoRuptura({
       produto,
       fornecedor,
       causa,
-      arvore,
       herdadas,
       incompletas,
       pagina,
@@ -124,7 +119,6 @@ export default async function DiagnosticoRuptura({
       produto,
       forn: fornecedor,
       causa,
-      arvore,
       herdadas: herdadas ? "1" : undefined,
       incompletas: incompletas ? "1" : undefined,
       pagina: pagina > 1 ? String(pagina) : undefined,
@@ -250,13 +244,12 @@ export default async function DiagnosticoRuptura({
           <>
             <Card>
               <CardContent className="grid gap-3 pt-6">
-                {/* Duas fileiras de chips, duas réguas. O motor mede quanto
-                    cada etapa explica e devolve várias causas por evento; a
-                    árvore responde qual foi, com uma causa só. Separadas na
-                    tela porque somá-las daria um total sem sentido. */}
+                {/* Uma fileira, uma régua. A árvore devolve uma causa por
+                    posição, então a soma dos chips é o total de posições — o
+                    que a versão de duas réguas não conseguia prometer. */}
                 <p className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                  <Stethoscope className="size-3" />
-                  Motor contrafactual · peso de cada etapa
+                  <GitBranch className="size-3" />
+                  Causa, pela árvore de decisão
                 </p>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Link
@@ -295,52 +288,6 @@ export default async function DiagnosticoRuptura({
                     );
                   })}
                 </div>
-
-                {dados.contagensArvore.length > 0 ? (
-                  <>
-                    <p className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                      <GitBranch className="size-3" />
-                      Árvore de decisão · a causa única
-                    </p>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Link
-                        href={href({ arvore: undefined, pagina: undefined })}
-                        className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                          arvore
-                            ? "hover:bg-muted"
-                            : "border-(--brand-petrol) bg-(--brand-petrol) text-white dark:border-(--brand-turquoise) dark:bg-(--brand-turquoise) dark:text-slate-900"
-                        }`}
-                      >
-                        {`Todas · ${num(dados.resumo.eventos)}`}
-                      </Link>
-                      {dados.contagensArvore.map((c) => {
-                        const ativa = arvore === c.slug;
-                        return (
-                          <Link
-                            key={c.slug}
-                            href={href({
-                              arvore: ativa ? undefined : c.slug,
-                              pagina: undefined,
-                            })}
-                            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                              ativa
-                                ? "border-foreground/40 bg-muted font-medium"
-                                : "hover:bg-muted"
-                            }`}
-                          >
-                            <span
-                              className={`size-2 shrink-0 rounded-full ${tomDaEtapa(c.etapa).barra}`}
-                            />
-                            {c.rotulo}
-                            <span className="font-mono tabular-nums opacity-60">
-                              {num(c.eventos)}
-                            </span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : null}
 
                 {/* Onde a árvore ficou sem dado. É lista de tarefa de dados,
                     não de diagnóstico: cada nó diz qual carga repor primeiro.
@@ -387,9 +334,6 @@ export default async function DiagnosticoRuptura({
                     ) : null}
                     {causa ? (
                       <input type="hidden" name="causa" value={causa} />
-                    ) : null}
-                    {arvore ? (
-                      <input type="hidden" name="arvore" value={arvore} />
                     ) : null}
                     <div className="w-full space-y-1.5 sm:w-auto">
                       <label
@@ -487,9 +431,16 @@ export default async function DiagnosticoRuptura({
                       <span className="font-mono text-sm text-rose-600 tabular-nums dark:text-rose-400">
                         {moeda(l.valorPerdido)}
                       </span>
-                      <div className="min-w-0 space-y-1">
+                      <div className="min-w-0 space-y-0.5">
                         <SeloArvore arvore={l.arvore} />
-                        <BarraCausas causas={l.causas} />
+                        {/* A frase da prova já na linha: quem varre a lista
+                            entende o caso sem abrir o detalhe. Duas linhas no
+                            máximo, senão a tabela deixa de ser tabela. */}
+                        {l.resumo ? (
+                          <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
+                            {l.resumo}
+                          </p>
+                        ) : null}
                       </div>
                     </Link>
                   );
@@ -569,71 +520,18 @@ export default async function DiagnosticoRuptura({
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  {/* A árvore primeiro: é a resposta curta, e quem está na
-                      reunião quer a frase antes da divisão de dias. */}
+                <CardContent className="space-y-4">
+                  {/* A prova primeiro: a frase e os números que a decidiram,
+                      mais a prescrição quando havia estoque na rede. É o que
+                      vai para a ata. */}
+                  <ProvaDaCausa evidencia={detalhe.evidencia} />
+
+                  {/* E o percurso, para quem discorda da frase: a pessoa segue
+                      as perguntas na ordem e confere o veredito sozinha. */}
                   <TrilhaArvore
                     arvore={detalhe.arvore}
                     trilha={detalhe.trilha}
                   />
-
-                  {/* O teste de cada etapa. Causa levou dias; observação é a
-                      regra que falhou sem ter causado a ruptura — aparece
-                      porque é um erro real, e sem dias porque não foi ela. */}
-                  {detalhe.causas.map((c) => {
-                    const prova = detalhe.evidencias.find(
-                      (e) => e.slug === c.slug,
-                    )?.dados as Record<string, unknown> | undefined;
-                    const valores = prova?.valores as
-                      | Record<string, unknown>
-                      | undefined;
-                    return (
-                      <div
-                        key={c.slug}
-                        className="rounded-md border bg-muted/20 p-3"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`size-2.5 shrink-0 rounded-full ${tomDaEtapa(c.etapa).barra}`}
-                          />
-                          <span className="text-sm font-medium">
-                            {c.rotulo}
-                          </span>
-                          {c.papel === "causa" ? (
-                            <span className="font-mono text-sm font-semibold tabular-nums">
-                              {`${c.dias.toFixed(1)} dias · ${Math.round(c.percentual)}%`}
-                            </span>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] text-muted-foreground"
-                            >
-                              falhou, mas não causou a ruptura
-                            </Badge>
-                          )}
-                          <span className="ml-auto text-xs text-muted-foreground">
-                            {c.dono}
-                          </span>
-                        </div>
-                        {valores ? (
-                          <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
-                            {Object.entries(valores).map(([k, v]) => (
-                              <div key={k} className="min-w-0">
-                                <dt className="truncate text-muted-foreground">
-                                  {k.replaceAll("_", " ")}
-                                </dt>
-                                <dd className="truncate font-mono tabular-nums">
-                                  {typeof v === "number"
-                                    ? num(v)
-                                    : String(v ?? "—")}
-                                </dd>
-                              </div>
-                            ))}
-                          </dl>
-                        ) : null}
-                      </div>
-                    );
-                  })}
                 </CardContent>
               </Card>
             ) : null}

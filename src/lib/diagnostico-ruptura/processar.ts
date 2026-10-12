@@ -16,16 +16,8 @@ import { prisma } from "@/lib/prisma";
 import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
 import { lerCoberturas } from "@/lib/parametros.server";
 import { subtrairDiasUteis } from "@/utils/projecao-transferencias";
-import {
-  aberturasDeForecast,
-  carregarAbertura,
-  chave,
-} from "./abertura";
-import {
-  classificar,
-  type Classificacao,
-  type ContextoArvore,
-} from "./arvore";
+import { aberturasDeForecast, carregarAbertura, chave } from "./abertura";
+import { classificar, type Classificacao, type ContextoArvore } from "./arvore";
 import { carregarSinais, saldoEm } from "./sinais";
 import {
   apenasEmRuptura,
@@ -33,23 +25,19 @@ import {
   cargasSuspeitas,
   custoPorItem,
   montarEventos,
-  sobraPorItem,
+  sobraDetalhada,
+  type CargaSuspeita,
   type Evento,
+  type SobraNoCd,
 } from "./eventos";
 import { carregarEntregas, carregarFatos, carregarPrazos } from "./janela";
-import { candidatas } from "./regras";
-import { dividirDias } from "./contrafactual";
-import { prescrever } from "./prescricao";
-import {
-  consumoComoDemanda,
-  diasEmRuptura,
-  rompidaPorDia,
-  type Cenario,
-} from "./replay";
+import { evidenciar, replayDivergiu, type Evidencia } from "./evidencias";
+import { consumoComoDemanda, rompidaPorDia } from "./replay";
 import { LIMITES, VERSAO_REGRAS } from "./parametros";
 
 export type ResultadoRodada = {
   eventos: number;
+  /** Quantas causas distintas a árvore apontou na rodada. */
   causas: number;
   /** Quantos saíram com o replay divergindo do estoque real. */
   avisos: number;
@@ -87,11 +75,14 @@ export type Bases = {
   estado: Map<string, Map<string, boolean>>;
   forecastDa: Map<string, number>;
   retidoDa: Map<string, number>;
-  sobras: Map<string, number>;
+  /** Sobra acima do Alvo, aberta por CD — a prescrição nomeia o doador. */
+  sobras: Map<string, SobraNoCd[]>;
   fornecedores: Map<string, string>;
   descricoes: Map<string, string | null>;
   /** Dias cuja carga não passou no teste de sanidade. */
   ignorar: Set<string>;
+  /** O detalhe de cada carga reprovada, para virar evidência. */
+  suspeitas: Map<string, CargaSuspeita>;
 };
 
 export async function carregarBases(dataReferencia: string): Promise<Bases> {
@@ -121,7 +112,9 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
   ]);
 
   const posicoes = await carregarPosicoes(de, dataReferencia, dataReferencia);
-  const ignorar = new Set(cargasSuspeitas(posicoes).map((s) => s.data));
+  const reprovadas = cargasSuspeitas(posicoes);
+  const suspeitas = new Map(reprovadas.map((s) => [s.data, s]));
+  const ignorar = new Set(reprovadas.map((s) => s.data));
   const eventos = apenasEmRuptura(
     montarEventos(posicoes, dataReferencia, custos, ignorar),
   );
@@ -161,10 +154,11 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     estado,
     forecastDa,
     retidoDa,
-    sobras: sobraPorItem(posicoes, dataReferencia, coberturas.alvo),
+    sobras: sobraDetalhada(posicoes, dataReferencia, coberturas.alvo),
     fornecedores,
     descricoes,
     ignorar,
+    suspeitas,
   };
 }
 
@@ -219,7 +213,7 @@ export function contextoDe(b: Bases, e: Evento): ContextoArvore {
     aberturaForecast: b.aberturas.get(k),
     planoDoMes: b.planos.get(e.codigo),
     leadTime,
-    excedenteOutrosCds: b.sobras.get(e.codigo) ?? 0,
+    excedenteOutrosCds: totalDaSobra(b, e.codigo),
     entregas: b.entregas.get(k),
     prazo,
 
@@ -255,8 +249,13 @@ export function contextoDe(b: Bases, e: Evento): ContextoArvore {
     triangulado: pedido?.triangulado,
     slaInternoEstourado: percurso ? percurso.slaEstourado : null,
     paradaNoHub: percurso ? percurso.paradaNoHub : null,
-    podiaTransferirENaoTransferiu: (b.sobras.get(e.codigo) ?? 0) > 0,
+    podiaTransferirENaoTransferiu: totalDaSobra(b, e.codigo) > 0,
   };
+}
+
+/** Soma da sobra do item na rede, a partir do detalhe por CD. */
+function totalDaSobra(b: Bases, codigo: string): number {
+  return (b.sobras.get(codigo) ?? []).reduce((a, s) => a + s.sobra, 0);
 }
 
 export async function processar(
@@ -271,7 +270,7 @@ export async function processar(
 
   return {
     eventos: linhas.length,
-    causas: linhas.reduce((a, l) => a + l.causas.length, 0),
+    causas: new Set(linhas.map((l) => l.arvore.causa)).size,
     avisos: linhas.filter((l) => l.avisoReplay).length,
     duracaoMs: Date.now() - comecou,
     abertura: {
@@ -286,95 +285,69 @@ type Diagnostico = {
   fornecedor: string | null;
   descricao: string | null;
   confianca: "alta" | "media" | "baixa";
-  diasExplicados: number;
   avisoReplay: boolean;
   herdada: boolean;
   aberturaData: string | null;
   aberturaOrigem: string;
-  causas: {
-    causa: string;
-    papel: string;
-    dias: number;
-    percentual: number;
-    evidencias: Record<string, unknown>;
-  }[];
-  /**
-   * O veredito da árvore de decisão, ao lado do contrafactual.
-   *
-   * Calculado na rodada e ainda não gravado: a comparação entre as duas réguas
-   * precisa existir antes de a tela escolher qual mostrar, e gravar uma coluna
-   * para um veredito que talvez mude de forma custaria uma migração a mais.
-   */
+  /** O veredito: uma causa, o caminho que levou a ela e a prova. */
   arvore: Classificacao;
+  evidencia: Evidencia;
   hash: string;
 };
 
+/**
+ * O diagnóstico de uma posição: uma causa, com prova.
+ *
+ * A árvore decide; o replay e a prescrição entram como evidência. Não há mais
+ * divisão de dias entre várias causas — duas réguas na mesma tela davam duas
+ * verdades, e a soma dos percentuais não fechava com nada que se pudesse
+ * cobrar de alguém.
+ */
 function diagnosticar(b: Bases, e: Evento): Diagnostico {
-  const { de, ate } = b;
-  const k = chave(e.codigo, e.filial);
   const contexto = contextoDe(b, e);
-  const { abertura, vendas: demanda } = contexto;
-  const fornecedor = b.fornecedores.get(e.codigo) ?? null;
+  const { abertura } = contexto;
+  const arvore = classificar(contexto);
 
-  const lista = candidatas(contexto);
+  const evidencia = evidenciar(
+    contexto,
+    arvore.causa,
+    {
+      sobraPorCd: b.sobras.get(e.codigo) ?? [],
+      pedidosSumidos: b.sinais.sumidos.get(chave(e.codigo, e.filial)) ?? 0,
+      percurso: b.sinais.percurso.get(chave(e.codigo, e.filial)),
+      cargaSuspeita: b.suspeitas.get(e.inicio),
+    },
+    arvore.balanceamentoNaoRealizado,
+  );
 
-  const atribuicoes = dividirDias(lista, e.dias);
-  const explicados = atribuicoes
-    .filter((a) => a.papel === "causa" && a.slug !== "sem_evidencia")
-    .reduce((a, x) => a + x.dias, 0);
+  // Um diagnóstico construído sobre um balanço que não fecha não merece a
+  // mesma confiança — e a tela precisa dizer isso, em vez de apresentar o
+  // veredito com a mesma cara dos demais.
+  const avisoReplay = replayDivergiu(contexto);
 
-  // O replay reproduz a ruptura observada? Medido na validação, 75% dos
-  // eventos passam. Os demais recebem o selo: um diagnóstico construído sobre
-  // um replay que não fecha não merece a mesma confiança.
-  const real: Cenario = {
-    de,
-    ate,
-    estoqueInicial: abertura?.disponivel ?? 0,
-    consumo: demanda,
-    chegadas: b.fatos.chegadas.get(k) ?? [],
-  };
-  const simulado = diasEmRuptura(real);
-  const avisoReplay =
-    Math.abs(simulado - e.dias) > Math.max(2, e.dias * 0.3);
-
-  // A prescrição entra como evidência da transferência: é a frase acionável.
-  const receita = prescrever(real, b.sobras.get(e.codigo) ?? 0, e.inicio);
-  const causas = atribuicoes.map((a) => ({
-    causa: a.slug,
-    papel: a.papel,
-    dias: a.dias,
-    percentual: a.percentual,
-    evidencias:
-      a.slug === "transferencia_nao_feita" && receita
-        ? { ...a.evidencias, prescricao: receita }
-        : a.evidencias,
-  }));
-
-  const fracao = e.dias > 0 ? explicados / e.dias : 0;
+  // A confiança agora olha a árvore, e não a fração de dias explicados: sem
+  // atribuição, aquela fração não existe. Percurso que travou por falta de
+  // dado derruba a confiança, que é o mesmo princípio de antes aplicado à
+  // régua nova.
   const marcada = b.foto.marco.origem === "marcada";
   let confianca: "alta" | "media" | "baixa";
-  if (avisoReplay || fracao < 0.7) confianca = "baixa";
-  else if (fracao >= 0.9 && marcada) confianca = "alta";
+  if (avisoReplay || arvore.incompleta) confianca = "baixa";
+  else if (marcada) confianca = "alta";
   else confianca = "media";
 
   return {
     evento: e,
-    fornecedor,
+    fornecedor: b.fornecedores.get(e.codigo) ?? null,
     descricao: b.descricoes.get(e.codigo) ?? null,
     confianca,
-    diasExplicados: explicados,
     avisoReplay,
     // A ruptura já estava contratada quando o mês abriu.
     herdada: (abertura?.disponivel ?? 0) <= 0 || !!abertura?.abaixoDaPolitica,
     aberturaData: b.foto.marco.data,
     aberturaOrigem: b.foto.marco.origem,
-    causas,
-    arvore: classificar(contexto),
-    hash: hashDaEntrada(
-      e,
-      abertura?.disponivel ?? 0,
-      contexto.forecastMensal,
-    ),
+    arvore,
+    evidencia,
+    hash: hashDaEntrada(e, abertura?.disponivel ?? 0, contexto.forecastMensal),
   };
 }
 
@@ -422,12 +395,13 @@ async function gravar(linhas: Diagnostico[]) {
 
       if (linhas.length === 0) return;
 
-      // Em lote, e não um a um. A primeira versão criava evento por evento com
-      // as causas aninhadas: quatrocentos eventos deram mais de quatrocentas
-      // idas ao banco e a transação estourou os dois minutos contra o banco
-      // remoto. São duas consultas agora.
-      const criados = await tx.rupturaEvento.createManyAndReturn({
-        select: { id: true, codigo: true, filial: true, inicio: true },
+      // Em lote, e numa consulta só. A primeira versão criava evento por
+      // evento com as causas aninhadas: quatrocentos eventos deram mais de
+      // quatrocentas idas ao banco e a transação estourou os dois minutos
+      // contra o banco remoto. Depois foram duas — eventos e causas. Com a
+      // árvore devolvendo uma causa por evento, a prova cabe na própria linha
+      // e a tabela filha deixou de ser escrita.
+      await tx.rupturaEvento.createMany({
         data: linhas.map((l) => ({
           codigo: l.evento.codigo,
           filial: l.evento.filial,
@@ -438,7 +412,6 @@ async function gravar(linhas: Diagnostico[]) {
           dias: l.evento.dias,
           valor_perdido: l.evento.valorPerdido,
           confianca: l.confianca,
-          dias_explicados: l.diasExplicados,
           aviso_replay: l.avisoReplay,
           abertura_data: l.aberturaData
             ? new Date(`${l.aberturaData}T00:00:00.000Z`)
@@ -453,39 +426,11 @@ async function gravar(linhas: Diagnostico[]) {
           arvore_no_travou:
             l.arvore.trilha.find((p) => p.resposta === null)?.no ?? null,
           arvore_trilha: l.arvore.trilha as unknown as object,
+          arvore_evidencias: l.evidencia as unknown as object,
           versao_regras: VERSAO_REGRAS,
           entrada_hash: l.hash,
         })),
       });
-
-      // A chave natural casa o id gerado com o diagnóstico que o produziu —
-      // `createManyAndReturn` devolve na ordem de inserção, mas depender disso
-      // seria depender de detalhe não documentado.
-      const idDe = new Map(
-        criados.map((c) => [
-          `${c.codigo}|${c.filial}|${c.inicio.toISOString().slice(0, 10)}`,
-          c.id,
-        ]),
-      );
-
-      const causas = linhas.flatMap((l) => {
-        const id = idDe.get(
-          `${l.evento.codigo}|${l.evento.filial}|${l.evento.inicio}`,
-        );
-        if (id === undefined) return [];
-        return l.causas.map((c) => ({
-          eventoId: id,
-          causa: c.causa,
-          papel: c.papel,
-          dias: c.dias,
-          percentual: c.percentual,
-          evidencias: c.evidencias as object,
-        }));
-      });
-
-      if (causas.length > 0) {
-        await tx.rupturaCausa.createMany({ data: causas });
-      }
     },
     { timeout: 120_000 },
   );
@@ -513,7 +458,10 @@ async function descricaoPorItem(
   if (codigos.length === 0) return new Map();
   const linhas = await prisma.$queryRawUnsafe<
     { codigo: string; descricao: string | null }[]
-  >(`SELECT codigo, descricao FROM produtos WHERE codigo = ANY($1::text[])`, codigos);
+  >(
+    `SELECT codigo, descricao FROM produtos WHERE codigo = ANY($1::text[])`,
+    codigos,
+  );
   return new Map(linhas.map((l) => [l.codigo, l.descricao]));
 }
 
