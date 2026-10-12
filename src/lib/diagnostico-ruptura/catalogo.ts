@@ -172,6 +172,14 @@ export const CAUSAS: Causa[] = [
       "havia plano e havia saldo, e mesmo assim o pedido saiu depois da data limite",
   },
   {
+    slug: "pedido_nao_colocado",
+    rotulo: "Pedido nao colocado",
+    etapa: "compra",
+    dono: "Compras",
+    regra:
+      "havia plano, havia saldo e nenhum pedido foi emitido no mes para esta posicao - a ausencia e o fato, nao falta de dado",
+  },
+  {
     slug: "comprou_pouco",
     rotulo: "Comprou pouco",
     etapa: "compra",

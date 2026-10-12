@@ -282,7 +282,12 @@ export const ARVORE: No[] = [
     pergunta: "O pedido foi colocado até a data limite?",
     teste: (c) => {
       const p = c.pedido;
-      if (!p) return semDado();
+      // Ausência de pedido é fato, não falta de dado: `pedidos_de_compra` traz
+      // tudo que está em aberto no snapshot, então não achar a posição ali
+      // significa que nada foi emitido no mês. Devolver "sem dado" aqui — como
+      // esta regra fazia — jogava 28 casos medidos para o ramo da data limite
+      // sem nunca ter havido data de emissão para comparar.
+      if (!p) return nao({ pedido: "nenhum no mes" });
       const atraso =
         (Date.parse(`${p.emitidoEm}T00:00:00Z`) -
           Date.parse(`${p.dataLimite}T00:00:00Z`)) /
@@ -304,8 +309,22 @@ export const ARVORE: No[] = [
         : c.saldoNaDataLimite > 0
           ? sim({ saldo: c.saldoNaDataLimite })
           : nao({ saldo: c.saldoNaDataLimite }),
-    sim: "pedido_tarde",
+    sim: "B3b",
     nao: "sem_saldo_plano",
+  },
+  {
+    id: "B3b",
+    pergunta: "Houve algum pedido no mês para esta posição?",
+    // Separa o atraso da omissão. As duas vêm por B3 pelo "não" e são
+    // cobranças diferentes: pedido tardio é prazo, nenhum pedido é a compra
+    // que não aconteceu — e a frase "pedido colocado tarde" sobre uma posição
+    // sem pedido nenhum é falsa.
+    teste: (c) =>
+      c.pedido
+        ? sim({ emitido_em: c.pedido.emitidoEm })
+        : nao({ pedido: "nenhum no mes" }),
+    sim: "pedido_tarde",
+    nao: "pedido_nao_colocado",
   },
   {
     id: "B4",
@@ -501,9 +520,17 @@ const SEM_MODIFICADOR = new Set(["base_inconsistente", "nova_abertura"]);
 /**
  * Percorre a árvore e devolve a causa, o caminho e as provas.
  *
- * Nó sem dado segue pelo "não" e marca a classificação como incompleta. A
- * alternativa — parar e devolver "indefinida" — perderia a informação de qual
- * pergunta ficou sem resposta, que é justamente o que diz onde falta consulta.
+ * **Nó sem dado pára o percurso e devolve "indefinida".** A trilha guarda qual
+ * pergunta ficou sem resposta, então nada se perde — e a alternativa, seguir
+ * pelo "não", acusa a partir de ausência de dado. Medido: a carga de
+ * `plano_compra` de agosto perdeu os códigos num reimport de Produtos, A2 ficou
+ * sem resposta em 196 dos 458 eventos, e a versão anterior desta função
+ * devolvia "sem plano no mês anterior" em 44,5% dos casos — uma acusação a
+ * Planejamento construída sobre um dado que não existe.
+ *
+ * Ausência de fato é diferente de ausência de dado, e quem decide é o nó: B3
+ * responde "não" quando nenhum pedido foi emitido, porque a base em aberto
+ * cobre o mês inteiro e o silêncio ali é informação.
  */
 export function classificar(c: ContextoArvore): Classificacao {
   const trilha: Passo[] = [];
@@ -518,7 +545,11 @@ export function classificar(c: ContextoArvore): Classificacao {
 
     const { resposta, evidencia } = no.teste(c);
     trilha.push({ no: no.id, pergunta: no.pergunta, resposta, evidencia });
-    if (resposta === null) incompleta = true;
+    if (resposta === null) {
+      incompleta = true;
+      atual = "indefinida";
+      break;
+    }
 
     atual = resposta === true ? no.sim : no.nao;
   }

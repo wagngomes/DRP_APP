@@ -15,11 +15,18 @@ import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
 import { lerCoberturas } from "@/lib/parametros.server";
+import { subtrairDiasUteis } from "@/utils/projecao-transferencias";
 import {
   aberturasDeForecast,
   carregarAbertura,
   chave,
 } from "./abertura";
+import {
+  classificar,
+  type Classificacao,
+  type ContextoArvore,
+} from "./arvore";
+import { carregarSinais, saldoEm } from "./sinais";
 import {
   apenasEmRuptura,
   carregarPosicoes,
@@ -58,30 +65,63 @@ export type ResultadoRodada = {
  */
 const LEAD_TIME_PADRAO = 8;
 
-export async function processar(
-  dataReferencia: string,
-): Promise<ResultadoRodada> {
-  const comecou = Date.now();
+/**
+ * Tudo que a janela tem a dizer, carregado uma vez.
+ *
+ * Separado de `processar` para que a comparação entre os dois diagnósticos — o
+ * contrafactual e a árvore — possa montar os mesmos contextos sem repetir o
+ * carregamento nem, pior, divergir dele. Quem compara duas réguas tem de usar
+ * exatamente o mesmo dado nas duas.
+ */
+export type Bases = {
+  de: string;
+  ate: string;
+  foto: Awaited<ReturnType<typeof carregarAbertura>>;
+  aberturas: Awaited<ReturnType<typeof aberturasDeForecast>>;
+  fatos: Awaited<ReturnType<typeof carregarFatos>>;
+  planos: Awaited<ReturnType<typeof carregarSaldoPlano>>;
+  entregas: Awaited<ReturnType<typeof carregarEntregas>>;
+  prazos: Awaited<ReturnType<typeof carregarPrazos>>;
+  sinais: Awaited<ReturnType<typeof carregarSinais>>;
+  eventos: Evento[];
+  estado: Map<string, Map<string, boolean>>;
+  forecastDa: Map<string, number>;
+  retidoDa: Map<string, number>;
+  sobras: Map<string, number>;
+  fornecedores: Map<string, string>;
+  descricoes: Map<string, string | null>;
+  /** Dias cuja carga não passou no teste de sanidade. */
+  ignorar: Set<string>;
+};
 
+export async function carregarBases(dataReferencia: string): Promise<Bases> {
   const foto = await carregarAbertura(dataReferencia);
   // Sem foto de abertura não há âncora para o replay, e diagnosticar sem ela
   // seria chutar o ponto de partida de toda a cadeia.
   const de = foto.marco.data ?? `${dataReferencia.slice(0, 7)}-01`;
 
-  const [aberturas, fatos, custos, planos, entregas, prazos, coberturas] =
-    await Promise.all([
-      aberturasDeForecast(de, dataReferencia),
-      carregarFatos(de, dataReferencia),
-      custoPorItem(),
-      carregarSaldoPlano(dataReferencia),
-      carregarEntregas(de, dataReferencia),
-      carregarPrazos(),
-      lerCoberturas(),
-    ]);
+  const [
+    aberturas,
+    fatos,
+    custos,
+    planos,
+    entregas,
+    prazos,
+    coberturas,
+    sinais,
+  ] = await Promise.all([
+    aberturasDeForecast(de, dataReferencia),
+    carregarFatos(de, dataReferencia),
+    custoPorItem(),
+    carregarSaldoPlano(dataReferencia),
+    carregarEntregas(de, dataReferencia),
+    carregarPrazos(),
+    lerCoberturas(),
+    carregarSinais(de, dataReferencia),
+  ]);
 
   const posicoes = await carregarPosicoes(de, dataReferencia, dataReferencia);
-  const suspeitas = cargasSuspeitas(posicoes);
-  const ignorar = new Set(suspeitas.map((s) => s.data));
+  const ignorar = new Set(cargasSuspeitas(posicoes).map((s) => s.data));
   const eventos = apenasEmRuptura(
     montarEventos(posicoes, dataReferencia, custos, ignorar),
   );
@@ -89,39 +129,143 @@ export async function processar(
   // Índices em memória: uma passada sobre as posições serve a tudo.
   const estado = new Map<string, Map<string, boolean>>();
   const forecastDa = new Map<string, number>();
-  const descricaoDe = new Map<string, string | null>();
+  const retidoDa = new Map<string, number>();
   for (const p of posicoes) {
     const k = chave(p.codigo, p.filial);
     const m = estado.get(k) ?? new Map<string, boolean>();
     m.set(p.data, p.rompida);
     estado.set(k, m);
     forecastDa.set(k, p.forecastMensal);
+    // O maior retido da janela, não o do último dia: o estoque preso em Q40/RC
+    // costuma ser liberado ou baixado antes de a ruptura fechar, e o do último
+    // dia diria zero justamente onde a causa existiu.
+    retidoDa.set(k, Math.max(retidoDa.get(k) ?? 0, p.retido));
   }
-  const sobras = sobraPorItem(posicoes, dataReferencia, coberturas.alvo);
-  const fornecedores = await fornecedorPorItem(dataReferencia);
-  const descricoes = await descricaoPorItem(
-    [...new Set(eventos.map((e) => e.codigo))],
-  );
 
-  const linhas = eventos.map((evento) =>
-    diagnosticar({
-      evento,
-      de,
-      ate: dataReferencia,
-      foto,
-      aberturas,
-      fatos,
-      planos,
-      entregas,
-      prazos,
-      estado,
-      forecastDa,
-      sobras,
-      fornecedores,
-      descricoes,
-      descricaoDe,
-    }),
-  );
+  const [fornecedores, descricoes] = await Promise.all([
+    fornecedorPorItem(dataReferencia),
+    descricaoPorItem([...new Set(eventos.map((e) => e.codigo))]),
+  ]);
+
+  return {
+    de,
+    ate: dataReferencia,
+    foto,
+    aberturas,
+    fatos,
+    planos,
+    entregas,
+    prazos,
+    sinais,
+    eventos,
+    estado,
+    forecastDa,
+    retidoDa,
+    sobras: sobraPorItem(posicoes, dataReferencia, coberturas.alvo),
+    fornecedores,
+    descricoes,
+    ignorar,
+  };
+}
+
+/**
+ * O contexto de uma posição: os fatos dela, prontos para as duas réguas.
+ *
+ * Devolve `ContextoArvore`, que é `Contexto` mais os sinais que só a árvore
+ * pergunta. O motor contrafactual recebe o mesmo objeto e ignora o excedente —
+ * assim nenhuma das duas pode estar olhando um dado que a outra não viu.
+ */
+export function contextoDe(b: Bases, e: Evento): ContextoArvore {
+  const k = chave(e.codigo, e.filial);
+  const abertura = b.foto.posicoes.get(k);
+  const forecastMensal = b.forecastDa.get(k) ?? 0;
+  const fornecedor = b.fornecedores.get(e.codigo) ?? null;
+  const prazo = b.prazos.get(chave(fornecedor ?? "", e.filial));
+  const leadTime = prazo?.cadastrado ?? LEAD_TIME_PADRAO;
+
+  // A demanda do replay não é a venda crua: posição rompida não vende, e usar
+  // a venda observada faria o consumo cair justamente nos dias de ruptura.
+  const demanda = consumoComoDemanda({
+    de: b.de,
+    ate: b.ate,
+    vendas: b.fatos.vendas.get(k) ?? new Map(),
+    rompidaEm: rompidaPorDia(b.de, b.ate, b.estado.get(k) ?? new Map()),
+    forecastMensal,
+  });
+
+  // A data limite de compra: andando para trás do início da ruptura, em dias
+  // úteis, o lead time do par fornecedor × CD. É a régua de B3 e de B3a.
+  const dataLimite = subtrairDiasUteis(
+    new Date(`${e.inicio}T00:00:00.000Z`),
+    Math.round(leadTime),
+  )
+    .toISOString()
+    .slice(0, 10);
+
+  const pedido = b.sinais.pedidos.get(k);
+  const compraAnterior = b.sinais.compraAnterior.get(k);
+  const percurso = b.sinais.percurso.get(k);
+  const mesAnterior = b.foto.anterior.get(k);
+
+  return {
+    evento: e,
+    de: b.de,
+    ate: b.ate,
+    vendas: demanda,
+    chegadas: b.fatos.chegadas.get(k) ?? [],
+    forecastMensal,
+    abertura,
+    mesAnterior,
+    aberturaForecast: b.aberturas.get(k),
+    planoDoMes: b.planos.get(e.codigo),
+    leadTime,
+    excedenteOutrosCds: b.sobras.get(e.codigo) ?? 0,
+    entregas: b.entregas.get(k),
+    prazo,
+
+    // --- os sinais da árvore ---
+    cargaSuspeita: b.ignorar.has(e.inicio),
+    retido: b.retidoDa.get(k) ?? 0,
+    // A necessidade do mês anterior é medida contra o forecast *daquele* mês:
+    // cobrar o plano de agosto pela previsão de setembro seria cobrar outra
+    // decisão.
+    planoMesAnterior:
+      mesAnterior && b.sinais.planoAnterior.has(e.codigo)
+        ? {
+            plano: b.sinais.planoAnterior.get(e.codigo)!,
+            necessidade:
+              (mesAnterior.forecast / 30) *
+              (leadTime + (abertura?.politicaDias ?? 0)),
+          }
+        : undefined,
+    compraMesAnteriorNoPrazo: compraAnterior
+      ? compraAnterior.atrasadas === 0
+      : undefined,
+    saldoNaDataLimite: b.sinais.movimento.has(e.codigo)
+      ? saldoEm(b.sinais.movimento.get(e.codigo), dataLimite)
+      : undefined,
+    pedido: pedido
+      ? {
+          emitidoEm: pedido.emitidoEm,
+          quantidade: pedido.quantidade,
+          dataLimite,
+        }
+      : undefined,
+    pedidoSumiuSemReceber: pedido ? b.sinais.sumidos.has(k) : undefined,
+    triangulado: pedido?.triangulado,
+    slaInternoEstourado: percurso ? percurso.slaEstourado : null,
+    paradaNoHub: percurso ? percurso.paradaNoHub : null,
+    podiaTransferirENaoTransferiu: (b.sobras.get(e.codigo) ?? 0) > 0,
+  };
+}
+
+export async function processar(
+  dataReferencia: string,
+): Promise<ResultadoRodada> {
+  const comecou = Date.now();
+
+  const bases = await carregarBases(dataReferencia);
+  const linhas = bases.eventos.map((evento) => diagnosticar(bases, evento));
 
   await gravar(linhas);
 
@@ -130,7 +274,10 @@ export async function processar(
     causas: linhas.reduce((a, l) => a + l.causas.length, 0),
     avisos: linhas.filter((l) => l.avisoReplay).length,
     duracaoMs: Date.now() - comecou,
-    abertura: { data: foto.marco.data, origem: foto.marco.origem },
+    abertura: {
+      data: bases.foto.marco.data,
+      origem: bases.foto.marco.origem,
+    },
   };
 }
 
@@ -151,58 +298,25 @@ type Diagnostico = {
     percentual: number;
     evidencias: Record<string, unknown>;
   }[];
+  /**
+   * O veredito da árvore de decisão, ao lado do contrafactual.
+   *
+   * Calculado na rodada e ainda não gravado: a comparação entre as duas réguas
+   * precisa existir antes de a tela escolher qual mostrar, e gravar uma coluna
+   * para um veredito que talvez mude de forma custaria uma migração a mais.
+   */
+  arvore: Classificacao;
   hash: string;
 };
 
-function diagnosticar(ctx: {
-  evento: Evento;
-  de: string;
-  ate: string;
-  foto: Awaited<ReturnType<typeof carregarAbertura>>;
-  aberturas: Awaited<ReturnType<typeof aberturasDeForecast>>;
-  fatos: Awaited<ReturnType<typeof carregarFatos>>;
-  planos: Awaited<ReturnType<typeof carregarSaldoPlano>>;
-  entregas: Awaited<ReturnType<typeof carregarEntregas>>;
-  prazos: Awaited<ReturnType<typeof carregarPrazos>>;
-  estado: Map<string, Map<string, boolean>>;
-  forecastDa: Map<string, number>;
-  sobras: Map<string, number>;
-  fornecedores: Map<string, string>;
-  descricoes: Map<string, string | null>;
-  descricaoDe: Map<string, string | null>;
-}): Diagnostico {
-  const { evento: e, de, ate } = ctx;
+function diagnosticar(b: Bases, e: Evento): Diagnostico {
+  const { de, ate } = b;
   const k = chave(e.codigo, e.filial);
-  const abertura = ctx.foto.posicoes.get(k);
-  const forecastMensal = ctx.forecastDa.get(k) ?? 0;
+  const contexto = contextoDe(b, e);
+  const { abertura, vendas: demanda } = contexto;
+  const fornecedor = b.fornecedores.get(e.codigo) ?? null;
 
-  const demanda = consumoComoDemanda({
-    de,
-    ate,
-    vendas: ctx.fatos.vendas.get(k) ?? new Map(),
-    rompidaEm: rompidaPorDia(de, ate, ctx.estado.get(k) ?? new Map()),
-    forecastMensal,
-  });
-
-  const fornecedor = ctx.fornecedores.get(e.codigo) ?? null;
-  const lista = candidatas({
-    evento: e,
-    de,
-    ate,
-    vendas: demanda,
-    chegadas: ctx.fatos.chegadas.get(k) ?? [],
-    forecastMensal,
-    abertura,
-    mesAnterior: ctx.foto.anterior.get(k),
-    aberturaForecast: ctx.aberturas.get(k),
-    planoDoMes: ctx.planos.get(e.codigo),
-    leadTime:
-      ctx.prazos.get(chave(fornecedor ?? "", e.filial))?.cadastrado ??
-      LEAD_TIME_PADRAO,
-    excedenteOutrosCds: ctx.sobras.get(e.codigo) ?? 0,
-    entregas: ctx.entregas.get(k),
-    prazo: ctx.prazos.get(chave(fornecedor ?? "", e.filial)),
-  });
+  const lista = candidatas(contexto);
 
   const atribuicoes = dividirDias(lista, e.dias);
   const explicados = atribuicoes
@@ -217,14 +331,14 @@ function diagnosticar(ctx: {
     ate,
     estoqueInicial: abertura?.disponivel ?? 0,
     consumo: demanda,
-    chegadas: ctx.fatos.chegadas.get(k) ?? [],
+    chegadas: b.fatos.chegadas.get(k) ?? [],
   };
   const simulado = diasEmRuptura(real);
   const avisoReplay =
     Math.abs(simulado - e.dias) > Math.max(2, e.dias * 0.3);
 
   // A prescrição entra como evidência da transferência: é a frase acionável.
-  const receita = prescrever(real, ctx.sobras.get(e.codigo) ?? 0, e.inicio);
+  const receita = prescrever(real, b.sobras.get(e.codigo) ?? 0, e.inicio);
   const causas = atribuicoes.map((a) => ({
     causa: a.slug,
     papel: a.papel,
@@ -237,7 +351,7 @@ function diagnosticar(ctx: {
   }));
 
   const fracao = e.dias > 0 ? explicados / e.dias : 0;
-  const marcada = ctx.foto.marco.origem === "marcada";
+  const marcada = b.foto.marco.origem === "marcada";
   let confianca: "alta" | "media" | "baixa";
   if (avisoReplay || fracao < 0.7) confianca = "baixa";
   else if (fracao >= 0.9 && marcada) confianca = "alta";
@@ -246,16 +360,21 @@ function diagnosticar(ctx: {
   return {
     evento: e,
     fornecedor,
-    descricao: ctx.descricoes.get(e.codigo) ?? null,
+    descricao: b.descricoes.get(e.codigo) ?? null,
     confianca,
     diasExplicados: explicados,
     avisoReplay,
     // A ruptura já estava contratada quando o mês abriu.
     herdada: (abertura?.disponivel ?? 0) <= 0 || !!abertura?.abaixoDaPolitica,
-    aberturaData: ctx.foto.marco.data,
-    aberturaOrigem: ctx.foto.marco.origem,
+    aberturaData: b.foto.marco.data,
+    aberturaOrigem: b.foto.marco.origem,
     causas,
-    hash: hashDaEntrada(e, abertura?.disponivel ?? 0, forecastMensal),
+    arvore: classificar(contexto),
+    hash: hashDaEntrada(
+      e,
+      abertura?.disponivel ?? 0,
+      contexto.forecastMensal,
+    ),
   };
 }
 

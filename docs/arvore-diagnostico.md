@@ -61,7 +61,11 @@ flowchart TD
 
     B3a{"Havia saldo no plano<br/>na data limite?"}
     B3a -->|não| sem_saldo_plano["SEM SALDO DE PLANO<br/>Planejamento e Diretoria"]
-    B3a -->|sim| pedido_tarde["PEDIDO COLOCADO TARDE<br/>Compras"]
+    B3a -->|sim| B3b
+
+    B3b{"Houve algum pedido<br/>no mês para esta posição?"}
+    B3b -->|sim| pedido_tarde["PEDIDO COLOCADO TARDE<br/>Compras"]
+    B3b -->|não| pedido_nao_colocado["PEDIDO NAO COLOCADO<br/>Compras"]
 
     B4{"A quantidade pedida<br/>cobria a necessidade?"}
     B4 -->|não| comprou_pouco["COMPROU POUCO<br/>Compras"]
@@ -149,8 +153,9 @@ nunca sugeriu.
 | **A1 / V1** | venda acelerada | `historico_vendas` contra `forecast_m0` | mais de 20% acima do previsto proporcional |
 | **A2 / B1** | sem plano | `plano_compra` do mês | ausente ou zero |
 | **A3 / B2** | plano insuficiente | plano contra necessidade | plano menor que 90% da necessidade |
-| **B3** | pedido tarde | `pedidos_de_compra.data_emissao` contra a data limite | mais de 2 dias além do limite |
-| **B3a** | sem saldo de plano | `carregarSaldoPlano` na data limite | saldo zerado ou negativo |
+| **B3** | pedido tarde | `pedidosDoCiclo`: menor `data_emissao` do mes contra a data limite | mais de 2 dias além do limite; sem pedido responde "não" |
+| **B3a** | sem saldo de plano | `movimentoDoPlano` + `saldoEm` na data limite | saldo zerado ou negativo |
+| **B3b** | pedido nao colocado | existe linha em `pedidos_de_compra` no mes | nenhuma linha emitida |
 | **B4** | comprou pouco | `quantidade_total` contra necessidade | menor que 90% da necessidade |
 | **B5** | pedido cancelado | pedido some entre snapshots sem recebimento | 107 linhas medidas na janela |
 | **T1** | triangulado | `tp_ped_transf_descricao` | diferente de "N/A" |
@@ -248,6 +253,34 @@ inexistentes, todas com confiança alta.
 **Pedido cancelado ou cortado**. Entre snapshots consecutivos, 667 linhas de
 pedido desaparecem e **107 não têm recebimento correspondente**. Nenhuma causa
 cobria isso, e só é detectável porque a base é cumulativa.
+
+### 10. Falta de dado nao acusa ninguem
+
+Descoberto ao rodar a arvore nos 458 eventos de setembro. A primeira versao do
+caminhante tratava "sem dado" como "nao" e seguia o ramo: a carga de
+`plano_compra` de agosto perdeu os codigos num reimport de Produtos, a pergunta
+A2 ficou sem resposta em **196 dos 458 eventos**, e a arvore devolvia **"sem
+plano no mes anterior" em 44,5% dos casos** — uma acusacao a Planejamento
+construida sobre um dado que nao existe.
+
+Agora o percurso **para** no no sem dado e devolve `indefinida`, com a trilha
+registrando qual pergunta travou. A tela consegue dizer "208 casos pararam em
+A2 porque falta a carga de plano de agosto", que e uma tarefa de dados, nao um
+veredito.
+
+A distincao que importa: **ausencia de fato nao e ausencia de dado**. B3
+responde "nao" quando nenhum pedido foi emitido no mes, porque
+`pedidos_de_compra` traz todo o aberto do snapshot e o silencio ali e
+informacao. Antes esse caso devolvia "sem dado" e 28 posicoes desciam para a
+pergunta da data limite sem nunca ter havido data de emissao para comparar.
+
+### 11. "Pedido colocado tarde" sobre posicao sem pedido
+
+O no **B3b** nasceu dessa medicao: dos casos que chegavam a `pedido_tarde`,
+parte nao tinha pedido nenhum. Sao cobrancas diferentes — atraso de prazo e
+compra que nao aconteceu — e a frase "pedido colocado tarde" sobre uma posicao
+sem pedido e simplesmente falsa. B3b separa as duas depois de B3a confirmar que
+havia saldo.
 
 ### 9. Mantidos do desenho original
 

@@ -295,10 +295,74 @@ describe("classificar", () => {
     expect(r.causa).not.toBe("lead_time_cadastro");
   });
 
-  it("nó sem dado segue pelo não e marca a classificação como incompleta", () => {
+  it("nó sem dado pára o percurso e devolve indefinida", () => {
     const r = classificar(contexto({ retido: undefined }));
+    expect(r.causa).toBe("indefinida");
     expect(r.incompleta).toBe(true);
-    expect(r.trilha.find((p) => p.no === "D1")?.resposta).toBeNull();
+    // A trilha é o que salva a informação: diz qual pergunta travou.
+    expect(r.trilha.at(-1)?.no).toBe("D1");
+    expect(r.trilha.at(-1)?.resposta).toBeNull();
+  });
+
+  /**
+   * O caso que fez esta regra mudar.
+   *
+   * A carga de `plano_compra` de agosto perdeu os códigos num reimport de
+   * Produtos, A2 ficou sem resposta em 196 dos 458 eventos de setembro, e o
+   * caminhante antigo — que seguia pelo "não" — devolvia "sem plano no mês
+   * anterior" em 44,5% dos casos. Acusação a Planejamento a partir de dado
+   * ausente.
+   */
+  it("NÃO acusa falta de plano quando a carga do mês anterior não existe", () => {
+    const semCarga = classificar(
+      contexto({
+        abertura: {
+          codigo: "100",
+          filial: "1006",
+          disponivel: 0,
+          aCaminho: 0,
+          politicaDias: 15,
+          consumoDiario: 10,
+          coberturaDias: 0,
+          abaixoDaPolitica: true,
+        },
+        mesAnterior: {
+          codigo: "100",
+          filial: "1006",
+          vendido: 300,
+          forecast: 300,
+          indice: 1,
+          excedente: 0,
+        },
+        planoMesAnterior: undefined,
+      }),
+    );
+    expect(semCarga.causa).not.toBe("sem_plano_mes_anterior");
+    expect(semCarga.causa).toBe("indefinida");
+    expect(semCarga.trilha.at(-1)?.no).toBe("A2");
+  });
+
+  it("posição sem pedido nenhum não é pedido tarde", () => {
+    const base = {
+      planoDoMes: { plano: 1000, saldo: 500 },
+      saldoNaDataLimite: 400,
+    };
+    const semPedido = classificar(contexto({ ...base, pedido: undefined }));
+    expect(semPedido.causa).toBe("pedido_nao_colocado");
+    // E não ficou incompleta: a ausência de pedido é fato, não falta de dado.
+    expect(semPedido.incompleta).toBe(false);
+
+    const tarde = classificar(
+      contexto({
+        ...base,
+        pedido: {
+          emitidoEm: "2026-09-08",
+          quantidade: 5000,
+          dataLimite: "2026-09-01",
+        },
+      }),
+    );
+    expect(tarde.causa).toBe("pedido_tarde");
   });
 
   it("o balanceamento é modificador, não causa", () => {
