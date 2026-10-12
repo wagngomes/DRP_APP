@@ -2,7 +2,8 @@ import Link from "next/link";
 import {
   AlertTriangle,
   CalendarClock,
-  Filter,
+  CircleHelp,
+  GitBranch,
   Search,
   Stethoscope,
 } from "lucide-react";
@@ -23,6 +24,10 @@ import {
   BarraCausas,
   tomDaEtapa,
 } from "@/components/diagnostico/barra-causas";
+import {
+  SeloArvore,
+  TrilhaArvore,
+} from "@/components/diagnostico/trilha-arvore";
 import { BotaoRecalcular } from "@/components/diagnostico/botao-recalcular";
 import {
   carregarDetalhe,
@@ -49,7 +54,9 @@ type SearchParams = {
   produto?: string | string[];
   forn?: string | string[];
   causa?: string | string[];
+  arvore?: string | string[];
   herdadas?: string | string[];
+  incompletas?: string | string[];
   pagina?: string | string[];
   abrir?: string | string[];
 };
@@ -90,13 +97,23 @@ export default async function DiagnosticoRuptura({
   const produto = primeiro(params.produto);
   const fornecedor = primeiro(params.forn);
   const causa = primeiro(params.causa);
+  const arvore = primeiro(params.arvore);
   const herdadas = primeiro(params.herdadas) === "1";
+  const incompletas = primeiro(params.incompletas) === "1";
   const pagina = Number(primeiro(params.pagina) ?? 1) || 1;
   const abrir = Number(primeiro(params.abrir) ?? 0) || null;
   const ehAdmin = sessao.usuario.papel === "admin";
 
   const [dados, detalhe] = await Promise.all([
-    carregarDiagnostico({ produto, fornecedor, causa, herdadas, pagina }),
+    carregarDiagnostico({
+      produto,
+      fornecedor,
+      causa,
+      arvore,
+      herdadas,
+      incompletas,
+      pagina,
+    }),
     abrir ? carregarDetalhe(abrir) : Promise.resolve(null),
   ]);
 
@@ -107,7 +124,9 @@ export default async function DiagnosticoRuptura({
       produto,
       forn: fornecedor,
       causa,
+      arvore,
       herdadas: herdadas ? "1" : undefined,
+      incompletas: incompletas ? "1" : undefined,
       pagina: pagina > 1 ? String(pagina) : undefined,
       abrir: abrir ? String(abrir) : undefined,
       ...extra,
@@ -231,8 +250,14 @@ export default async function DiagnosticoRuptura({
           <>
             <Card>
               <CardContent className="grid gap-3 pt-6">
-                {/* Chips por causa: o número antecipa o resultado do clique,
-                    porque é contado sem o próprio filtro de causa aplicado. */}
+                {/* Duas fileiras de chips, duas réguas. O motor mede quanto
+                    cada etapa explica e devolve várias causas por evento; a
+                    árvore responde qual foi, com uma causa só. Separadas na
+                    tela porque somá-las daria um total sem sentido. */}
+                <p className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                  <Stethoscope className="size-3" />
+                  Motor contrafactual · peso de cada etapa
+                </p>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Link
                     href={href({ causa: undefined, pagina: undefined })}
@@ -271,6 +296,87 @@ export default async function DiagnosticoRuptura({
                   })}
                 </div>
 
+                {dados.contagensArvore.length > 0 ? (
+                  <>
+                    <p className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                      <GitBranch className="size-3" />
+                      Árvore de decisão · a causa única
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Link
+                        href={href({ arvore: undefined, pagina: undefined })}
+                        className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                          arvore
+                            ? "hover:bg-muted"
+                            : "border-(--brand-petrol) bg-(--brand-petrol) text-white dark:border-(--brand-turquoise) dark:bg-(--brand-turquoise) dark:text-slate-900"
+                        }`}
+                      >
+                        {`Todas · ${num(dados.resumo.eventos)}`}
+                      </Link>
+                      {dados.contagensArvore.map((c) => {
+                        const ativa = arvore === c.slug;
+                        return (
+                          <Link
+                            key={c.slug}
+                            href={href({
+                              arvore: ativa ? undefined : c.slug,
+                              pagina: undefined,
+                            })}
+                            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                              ativa
+                                ? "border-foreground/40 bg-muted font-medium"
+                                : "hover:bg-muted"
+                            }`}
+                          >
+                            <span
+                              className={`size-2 shrink-0 rounded-full ${tomDaEtapa(c.etapa).barra}`}
+                            />
+                            {c.rotulo}
+                            <span className="font-mono tabular-nums opacity-60">
+                              {num(c.eventos)}
+                            </span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : null}
+
+                {/* Onde a árvore ficou sem dado. É lista de tarefa de dados,
+                    não de diagnóstico: cada nó diz qual carga repor primeiro.
+                    Em setembro, 196 dos 458 eventos travaram em A2 porque a
+                    carga de plano_compra de agosto perdeu os códigos num
+                    reimport de Produtos. */}
+                {dados.lacunas.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-xs">
+                    <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
+                      <CircleHelp className="size-3.5" />
+                      Perguntas sem dado
+                    </span>
+                    {dados.lacunas.map((l) => (
+                      <span key={l.no} className="text-muted-foreground">
+                        <span className="font-mono">{l.no}</span>
+                        <span className="font-mono font-medium tabular-nums">
+                          {` ${num(l.eventos)}`}
+                        </span>
+                      </span>
+                    ))}
+                    <Link
+                      href={href({
+                        incompletas: incompletas ? undefined : "1",
+                        pagina: undefined,
+                      })}
+                      className={`ml-auto rounded border px-2 py-0.5 transition-colors ${
+                        incompletas
+                          ? "border-(--brand-petrol) bg-(--brand-petrol)/10 font-medium text-(--brand-petrol) dark:border-(--brand-turquoise) dark:text-(--brand-turquoise)"
+                          : "hover:bg-muted"
+                      }`}
+                    >
+                      {incompletas ? "ver todas" : "ver só estas"}
+                    </Link>
+                  </div>
+                ) : null}
+
                 <div className="flex flex-wrap items-end gap-2">
                   <form
                     action="/diagnostico-ruptura"
@@ -281,6 +387,9 @@ export default async function DiagnosticoRuptura({
                     ) : null}
                     {causa ? (
                       <input type="hidden" name="causa" value={causa} />
+                    ) : null}
+                    {arvore ? (
+                      <input type="hidden" name="arvore" value={arvore} />
                     ) : null}
                     <div className="w-full space-y-1.5 sm:w-auto">
                       <label
@@ -378,7 +487,8 @@ export default async function DiagnosticoRuptura({
                       <span className="font-mono text-sm text-rose-600 tabular-nums dark:text-rose-400">
                         {moeda(l.valorPerdido)}
                       </span>
-                      <div className="min-w-0">
+                      <div className="min-w-0 space-y-1">
+                        <SeloArvore arvore={l.arvore} />
                         <BarraCausas causas={l.causas} />
                       </div>
                     </Link>
@@ -460,6 +570,13 @@ export default async function DiagnosticoRuptura({
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  {/* A árvore primeiro: é a resposta curta, e quem está na
+                      reunião quer a frase antes da divisão de dias. */}
+                  <TrilhaArvore
+                    arvore={detalhe.arvore}
+                    trilha={detalhe.trilha}
+                  />
+
                   {/* O teste de cada etapa. Causa levou dias; observação é a
                       regra que falhou sem ter causado a ruptura — aparece
                       porque é um erro real, e sem dias porque não foi ela. */}

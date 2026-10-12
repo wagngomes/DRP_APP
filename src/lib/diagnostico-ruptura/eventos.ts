@@ -16,7 +16,7 @@
  */
 import { prisma } from "@/lib/prisma";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
-import { snapshotMensalSql, torreValidaSql } from "@/utils/dias-estoque";
+import { torreValidaSql } from "@/utils/dias-estoque";
 import { COLUNAS_DISPONIVEL, COLUNAS_RETIDO, SANIDADE } from "./parametros";
 
 const soma = (colunas: readonly string[], alias: string) =>

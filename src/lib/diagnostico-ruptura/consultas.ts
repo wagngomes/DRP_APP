@@ -15,8 +15,12 @@ export type FiltrosDiagnostico = {
   fornecedor?: string;
   /** Slug do catálogo. */
   causa?: string;
+  /** Veredito da árvore — filtro separado, porque é outra régua. */
+  arvore?: string;
   /** Só as rupturas que a abertura do mês já tinha contratado. */
   herdadas?: boolean;
+  /** Só os eventos em que a árvore parou por falta de dado. */
+  incompletas?: boolean;
   pagina?: number;
 };
 
@@ -28,6 +32,24 @@ export type CausaNaLinha = {
   dias: number;
   percentual: number;
   papel: string;
+};
+
+/**
+ * O veredito da árvore, na linha.
+ *
+ * Separado de `causas` de propósito: não é mais uma causa do contrafactual, é
+ * a outra régua. A tela mostra as duas lado a lado, e misturá-las aqui faria a
+ * soma dos percentuais passar de cem sem ninguém entender por quê.
+ */
+export type VereditoArvore = {
+  slug: string;
+  rotulo: string;
+  etapa: Etapa;
+  dono: string;
+  /** O percurso parou numa pergunta sem dado. */
+  incompleta: boolean;
+  /** Qual pergunta travou, quando travou. */
+  noTravou: string | null;
 };
 
 export type LinhaRuptura = {
@@ -43,6 +65,8 @@ export type LinhaRuptura = {
   avisoReplay: boolean;
   herdada: boolean;
   causas: CausaNaLinha[];
+  /** Nulo nos eventos de uma rodada anterior à árvore. */
+  arvore: VereditoArvore | null;
 };
 
 export const POR_PAGINA = 25;
@@ -70,6 +94,15 @@ export type DadosDiagnostico = {
     comAviso: number;
   };
   contagens: ContagemCausa[];
+  /** A mesma contagem pela régua da árvore: uma causa por evento. */
+  contagensArvore: ContagemCausa[];
+  /**
+   * Onde a árvore ficou sem dado, por nó.
+   *
+   * É a lista de tarefas de dados, não de diagnóstico: cada linha diz quantos
+   * eventos travaram naquela pergunta e, portanto, qual carga repor primeiro.
+   */
+  lacunas: { no: string; eventos: number }[];
   fornecedores: string[];
   /** Quando a última rodada foi calculada; nulo se nunca rodou. */
   calculadoEm: Date | null;
@@ -87,7 +120,9 @@ function where(f: FiltrosDiagnostico) {
   return {
     versao_regras: VERSAO_REGRAS,
     ...(f.fornecedor ? { fornecedor: f.fornecedor } : {}),
+    ...(f.arvore ? { arvore_causa: f.arvore } : {}),
     ...(f.herdadas ? { herdada_abertura: true } : {}),
+    ...(f.incompletas ? { arvore_incompleta: true } : {}),
     ...(f.causa
       ? { causas: { some: { causa: f.causa, papel: "causa" } } }
       : {}),
@@ -108,8 +143,16 @@ export async function carregarDiagnostico(
   const pagina = Math.max(1, filtros.pagina ?? 1);
   const filtro = where(filtros);
 
-  const [eventos, total, agregado, contagens, fornecedores, ultima] =
-    await Promise.all([
+  const [
+    eventos,
+    total,
+    agregado,
+    contagens,
+    contagensArvore,
+    lacunas,
+    fornecedores,
+    ultima,
+  ] = await Promise.all([
       prisma.rupturaEvento.findMany({
         where: filtro,
         orderBy: [{ dias: "desc" }, { valor_perdido: "desc" }],
@@ -123,6 +166,8 @@ export async function carregarDiagnostico(
         _sum: { dias: true, valor_perdido: true },
       }),
       contarPorCausa(filtros),
+      contarPorArvore(filtros),
+      contarLacunas(filtros),
       listarFornecedores(),
       prisma.rupturaEvento.findFirst({
         where: { versao_regras: VERSAO_REGRAS },
@@ -163,6 +208,7 @@ export async function carregarDiagnostico(
           papel: c.papel,
         };
       }),
+      arvore: vereditoDe(e),
     })),
     total,
     pagina,
@@ -175,9 +221,88 @@ export async function carregarDiagnostico(
       comAviso,
     },
     contagens,
+    contagensArvore,
+    lacunas,
     fornecedores,
     calculadoEm: ultima?.calculado_em ?? null,
   };
+}
+
+/**
+ * Monta o veredito da árvore a partir das colunas do evento.
+ *
+ * Devolve nulo quando `arvore_causa` está vazia — eventos de uma rodada
+ * anterior à árvore. A tela mostra "—" nesses casos em vez de inventar
+ * "indefinida", que significa outra coisa: lá a árvore rodou e parou por falta
+ * de dado.
+ */
+function vereditoDe(e: {
+  arvore_causa: string | null;
+  arvore_incompleta: boolean;
+  arvore_no_travou: string | null;
+}): VereditoArvore | null {
+  if (!e.arvore_causa) return null;
+  const cat = causaPorSlug(e.arvore_causa);
+  return {
+    slug: e.arvore_causa,
+    rotulo: cat?.rotulo ?? e.arvore_causa,
+    etapa: cat?.etapa ?? ("dados" as Etapa),
+    dono: cat?.dono ?? "—",
+    incompleta: e.arvore_incompleta,
+    noTravou: e.arvore_no_travou,
+  };
+}
+
+/**
+ * Quantos eventos cada causa da árvore explica, no recorte sem o filtro dela.
+ *
+ * Mesma razão de `contarPorCausa`: o número no chip tem de antecipar o
+ * resultado do clique, não refletir o clique já dado.
+ *
+ * Aqui não há soma de dias: a árvore devolve **uma** causa por evento, então a
+ * contagem de eventos já é o total. Somar dias daria o mesmo número do resumo
+ * e sugeriria uma divisão que a árvore não faz.
+ */
+async function contarPorArvore(
+  filtros: FiltrosDiagnostico,
+): Promise<ContagemCausa[]> {
+  const linhas = await prisma.rupturaEvento.groupBy({
+    by: ["arvore_causa"],
+    where: { ...where({ ...filtros, arvore: undefined }), arvore_causa: { not: null } },
+    _count: { _all: true },
+    _sum: { dias: true },
+  });
+
+  return linhas
+    .map((l) => {
+      const cat = causaPorSlug(l.arvore_causa!);
+      return {
+        slug: l.arvore_causa!,
+        rotulo: cat?.rotulo ?? l.arvore_causa!,
+        etapa: cat?.etapa ?? ("dados" as Etapa),
+        eventos: l._count._all,
+        dias: l._sum.dias ?? 0,
+      };
+    })
+    .sort((a, b) => b.eventos - a.eventos);
+}
+
+/** Onde a árvore travou, por nó, do mais frequente ao menos. */
+async function contarLacunas(
+  filtros: FiltrosDiagnostico,
+): Promise<{ no: string; eventos: number }[]> {
+  const linhas = await prisma.rupturaEvento.groupBy({
+    by: ["arvore_no_travou"],
+    where: {
+      ...where({ ...filtros, incompletas: undefined }),
+      arvore_no_travou: { not: null },
+    },
+    _count: { _all: true },
+  });
+
+  return linhas
+    .map((l) => ({ no: l.arvore_no_travou!, eventos: l._count._all }))
+    .sort((a, b) => b.eventos - a.eventos);
 }
 
 /**
@@ -224,12 +349,29 @@ async function listarFornecedores(): Promise<string[]> {
   return linhas.map((l) => l.fornecedor!).filter(Boolean);
 }
 
+/** Um passo do percurso da árvore, como a tela mostra. */
+export type PassoTrilha = {
+  no: string;
+  pergunta: string;
+  /** Nulo quando a pergunta ficou sem dado — e foi aí que o percurso parou. */
+  resposta: boolean | null;
+  evidencia?: Record<string, unknown>;
+};
+
 /** O detalhe de um evento, com as evidências de cada causa. */
 export type DetalheRuptura = LinhaRuptura & {
   diasExplicados: number;
   aberturaData: string | null;
   aberturaOrigem: string | null;
   evidencias: { slug: string; dados: unknown }[];
+  /**
+   * O percurso da árvore, pergunta por pergunta.
+   *
+   * É a parte da tela que dispensa confiança no motor: a pessoa segue as
+   * respostas e confere o veredito sozinha, com os números que cada pergunta
+   * olhou.
+   */
+  trilha: PassoTrilha[];
 };
 
 export async function carregarDetalhe(
@@ -269,5 +411,7 @@ export async function carregarDetalhe(
       };
     }),
     evidencias: e.causas.map((c) => ({ slug: c.causa, dados: c.evidencias })),
+    arvore: vereditoDe(e),
+    trilha: (e.arvore_trilha as PassoTrilha[] | null) ?? [],
   };
 }

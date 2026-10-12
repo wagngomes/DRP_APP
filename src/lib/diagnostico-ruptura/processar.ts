@@ -445,6 +445,14 @@ async function gravar(linhas: Diagnostico[]) {
             : null,
           abertura_origem: l.aberturaOrigem,
           herdada_abertura: l.herdada,
+          arvore_causa: l.arvore.causa,
+          arvore_incompleta: l.arvore.incompleta,
+          // Só o nó que travou, e não o último da trilha: num percurso
+          // completo o último nó respondeu, e gravá-lo aqui faria a tela
+          // apontar "falta dado em V2" sobre um caso que não tem lacuna.
+          arvore_no_travou:
+            l.arvore.trilha.find((p) => p.resposta === null)?.no ?? null,
+          arvore_trilha: l.arvore.trilha as unknown as object,
           versao_regras: VERSAO_REGRAS,
           entrada_hash: l.hash,
         })),

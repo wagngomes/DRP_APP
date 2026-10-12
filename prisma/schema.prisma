@@ -810,6 +810,35 @@ model RupturaEvento {
   /// pendente | confirmado | corrigido
   revisao_status String @default("pendente")
 
+  /**
+   * O veredito da árvore de decisão, ao lado do contrafactual.
+   *
+   * Duas réguas sobre o mesmo evento, gravadas juntas de propósito. O
+   * contrafactual mede **quanto** cada etapa explica e devolve várias causas
+   * com percentual; a árvore responde **qual foi**, numa frase que qualquer
+   * pessoa confere seguindo o fluxo do desenho. As duas discordam em 83% dos
+   * eventos, e quase sempre por refinamento — o motor diz "mês começou
+   * descoberto", a árvore diz por quê. É essa discordância que vale olhar, e
+   * ela só existe se as duas ficarem no banco.
+   */
+  arvore_causa String?
+
+  /**
+   * Alguma pergunta do caminho ficou sem dado para responder.
+   *
+   * Quando isso acontece o percurso para e a causa é "indefinida": acusar a
+   * partir de dado ausente foi o erro que esta coluna existe para tornar
+   * visível. Medido em setembro, 44,8% dos eventos — praticamente todos por
+   * falta da carga de `plano_compra` de agosto.
+   */
+  arvore_incompleta Boolean @default(false)
+
+  /// Id do nó onde o percurso parou por falta de dado. Diz onde falta consulta.
+  arvore_no_travou String?
+
+  /// A trilha completa: cada pergunta, a resposta e a prova que a sustentou.
+  arvore_trilha Json?
+
   causas   RupturaCausa[]
   revisoes RupturaRevisao[]
 
