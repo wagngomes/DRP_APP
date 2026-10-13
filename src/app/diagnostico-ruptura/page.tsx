@@ -2,11 +2,13 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowLeftRight,
+  BellRing,
   CalendarClock,
   CircleHelp,
   GitBranch,
   Search,
   Stethoscope,
+  ZapOff,
 } from "lucide-react";
 
 import {
@@ -60,6 +62,7 @@ type SearchParams = {
   herdadas?: string | string[];
   incompletas?: string | string[];
   balanceamento?: string | string[];
+  aviso?: string | string[];
   pagina?: string | string[];
   abrir?: string | string[];
 };
@@ -103,6 +106,9 @@ export default async function DiagnosticoRuptura({
   const herdadas = primeiro(params.herdadas) === "1";
   const incompletas = primeiro(params.incompletas) === "1";
   const balanceamento = primeiro(params.balanceamento) === "1";
+  const avisoParam = primeiro(params.aviso);
+  const aviso =
+    avisoParam === "com" || avisoParam === "sem" ? avisoParam : undefined;
   const pagina = Number(primeiro(params.pagina) ?? 1) || 1;
   const abrir = Number(primeiro(params.abrir) ?? 0) || null;
   const ehAdmin = sessao.usuario.papel === "admin";
@@ -116,6 +122,7 @@ export default async function DiagnosticoRuptura({
       herdadas,
       incompletas,
       balanceamento,
+      aviso,
       pagina,
     }),
     abrir ? carregarDetalhe(abrir) : Promise.resolve(null),
@@ -148,6 +155,7 @@ export default async function DiagnosticoRuptura({
       herdadas: herdadas ? "1" : undefined,
       incompletas: incompletas ? "1" : undefined,
       balanceamento: balanceamento ? "1" : undefined,
+      aviso,
       pagina: pagina > 1 ? String(pagina) : undefined,
       abrir: abrir ? String(abrir) : undefined,
       ...extra,
@@ -468,6 +476,52 @@ export default async function DiagnosticoRuptura({
                       </span>
                     </Link>
                   ) : null}
+
+                  {/* Avisou e ninguém agiu, contra caiu de uma vez. A primeira
+                      é falha de execução, a segunda de planejamento — e o
+                      veredito da árvore é o mesmo nas duas, porque o aviso não
+                      muda o que falhou, muda se dava para reagir. */}
+                  {dados.resumo.comAviso_ > 0 ? (
+                    <Link
+                      href={href({
+                        aviso: aviso === "com" ? undefined : "com",
+                        pagina: undefined,
+                      })}
+                      scroll={false}
+                      className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors ${
+                        aviso === "com"
+                          ? "border-amber-500 bg-amber-500/10 font-medium text-amber-700 dark:text-amber-400"
+                          : "hover:bg-muted"
+                      }`}
+                    >
+                      <BellRing className="size-4" />
+                      Avisou e ninguém agiu
+                      <span className="font-mono text-xs tabular-nums opacity-70">
+                        {num(dados.resumo.comAviso_)}
+                      </span>
+                    </Link>
+                  ) : null}
+
+                  {dados.resumo.semAviso > 0 ? (
+                    <Link
+                      href={href({
+                        aviso: aviso === "sem" ? undefined : "sem",
+                        pagina: undefined,
+                      })}
+                      scroll={false}
+                      className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm transition-colors ${
+                        aviso === "sem"
+                          ? "border-slate-500 bg-slate-500/10 font-medium text-slate-700 dark:text-slate-300"
+                          : "hover:bg-muted"
+                      }`}
+                    >
+                      <ZapOff className="size-4" />
+                      Caiu de uma vez
+                      <span className="font-mono text-xs tabular-nums opacity-70">
+                        {num(dados.resumo.semAviso)}
+                      </span>
+                    </Link>
+                  ) : null}
                 </div>
 
                 {/* Lista suspensa, como nas demais telas: são centenas de
@@ -484,6 +538,7 @@ export default async function DiagnosticoRuptura({
                     herdadas: herdadas ? "1" : undefined,
                     incompletas: incompletas ? "1" : undefined,
                     balanceamento: balanceamento ? "1" : undefined,
+                    aviso,
                   }}
                 />
               </CardContent>
@@ -545,6 +600,12 @@ export default async function DiagnosticoRuptura({
                           <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
                             {l.resumo}
                           </p>
+                        ) : null}
+                        {l.diasAviso !== null && l.diasAviso > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+                            <BellRing className="size-3" />
+                            {`${l.diasAviso}d abaixo do Gatilho antes de zerar`}
+                          </span>
                         ) : null}
                         {l.balanceamento ? (
                           <span className="inline-flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-400">

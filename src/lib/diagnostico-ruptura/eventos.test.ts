@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   cargasSuspeitas,
+  diasDeAviso,
   montarEventos,
   sobraPorItem,
   type PosicaoDia,
@@ -222,5 +223,79 @@ describe("sobraPorItem", () => {
   it("ignora dias que não são o pedido", () => {
     const outro = dia("2026-09-10", 500, { filial: "1002", forecastMensal: 0 });
     expect(sobraPorItem([outro], "2026-09-11", 30).size).toBe(0);
+  });
+});
+
+describe("diasDeAviso", () => {
+  /** 10 dias de Gatilho e consumo de 10/dia: 100 unidades é a linha. */
+  const posicao = (data: string, disponivel: number): PosicaoDia => ({
+    ...base,
+    data,
+    disponivel,
+    rompida: disponivel <= 0,
+  });
+
+  it("conta os dias consecutivos abaixo do Gatilho antes de zerar", () => {
+    const dias = diasDeAviso(
+      [
+        posicao("2026-09-01", 500),
+        posicao("2026-09-02", 90), // abaixo
+        posicao("2026-09-03", 60), // abaixo
+        posicao("2026-09-04", 20), // abaixo
+      ],
+      "2026-09-05",
+      10,
+    );
+    expect(dias).toBe(3);
+  });
+
+  /**
+   * A distinção que a coluna existe para fazer: caiu de uma vez contra avisou
+   * e ninguém agiu. São cobranças diferentes.
+   */
+  it("devolve zero quando a posição caiu de uma vez", () => {
+    const dias = diasDeAviso(
+      [posicao("2026-09-03", 900), posicao("2026-09-04", 800)],
+      "2026-09-05",
+      10,
+    );
+    expect(dias).toBe(0);
+  });
+
+  it("para no primeiro dia acima do Gatilho — aviso é o trecho colado", () => {
+    const dias = diasDeAviso(
+      [
+        posicao("2026-09-01", 50), // abaixo, mas separado
+        posicao("2026-09-02", 900), // acima: corta aqui
+        posicao("2026-09-03", 40), // abaixo
+        posicao("2026-09-04", 20), // abaixo
+      ],
+      "2026-09-05",
+      10,
+    );
+    expect(dias).toBe(2);
+  });
+
+  it("buraco de carga não zera a contagem", () => {
+    // Sem a herança, o dia sem forecast quebraria o trecho e absolveria quem
+    // teve quatro dias de alerta.
+    const dias = diasDeAviso(
+      [
+        posicao("2026-09-01", 30),
+        { ...posicao("2026-09-02", 0), forecastMensal: 0 },
+        posicao("2026-09-03", 20),
+      ],
+      "2026-09-04",
+      10,
+    );
+    expect(dias).toBe(3);
+  });
+
+  it("sem histórico antes da ruptura devolve nulo, e não zero", () => {
+    // Zero diria "caiu de uma vez" sobre algo que ninguém observou.
+    expect(diasDeAviso([], "2026-09-01", 10)).toBeNull();
+    expect(
+      diasDeAviso([posicao("2026-09-05", 100)], "2026-09-01", 10),
+    ).toBeNull();
   });
 });

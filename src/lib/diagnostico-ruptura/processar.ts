@@ -17,7 +17,9 @@ import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
 import { lerCoberturas } from "@/lib/parametros.server";
 import { snapshotMensalSql } from "@/utils/dias-estoque";
 import { carregarSla } from "@/lib/transferencias/consultas";
+import { limitesDoMes } from "@/utils/mes";
 import { subtrairDiasUteis } from "@/utils/projecao-transferencias";
+import { somarDias } from "./serie";
 import { aberturasDeForecast, carregarAbertura, chave } from "./abertura";
 import { classificar, type Classificacao, type ContextoArvore } from "./arvore";
 import { carregarSinais, saldoEm } from "./sinais";
@@ -26,11 +28,13 @@ import {
   carregarPosicoes,
   cargasSuspeitas,
   custoPorItem,
+  diasDeAviso,
   montarEventos,
   sobraDetalhada,
   sobraPorDia,
   type CargaSuspeita,
   type Evento,
+  type PosicaoDia,
   type SobraNoCd,
 } from "./eventos";
 import { carregarEntregas, carregarFatos, carregarPrazos } from "./janela";
@@ -92,6 +96,8 @@ export type Bases = {
   fornecedores: Map<string, string>;
   /** BU por posição item × CD. */
   bus: Map<string, string>;
+  /** Dias de aviso por `posição|início`; nulo quando não há histórico. */
+  avisoDe: Map<string, number | null>;
   descricoes: Map<string, string | null>;
   /** Dias cuja carga não passou no teste de sanidade. */
   ignorar: Set<string>;
@@ -127,7 +133,28 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     carregarSla(),
   ]);
 
-  const posicoes = await carregarPosicoes(de, dataReferencia, dataReferencia);
+  /**
+   * O histórico começa no mês anterior, a janela do diagnóstico não.
+   *
+   * São duas perguntas diferentes sobre o mesmo dado. O **evento** e o replay
+   * continuam ancorados na foto de abertura, porque é ela que define o estoque
+   * inicial e o que foi contratado antes do mês. Mas o sinal de **dias de
+   * aviso** precisa olhar para trás do dia 1º: medido antes desta mudança,
+   * 223 das 458 posições (49%) ficavam sem resposta porque a ruptura começava
+   * no primeiro dia da janela e não havia passado nenhum para medir.
+   *
+   * Uma consulta só, filtrada em memória depois: pedir duas vezes ao banco o
+   * mesmo intervalo sobreposto custaria o dobro para a mesma informação.
+   */
+  const historicoDe = limitesDoMes(
+    somarDias(limitesDoMes(dataReferencia).inicio, -1),
+  ).inicio;
+  const historico = await carregarPosicoes(
+    historicoDe,
+    dataReferencia,
+    dataReferencia,
+  );
+  const posicoes = historico.filter((p) => p.data >= de);
   const reprovadas = cargasSuspeitas(posicoes);
   const suspeitas = new Map(reprovadas.map((s) => [s.data, s]));
   const ignorar = new Set(reprovadas.map((s) => s.data));
@@ -149,6 +176,24 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     // costuma ser liberado ou baixado antes de a ruptura fechar, e o do último
     // dia diria zero justamente onde a causa existiu.
     retidoDa.set(k, Math.max(retidoDa.get(k) ?? 0, p.retido));
+  }
+
+  // Dias de aviso por posição, do histórico inteiro. Calculado uma vez aqui:
+  // por evento seria uma varredura do histórico por posição.
+  const historicoPorPosicao = new Map<string, PosicaoDia[]>();
+  for (const p of historico) {
+    const k = chave(p.codigo, p.filial);
+    const lista = historicoPorPosicao.get(k);
+    if (lista) lista.push(p);
+    else historicoPorPosicao.set(k, [p]);
+  }
+  const avisoDe = new Map<string, number | null>();
+  for (const e of eventos) {
+    const k = chave(e.codigo, e.filial);
+    avisoDe.set(
+      `${k}|${e.inicio}`,
+      diasDeAviso(historicoPorPosicao.get(k) ?? [], e.inicio, coberturas.gatilho),
+    );
   }
 
   const [fornecedores, bus, descricoes] = await Promise.all([
@@ -173,6 +218,7 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     retidoDa,
     sobras: sobraDetalhada(posicoes, dataReferencia, coberturas.alvo),
     sobrasPorDia: sobraPorDia(posicoes, coberturas.alvo),
+    avisoDe,
     sla,
     coberturas,
     fornecedores,
@@ -334,6 +380,8 @@ type Diagnostico = {
   evento: Evento;
   fornecedor: string | null;
   bu: string | null;
+  /** Dias abaixo do Gatilho antes de zerar; nulo sem histórico. */
+  diasAviso: number | null;
   descricao: string | null;
   confianca: "alta" | "media" | "baixa";
   avisoReplay: boolean;
@@ -391,6 +439,7 @@ function diagnosticar(b: Bases, e: Evento): Diagnostico {
     evento: e,
     fornecedor: b.fornecedores.get(e.codigo) ?? null,
     bu: b.bus.get(chave(e.codigo, e.filial)) ?? null,
+    diasAviso: b.avisoDe.get(`${chave(e.codigo, e.filial)}|${e.inicio}`) ?? null,
     descricao: b.descricoes.get(e.codigo) ?? null,
     confianca,
     avisoReplay,
@@ -460,6 +509,7 @@ async function gravar(linhas: Diagnostico[]) {
           filial: l.evento.filial,
           fornecedor: l.fornecedor,
           bu: l.bu,
+          dias_aviso: l.diasAviso,
           descricao: l.descricao,
           inicio: new Date(`${l.evento.inicio}T00:00:00.000Z`),
           fim: l.evento.fim ? new Date(`${l.evento.fim}T00:00:00.000Z`) : null,

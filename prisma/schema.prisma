@@ -778,6 +778,17 @@ model RupturaEvento {
   /// Dias corridos entre início e fim (ou a data de referência, se aberto).
   dias   Int
 
+  /**
+   * Dias consecutivos abaixo do Gatilho imediatamente antes de zerar.
+   *
+   * Modificador, não causa: não muda **o que** falhou, muda se alguém podia ter
+   * agido. Zero significa queda de uma vez — ninguém teve chance de reagir;
+   * cinco significa cinco dias de alerta ignorado.
+   *
+   * Nulo quando não há histórico medido antes da ruptura.
+   */
+  dias_aviso Int?
+
   /// Dias × consumo diário × custo. A custo, não a preço de venda.
   valor_perdido Decimal @db.Decimal(24, 10)
 
@@ -886,6 +897,7 @@ model RupturaEvento {
   @@index([codigo, filial])
   @@index([fornecedor])
   @@index([bu])
+  @@index([dias_aviso])
   @@index([arvore_causa])
   @@index([arvore_balanceamento])
   @@map("ruptura_evento")

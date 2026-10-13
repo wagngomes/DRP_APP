@@ -308,6 +308,37 @@ A sobra tambem passou a ser lida **no dia em que a carga teria de ter saido**, e
 nao no dia de referencia: perguntar se ha sobra hoje, depois de a ruptura ter
 acontecido, responde outra coisa.
 
+### 14. Dias de aviso: dava para reagir?
+
+O modificador que faltava, e talvez o mais acionavel de todos. Separa **ruptura
+que caiu de uma vez** — ninguem tinha como reagir — de **ruptura que avisou e
+ninguem agiu**. Uma e falha de planejamento, a outra de execucao, e ate agora o
+veredito da arvore era o mesmo nas duas.
+
+E modificador, nao causa, pelo mesmo motivo do balanceamento: nao muda **o que**
+falhou, muda se alguem podia ter agido.
+
+Conta os dias consecutivos abaixo do Gatilho **imediatamente** antes de zerar.
+Dias esparsos abaixo do Gatilho semanas antes nao sao aviso, sao historia; e
+buraco de carga no meio do alerta nao zera a contagem, pela mesma heranca de
+estado do `rompidaPorDia`.
+
+Para isso o motor passou a carregar o **mes anterior inteiro** como historico,
+mantendo o evento e o replay ancorados na foto de abertura — sao duas perguntas
+diferentes sobre o mesmo dado. Antes da mudanca, 223 das 458 posicoes (49%)
+ficavam sem resposta porque a ruptura comecava no primeiro dia da janela e nao
+havia passado nenhum para medir. Depois: **zero**.
+
+| | posicoes | |
+|---|---|---|
+| 3-5 dias de aviso | 164 | 36% |
+| caiu de uma vez | 160 | 35% |
+| 1-2 dias de aviso | 96 | 21% |
+| 6+ dias de aviso | 38 | 8% |
+| sem historico | **0** | — |
+
+Custo da janela maior: 15,6s para 16,9s na rodada.
+
 ### 10. Falta de dado nao acusa ninguem
 
 Descoberto ao rodar a arvore nos 458 eventos de setembro. A primeira versao do

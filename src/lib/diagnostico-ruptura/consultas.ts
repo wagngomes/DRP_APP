@@ -24,6 +24,11 @@ export type FiltrosDiagnostico = {
   incompletas?: boolean;
   /** Só onde outro CD tinha sobra acima do Alvo e nada saiu. */
   balanceamento?: boolean;
+  /**
+   * "com": a posição passou dias abaixo do Gatilho antes de zerar.
+   * "sem": caiu de uma vez, ninguém tinha como reagir.
+   */
+  aviso?: "com" | "sem";
   pagina?: number;
 };
 
@@ -65,6 +70,8 @@ export type LinhaRuptura = {
   resumo: string | null;
   /** Outro CD tinha sobra acima do Alvo e nada saiu. */
   balanceamento: boolean;
+  /** Dias abaixo do Gatilho antes de zerar; nulo sem histórico medido. */
+  diasAviso: number | null;
 };
 
 export const POR_PAGINA = 25;
@@ -92,6 +99,10 @@ export type DadosDiagnostico = {
     comAviso: number;
     /** Posições em que cabia transferência, contadas sem o filtro dele. */
     comBalanceamento: number;
+    /** Passaram dias abaixo do Gatilho antes de zerar: alerta ignorado. */
+    comAviso_: number;
+    /** Caíram de uma vez: ninguém tinha como reagir. */
+    semAviso: number;
   };
   contagens: ContagemCausa[];
   /**
@@ -125,6 +136,8 @@ function where(f: FiltrosDiagnostico) {
     ...(f.herdadas ? { herdada_abertura: true } : {}),
     ...(f.incompletas ? { arvore_incompleta: true } : {}),
     ...(f.balanceamento ? { arvore_balanceamento: true } : {}),
+    ...(f.aviso === "com" ? { dias_aviso: { gt: 0 } } : {}),
+    ...(f.aviso === "sem" ? { dias_aviso: 0 } : {}),
     ...(termo
       ? {
           OR: [
@@ -174,7 +187,8 @@ export async function carregarDiagnostico(
       }),
     ]);
 
-  const [herdadas, comAviso, comBalanceamento] = await Promise.all([
+  const [herdadas, comAviso, comBalanceamento, avisoSim, avisoNao] =
+    await Promise.all([
     prisma.rupturaEvento.count({
       where: { ...filtro, herdada_abertura: true },
     }),
@@ -183,6 +197,13 @@ export async function carregarDiagnostico(
     // resultado do clique, pela mesma razão dos chips de causa.
     prisma.rupturaEvento.count({
       where: { ...where({ ...filtros, balanceamento: undefined }), arvore_balanceamento: true },
+    }),
+    // Contados sem o próprio filtro, pela mesma razão dos chips de causa.
+    prisma.rupturaEvento.count({
+      where: { ...where({ ...filtros, aviso: undefined }), dias_aviso: { gt: 0 } },
+    }),
+    prisma.rupturaEvento.count({
+      where: { ...where({ ...filtros, aviso: undefined }), dias_aviso: 0 },
     }),
   ]);
 
@@ -203,6 +224,7 @@ export async function carregarDiagnostico(
       arvore: vereditoDe(e),
       resumo: (e.arvore_evidencias as Evidencia | null)?.resumo ?? null,
       balanceamento: e.arvore_balanceamento,
+      diasAviso: e.dias_aviso,
     })),
     total,
     pagina,
@@ -214,6 +236,8 @@ export async function carregarDiagnostico(
       herdadas,
       comAviso,
       comBalanceamento,
+      comAviso_: avisoSim,
+      semAviso: avisoNao,
     },
     contagens,
     lacunas,
@@ -390,6 +414,7 @@ export async function carregarDetalhe(
     arvore: vereditoDe(e),
     resumo: evidencia?.resumo ?? null,
     balanceamento: e.arvore_balanceamento,
+    diasAviso: e.dias_aviso,
     trilha: (e.arvore_trilha as PassoTrilha[] | null) ?? [],
     evidencia,
   };

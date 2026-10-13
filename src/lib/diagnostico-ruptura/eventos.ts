@@ -393,6 +393,49 @@ export type SobraNoCd = {
 };
 
 /**
+ * Dias consecutivos abaixo do Gatilho imediatamente antes de zerar.
+ *
+ * A distinção que mais falta ao diagnóstico: **ruptura que caiu de uma vez** —
+ * ninguém tinha como reagir — contra **ruptura que avisou e ninguém agiu**. Uma
+ * é falha de planejamento, a outra é de execução, e o veredito da árvore é o
+ * mesmo nas duas.
+ *
+ * Conta para trás a partir do dia anterior à ruptura, parando no primeiro dia
+ * em que a cobertura estava acima do Gatilho. Só o trecho **imediatamente**
+ * anterior: dias esparsos abaixo do Gatilho semanas antes não são aviso, são
+ * história.
+ *
+ * Dia sem carga herda o estado do dia anterior, a mesma regra do
+ * `rompidaPorDia` — um buraco de importação no meio do alerta não pode zerar a
+ * contagem e absolver quem não agiu.
+ *
+ * `null` quando não há nenhum dia medido antes da ruptura: aí não se sabe, e
+ * fingir zero diria "caiu de uma vez" sobre algo que ninguém observou.
+ */
+export function diasDeAviso(
+  posicoes: PosicaoDia[],
+  inicioDaRuptura: string,
+  gatilhoDias: number,
+): number | null {
+  const antes = posicoes
+    .filter((p) => p.data < inicioDaRuptura)
+    .sort((a, b) => b.data.localeCompare(a.data));
+  if (antes.length === 0) return null;
+
+  let dias = 0;
+  let abaixo: boolean | null = null;
+  for (const p of antes) {
+    const consumoDiario = p.forecastMensal / 30;
+    // Sem consumo não há cobertura a comparar: o dia herda o estado anterior.
+    if (consumoDiario > 0) abaixo = p.disponivel / consumoDiario < gatilhoDias;
+    if (abaixo === null) continue;
+    if (!abaixo) break;
+    dias += 1;
+  }
+  return abaixo === null ? null : dias;
+}
+
+/**
  * A sobra de cada dia da janela, por item e CD.
  *
  * Uma passada só sobre as posições, em vez de uma chamada de `sobraDetalhada`
