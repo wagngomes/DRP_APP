@@ -155,42 +155,29 @@ export function ProvaDaCausa({ evidencia }: { evidencia: Evidencia | null }) {
       <p className="text-sm leading-relaxed">{evidencia.resumo}</p>
 
       {evidencia.prescricao ? (
-        <div
-          className={`rounded-md border p-3 ${
-            evidencia.prescricao.tipo === "evitaria"
-              ? "border-emerald-500/30 bg-emerald-500/5"
-              : "border-amber-500/30 bg-amber-500/5"
-          }`}
-        >
+        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3">
           <p className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
             <Truck className="size-3.5" />
-            {evidencia.prescricao.tipo === "evitaria"
-              ? "O que teria evitado"
-              : "O que teria reduzido"}
+            A transferência que teria evitado
           </p>
           <p className="mt-1 text-sm leading-relaxed">
-            {`Transferir `}
+            {`Despachar `}
             <span className="font-mono font-semibold tabular-nums">
               {num(evidencia.prescricao.quantidade)}
             </span>
-            {` unidades até `}
-            <span className="font-semibold">
-              {dataBr(evidencia.prescricao.data)}
+            {` unidades do CD `}
+            <span className="font-mono font-semibold">
+              {evidencia.prescricao.cd}
             </span>
-            {evidencia.prescricao.cd ? (
-              <>
-                {`, do CD `}
-                <span className="font-mono font-semibold">
-                  {evidencia.prescricao.cd}
-                </span>
-                {evidencia.prescricao.sobraNoCd !== null
-                  ? ` — que tinha ${num(evidencia.prescricao.sobraNoCd)} acima do Alvo`
-                  : ""}
-              </>
-            ) : null}
-            {evidencia.prescricao.tipo === "evitaria"
-              ? ", e não teria rompido."
-              : `, deixando ${num(evidencia.prescricao.diasRestantes)} dia(s) de ruptura em vez de todos.`}
+            {` até `}
+            <span className="font-semibold">
+              {dataBr(evidencia.prescricao.despacharAte)}
+            </span>
+            {` — ${evidencia.prescricao.sla} dias úteis de trânsito — cobriria `}
+            <span className="font-mono font-semibold tabular-nums">
+              {num(evidencia.prescricao.diasCobertos)}
+            </span>
+            {` dias no destino. O CD doador tinha ${num(evidencia.prescricao.sobraNoCd)} acima do Alvo naquele dia.`}
           </p>
         </div>
       ) : null}

@@ -17,13 +17,19 @@
 import { prisma } from "@/lib/prisma";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
 import { torreValidaSql } from "@/utils/dias-estoque";
-import { COLUNAS_DISPONIVEL, COLUNAS_RETIDO, SANIDADE } from "./parametros";
+import {
+  COLUNAS_DISPONIVEL,
+  COLUNAS_DOACAO,
+  COLUNAS_RETIDO,
+  SANIDADE,
+} from "./parametros";
 
 const soma = (colunas: readonly string[], alias: string) =>
   `(${colunas.map((c) => `COALESCE(${alias}.${c},0)`).join(" + ")})`;
 
 const DISPONIVEL = soma(COLUNAS_DISPONIVEL, "s");
 const RETIDO = soma(COLUNAS_RETIDO, "s");
+const DOAVEL = soma(COLUNAS_DOACAO, "s");
 
 /** A posição num dia, como o motor a enxerga. */
 export type PosicaoDia = {
@@ -34,6 +40,13 @@ export type PosicaoDia = {
   disponivel: number;
   /** Q40 e RC: existe no CD, não vende. */
   retido: number;
+  /**
+   * O que este CD pode doar numa transferência — só o armazém 01.
+   *
+   * Mais estreito que `disponivel` de propósito: o que está no 26 ou no NAC
+   * conta como estoque do CD e não sai dele numa transferência.
+   */
+  doavel: number;
   emTransito: number;
   forecastMensal: number;
   /** Dias de cobertura que a política pede na abertura do mês. */
@@ -102,6 +115,7 @@ export async function carregarPosicoes(
       filial: string;
       disponivel: number;
       retido: number;
+      doavel: number;
       transito: number;
       forecast: number;
       politica: number;
@@ -120,6 +134,7 @@ export async function carregarPosicoes(
             f.filial,
             COALESCE(sim.disponivel, 0)::float8 AS disponivel,
             COALESCE(sim.retido, 0)::float8     AS retido,
+            COALESCE(sim.doavel, 0)::float8     AS doavel,
             COALESCE(sim.transito, 0)::float8   AS transito,
             f.forecast_m0::float8               AS forecast,
             COALESCE(f.politica, 0)::float8     AS politica
@@ -137,6 +152,7 @@ export async function carregarPosicoes(
        LEFT JOIN LATERAL (
          SELECT ${DISPONIVEL}::float8 AS disponivel,
                 ${RETIDO}::float8     AS retido,
+                ${DOAVEL}::float8     AS doavel,
                 COALESCE(s.total_trans, 0)::float8 AS transito
            FROM ${simuladorPorCd("s.data_snapshot = dias.d")} s
           WHERE s.codigo = f.codigo AND s.filial = f.filial
@@ -155,6 +171,7 @@ export async function carregarPosicoes(
     filial: l.filial,
     disponivel: l.disponivel,
     retido: l.retido,
+    doavel: l.doavel,
     emTransito: l.transito,
     forecastMensal: l.forecast,
     politica: l.politica,
@@ -374,6 +391,48 @@ export type SobraNoCd = {
   /** O que o Alvo manda reservar. Zero sem forecast. */
   reservado: number;
 };
+
+/**
+ * A sobra de cada dia da janela, por item e CD.
+ *
+ * Uma passada só sobre as posições, em vez de uma chamada de `sobraDetalhada`
+ * por dia. Serve à pergunta "havia sobra **no dia em que a carga teria de ter
+ * saído**", que é por posição e por data — e cada evento tem a sua, porque o
+ * prazo de despacho depende do SLA do par de CDs.
+ *
+ * Olhar só o dia de referência, como a primeira versão fazia, respondia outra
+ * coisa: se há sobra **hoje**, depois de a ruptura já ter acontecido.
+ */
+export function sobraPorDia(
+  posicoes: PosicaoDia[],
+  alvoDias: number,
+): Map<string, Map<string, SobraNoCd[]>> {
+  const porData = new Map<string, Map<string, SobraNoCd[]>>();
+
+  for (const p of posicoes) {
+    if (p.doavel <= 0) continue;
+    const consumoDiario = p.forecastMensal / 30;
+    const reservado = consumoDiario > 0 ? consumoDiario * alvoDias : 0;
+    const sobra = Math.max(0, p.doavel - reservado);
+    if (sobra <= 0) continue;
+
+    const doDia = porData.get(p.data) ?? new Map<string, SobraNoCd[]>();
+    const lista = doDia.get(p.codigo) ?? [];
+    lista.push({
+      filial: p.filial,
+      sobra,
+      disponivel: p.doavel,
+      reservado,
+    });
+    doDia.set(p.codigo, lista);
+    porData.set(p.data, doDia);
+  }
+
+  for (const doDia of porData.values()) {
+    for (const lista of doDia.values()) lista.sort((a, b) => b.sobra - a.sobra);
+  }
+  return porData;
+}
 
 /**
  * A mesma sobra, aberta por CD.

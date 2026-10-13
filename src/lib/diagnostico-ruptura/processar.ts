@@ -16,6 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
 import { lerCoberturas } from "@/lib/parametros.server";
 import { snapshotMensalSql } from "@/utils/dias-estoque";
+import { carregarSla } from "@/lib/transferencias/consultas";
 import { subtrairDiasUteis } from "@/utils/projecao-transferencias";
 import { aberturasDeForecast, carregarAbertura, chave } from "./abertura";
 import { classificar, type Classificacao, type ContextoArvore } from "./arvore";
@@ -27,11 +28,16 @@ import {
   custoPorItem,
   montarEventos,
   sobraDetalhada,
+  sobraPorDia,
   type CargaSuspeita,
   type Evento,
   type SobraNoCd,
 } from "./eventos";
 import { carregarEntregas, carregarFatos, carregarPrazos } from "./janela";
+import {
+  oportunidadeDeTransferencia,
+  type Oportunidade,
+} from "./balanceamento";
 import { evidenciar, replayDivergiu, type Evidencia } from "./evidencias";
 import { consumoComoDemanda, rompidaPorDia } from "./replay";
 import { LIMITES, VERSAO_REGRAS } from "./parametros";
@@ -76,8 +82,13 @@ export type Bases = {
   estado: Map<string, Map<string, boolean>>;
   forecastDa: Map<string, number>;
   retidoDa: Map<string, number>;
-  /** Sobra acima do Alvo, aberta por CD — a prescrição nomeia o doador. */
+  /** Sobra acima do Alvo no dia de referência, aberta por CD. */
   sobras: Map<string, SobraNoCd[]>;
+  /** A mesma sobra, dia a dia: `data -> item -> doadores`. */
+  sobrasPorDia: Map<string, Map<string, SobraNoCd[]>>;
+  /** SLA entre CDs, para saber se a transferência caberia no prazo. */
+  sla: Map<string, number>;
+  coberturas: Awaited<ReturnType<typeof lerCoberturas>>;
   fornecedores: Map<string, string>;
   /** BU por posição item × CD. */
   bus: Map<string, string>;
@@ -103,6 +114,7 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     prazos,
     coberturas,
     sinais,
+    sla,
   ] = await Promise.all([
     aberturasDeForecast(de, dataReferencia),
     carregarFatos(de, dataReferencia),
@@ -112,6 +124,7 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     carregarPrazos(),
     lerCoberturas(),
     carregarSinais(de, dataReferencia),
+    carregarSla(),
   ]);
 
   const posicoes = await carregarPosicoes(de, dataReferencia, dataReferencia);
@@ -159,6 +172,9 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     forecastDa,
     retidoDa,
     sobras: sobraDetalhada(posicoes, dataReferencia, coberturas.alvo),
+    sobrasPorDia: sobraPorDia(posicoes, coberturas.alvo),
+    sla,
+    coberturas,
     fornecedores,
     bus,
     descricoes,
@@ -254,8 +270,37 @@ export function contextoDe(b: Bases, e: Evento): ContextoArvore {
     triangulado: pedido?.triangulado,
     slaInternoEstourado: percurso ? percurso.slaEstourado : null,
     paradaNoHub: percurso ? percurso.paradaNoHub : null,
-    podiaTransferirENaoTransferiu: totalDaSobra(b, e.codigo) > 0,
+    // Não "havia sobra em algum lugar", mas "a operação teria conseguido fazer
+    // esta transferência": doador com estoque no armazém 01 acima do Alvo no
+    // dia do despacho, SLA cadastrado, prazo que cabia antes da ruptura e
+    // quantidade que tira o destino do Gatilho. A régua frouxa marcava 45% das
+    // posições e produzia frases de uma unidade.
+    podiaTransferirENaoTransferiu: oportunidadeDe(b, e) !== null,
   };
+}
+
+/** A transferência que teria evitado a ruptura, pelas regras da operação. */
+export function oportunidadeDe(b: Bases, e: Evento): Oportunidade | null {
+  const forecastMensal = b.forecastDa.get(chave(e.codigo, e.filial)) ?? 0;
+
+  // Só os doadores deste item, por dia. O índice é por data e item, então a
+  // busca é direta.
+  const sobraPorDiaDoItem = new Map<string, SobraNoCd[]>();
+  for (const [data, porItem] of b.sobrasPorDia) {
+    const lista = porItem.get(e.codigo);
+    if (lista) sobraPorDiaDoItem.set(data, lista);
+  }
+
+  return oportunidadeDeTransferencia({
+    destino: e.filial,
+    inicioDaRuptura: e.inicio,
+    de: b.de,
+    consumoDiario: forecastMensal / 30,
+    sobraPorDia: sobraPorDiaDoItem,
+    sla: b.sla,
+    gatilho: b.coberturas.gatilho,
+    alvo: b.coberturas.alvo,
+  });
 }
 
 /** Soma da sobra do item na rede, a partir do detalhe por CD. */
@@ -319,6 +364,7 @@ function diagnosticar(b: Bases, e: Evento): Diagnostico {
     arvore.causa,
     {
       sobraPorCd: b.sobras.get(e.codigo) ?? [],
+      oportunidade: oportunidadeDe(b, e),
       pedidosSumidos: b.sinais.sumidos.get(chave(e.codigo, e.filial)) ?? 0,
       percurso: b.sinais.percurso.get(chave(e.codigo, e.filial)),
       cargaSuspeita: b.suspeitas.get(e.inicio),

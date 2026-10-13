@@ -25,6 +25,7 @@ const base = {
   codigo: "100",
   filial: "1006",
   retido: 0,
+  doavel: 0,
   emTransito: 0,
   forecastMensal: 300,
   politica: 15,

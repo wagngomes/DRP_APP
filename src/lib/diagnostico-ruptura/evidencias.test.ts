@@ -108,27 +108,54 @@ describe("evidenciar", () => {
   });
 
   /**
-   * A parte acionável, e a razão de o cálculo do contrafactual ter sobrevivido
-   * como evidência: a frase só serve se nomear o CD.
+   * A parte acionável, e a razão de a prescrição ter deixado de ser um simples
+   * "havia sobra em algum lugar": a frase só serve se nomear o CD, o prazo e
+   * uma quantidade que a operação faria.
    */
-  it("a prescrição nomeia o CD doador e o que ele tinha sobrando", () => {
+  it("a prescrição vem da oportunidade medida, com CD e prazo", () => {
     const e = evidenciar(
       contexto(),
       "abertura_descoberta",
       extras({
         sobraPorCd: [
           { filial: "1002", sobra: 500, disponivel: 800, reservado: 300 },
-          { filial: "1021", sobra: 40, disponivel: 90, reservado: 50 },
         ],
+        oportunidade: {
+          cd: "1002",
+          sla: 4,
+          despacharAte: "2026-09-01",
+          sobra: 500,
+          quantidade: 300,
+          diasCobertos: 30,
+        },
       }),
     );
 
     expect(e.prescricao).toBeDefined();
     expect(e.prescricao?.cd).toBe("1002");
+    expect(e.prescricao?.despacharAte).toBe("2026-09-01");
     expect(e.prescricao?.sobraNoCd).toBe(500);
-    expect(e.prescricao?.quantidade).toBeGreaterThan(0);
-    // Os doadores vêm do maior para o menor: é por ele que a operação começa.
-    expect(e.doadores?.map((d) => d.cd)).toEqual(["1002", "1021"]);
+    expect(e.prescricao?.quantidade).toBe(300);
+    // Os doadores continuam listados: saber que a rede tinha estoque parado é
+    // informação, mesmo quando a transferência não era viável.
+    expect(e.doadores?.map((d) => d.cd)).toEqual(["1002"]);
+  });
+
+  it("sobra sem oportunidade viável não vira prescrição", () => {
+    // O caso da "uma unidade": havia estoque na rede, e mesmo assim não existia
+    // transferência que a operação faria.
+    const e = evidenciar(
+      contexto(),
+      "abertura_descoberta",
+      extras({
+        sobraPorCd: [
+          { filial: "1002", sobra: 1, disponivel: 301, reservado: 300 },
+        ],
+        oportunidade: null,
+      }),
+    );
+    expect(e.prescricao).toBeUndefined();
+    expect(e.doadores?.map((d) => d.cd)).toEqual(["1002"]);
   });
 
   it("sem estoque na rede não há prescrição, e isso não é erro", () => {

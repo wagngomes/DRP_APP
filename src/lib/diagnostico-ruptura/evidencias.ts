@@ -16,8 +16,8 @@
  * agora como evidência e não como um segundo veredito: a prescrição —
  * *"transferir 180 até 04/09 teria evitado"* — é a parte acionável disto.
  */
-import { diasEmRuptura, type Cenario } from "./replay";
-import { prescrever } from "./prescricao";
+import { diasEmRuptura } from "./replay";
+import type { Oportunidade } from "./balanceamento";
 import type { SobraNoCd } from "./eventos";
 import type { ContextoArvore } from "./arvore";
 
@@ -27,15 +27,24 @@ export type Evidencia = {
   resumo: string;
   /** Os números soltos, para a grade de detalhe. */
   valores: Record<string, number | string | null>;
-  /** O que teria evitado, e de onde. Só quando havia estoque na rede. */
+  /**
+   * A transferência que teria evitado, e de onde.
+   *
+   * Só aparece quando a operação **teria conseguido fazê-la**: doador com
+   * estoque no armazém 01 acima do Alvo no dia do despacho, SLA cadastrado,
+   * prazo que cabia antes da ruptura e quantidade que tira o destino do
+   * Gatilho. A versão anterior bastava-se com qualquer sobra em qualquer CD, e
+   * prescrevia uma unidade.
+   */
   prescricao?: {
-    tipo: "evitaria" | "reduziria";
-    quantidade: number;
-    data: string;
-    diasRestantes: number;
     /** CD que tinha a sobra. */
-    cd: string | null;
-    sobraNoCd: number | null;
+    cd: string;
+    /** Último dia em que o despacho ainda chegaria a tempo. */
+    despacharAte: string;
+    sla: number;
+    quantidade: number;
+    diasCobertos: number;
+    sobraNoCd: number;
   };
   /** Os CDs com estoque acima do Alvo no dia, do maior para o menor. */
   doadores?: { cd: string; sobra: number; disponivel: number }[];
@@ -53,6 +62,8 @@ export type Evidencia = {
 export type ExtrasEvidencia = {
   /** Sobra por CD do item, no dia de referência. */
   sobraPorCd: SobraNoCd[];
+  /** A transferência viável que teria evitado, quando existiu uma. */
+  oportunidade?: Oportunidade | null;
   /** Linhas de pedido que sumiram sem recebimento, nesta posição. */
   pedidosSumidos: number;
   /** Transferências em aberto rumo a este CD, e o atraso da perna atual. */
@@ -378,17 +389,19 @@ const POR_CAUSA: Record<string, Montador> = {
   },
 
   transferencia_nao_feita: (c, x) => {
-    const total = x.sobraPorCd.reduce((a, s) => a + s.sobra, 0);
-    const maior = x.sobraPorCd[0];
+    const o = x.oportunidade ?? null;
     return {
-      resumo: `A cadeia de compra funcionou — plano, pedido no prazo, fornecedor em dia — e a venda ficou dentro do previsto. A rede tinha ${n1(total)} unidades acima do Alvo${maior ? `, ${n1(maior.sobra)} delas no CD ${maior.filial}` : ""}, e nada se moveu. A causa é a distribuição, não a compra.`,
+      resumo: o
+        ? `A cadeia de compra funcionou — plano, pedido no prazo, fornecedor em dia — e a venda ficou dentro do previsto. O CD ${o.cd} tinha ${n1(o.sobra)} unidades acima do Alvo no armazém 01, a ${n1(o.sla)} dias úteis daqui, e nada se moveu. A causa é a distribuição, não a compra.`
+        : `A cadeia de compra funcionou e a venda ficou dentro do previsto. A rede tinha estoque e ele não se moveu.`,
       valores: {
-        sobra_na_rede: total,
-        cds_com_sobra: x.sobraPorCd.length,
-        maior_doador: maior?.filial ?? null,
-        sobra_do_maior: maior?.sobra ?? 0,
+        cd_doador: o?.cd ?? null,
+        sobra_no_doador: o?.sobra ?? 0,
+        sla_dias: o?.sla ?? null,
+        despachar_ate: o?.despacharAte ?? null,
+        quantidade_que_resolveria: o?.quantidade ?? 0,
+        dias_cobertos: o?.diasCobertos ?? 0,
         consumo_diario: porDia(c),
-        dias_que_a_sobra_cobriria: emDias(c, total),
       },
     };
   },
@@ -441,34 +454,21 @@ export function evidenciar(
 ): Evidencia {
   const montador = POR_CAUSA[causa] ?? GENERICO;
   const { resumo, valores } = montador(c, x);
-
-  const real: Cenario = {
-    de: c.de,
-    ate: c.ate,
-    estoqueInicial: c.abertura?.disponivel ?? 0,
-    consumo: c.vendas,
-    chegadas: c.chegadas,
-  };
-  const disponivel = x.sobraPorCd.reduce((a, s) => a + s.sobra, 0);
-  const receita = prescrever(real, disponivel, c.evento.inicio);
-
-  // O doador é o CD com a maior sobra: é por ele que a operação começaria, e
-  // dizer "a rede tinha estoque" sem nomear onde não é acionável.
-  const doador = x.sobraPorCd[0] ?? null;
+  const o = x.oportunidade ?? null;
 
   return {
     resumo,
     valores,
     balanceamentoNaoRealizado,
-    ...(receita
+    ...(o
       ? {
           prescricao: {
-            tipo: receita.tipo,
-            quantidade: receita.prescricao.quantidade,
-            data: receita.prescricao.data,
-            diasRestantes: receita.prescricao.diasRestantes,
-            cd: doador?.filial ?? null,
-            sobraNoCd: doador?.sobra ?? null,
+            cd: o.cd,
+            despacharAte: o.despacharAte,
+            sla: o.sla,
+            quantidade: o.quantidade,
+            diasCobertos: o.diasCobertos,
+            sobraNoCd: o.sobra,
           },
         }
       : {}),

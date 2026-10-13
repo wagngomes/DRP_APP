@@ -30,6 +30,23 @@ export const COLUNAS_DISPONIVEL = [
   "est_arm_nac",
 ] as const;
 
+/**
+ * Armazéns de onde se pode **doar** numa transferência entre CDs.
+ *
+ * Só o 01. É mais estreito que `COLUNAS_DISPONIVEL`, e muito mais que o
+ * `COLUNAS_ESTOQUE_CHAO` que a tela de sugestão usa hoje: o que está no 26, no
+ * NAC, no Q40 ou no RC está no CD e não sai dele numa transferência.
+ *
+ * Medido nesta base, a diferença não muda a contagem — o excedente vem quase
+ * todo do 01 mesmo. Vale pela correção: o dia em que um item acumular no 26, a
+ * régua errada acusaria uma transferência que a operação não tinha como fazer.
+ *
+ * Consequência registrada: CD virtual (90xx) nunca doa, porque o estoque dele
+ * vive em `est_arm_11`. É o resultado certo — aquele estoque é de outra
+ * operação.
+ */
+export const COLUNAS_DOACAO = ["est_arm_01"] as const;
+
 /** Armazéns que seguram estoque sem liberá-lo para venda. */
 export const COLUNAS_RETIDO = ["est_arm_q40", "est_arm_rc"] as const;
 

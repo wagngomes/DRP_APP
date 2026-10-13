@@ -277,6 +277,37 @@ Dispara pouco hoje — na base de setembro, 400 dos 458 eventos param no eixo da
 abertura e so 2 chegam ao ramo do fornecedor. Mas o caminho existe, e um mes em
 que a compra funcionar vai encontra-lo.
 
+### 13. Materialidade: so acusa o que teria mudado o resultado
+
+"Cabia transferencia" valia sempre que **qualquer** sobra existisse na rede, em
+qualquer CD, de qualquer tamanho — 204 das 458 posicoes (45%), e frases como
+*"transferir 1 unidade teria evitado"*. Com Gatilho e Alvo na operacao, uma
+unidade nao muda decisao nenhuma, e acusar alguem por ela gasta a credibilidade
+do diagnostico inteiro.
+
+A pergunta passou a ser **a operacao teria conseguido fazer essa
+transferencia?**, com as quatro travas da tela de sugestao:
+
+| trava | sobrevivem |
+|---|---|
+| havia sobra na rede (regra antiga) | 204 · 45% |
+| sobra no **armazem 01**, nao no estoque de venda inteiro | 204 · 45% |
+| existe SLA cadastrado entre os dois CDs | 198 · 43% |
+| o prazo cabia: despachando a tempo, chegava antes da ruptura | 93 · 20% |
+| a quantidade tira o destino do **Gatilho** | **70 · 15%** |
+
+O que sai nao e ruido: em 111 casos nao dava tempo de a carga chegar, e em 23 a
+sobra nao cobria nem o Gatilho.
+
+A troca para o armazem 01 nao mexe na contagem desta base — 99,2% do estoque
+disponivel ja esta nele —, mas e a regra certa: o que esta no 26 ou no NAC fica
+no CD. Consequencia registrada: CD virtual (90xx) nunca doa, porque o estoque
+dele vive em `est_arm_11`, e aquele estoque e de outra operacao.
+
+A sobra tambem passou a ser lida **no dia em que a carga teria de ter saido**, e
+nao no dia de referencia: perguntar se ha sobra hoje, depois de a ruptura ter
+acontecido, responde outra coisa.
+
 ### 10. Falta de dado nao acusa ninguem
 
 Descoberto ao rodar a arvore nos 458 eventos de setembro. A primeira versao do
