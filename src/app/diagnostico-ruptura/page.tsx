@@ -25,6 +25,7 @@ import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
 import { tomDaEtapa } from "@/components/diagnostico/tons-etapa";
 import { GraficoSerra } from "@/components/diagnostico/grafico-serra";
+import { PercursoTransferencia } from "@/components/diagnostico/percurso-transferencia";
 import {
   ProvaDaCausa,
   SeloArvore,
@@ -36,6 +37,7 @@ import {
   carregarDiagnostico,
 } from "@/lib/diagnostico-ruptura/consultas";
 import { carregarSerie } from "@/lib/diagnostico-ruptura/serie.server";
+import { carregarPercursos } from "@/lib/diagnostico-ruptura/percurso.server";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { exigirSessao } from "@/lib/autorizacao";
 
@@ -82,6 +84,12 @@ const moeda = (v: number) =>
 const dataBr = (iso: string) => {
   const [a, m, d] = iso.split("-");
   return `${d}/${m}/${a}`;
+};
+
+/** Primeiro dia do mês anterior ao da data. */
+const mesAnteriorDe = (iso: string) => {
+  const [ano, mes] = iso.slice(0, 7).split("-").map(Number);
+  return new Date(Date.UTC(ano, mes - 2, 1)).toISOString().slice(0, 10);
 };
 
 /** Tom do selo de confiança. Baixa chama atenção; alta não precisa. */
@@ -136,13 +144,21 @@ export default async function DiagnosticoRuptura({
   // posição. A janela é a do sistema — mês anterior fechado mais o corrente —,
   // e não a da ruptura: o mês é a unidade em que esta operação pensa, e o
   // gráfico precisa mostrar o ciclo inteiro, não só o pedaço que rompeu.
-  const serie = detalhe
-    ? await carregarSerie(
-        detalhe.codigo,
-        detalhe.filial,
-        await lerDataReferencia(),
-      )
-    : null;
+  const referencia = await lerDataReferencia();
+  const [serie, percursos] = detalhe
+    ? await Promise.all([
+        carregarSerie(detalhe.codigo, detalhe.filial, referencia),
+        // Mesma janela do gráfico: o percurso de uma triangulação atravessa o
+        // mês, e cortar em trinta dias esconderia a perna que começou antes.
+        carregarPercursos(
+          detalhe.codigo,
+          detalhe.filial,
+          mesAnteriorDe(referencia),
+          referencia,
+          referencia,
+        ),
+      ])
+    : [null, []];
 
   // URLs montadas aqui: função não atravessa a fronteira servidor→cliente.
   const href = (extra: Record<string, string | undefined>) => {
@@ -709,6 +725,10 @@ export default async function DiagnosticoRuptura({
                       mais a prescrição quando havia estoque na rede. É o que
                       vai para a ata. */}
                   <ProvaDaCausa evidencia={detalhe.evidencia} />
+
+                  {/* Onde a mercadoria passou e quanto demorou em cada trecho.
+                      É o que o veredito "triangulação lenta" deixa em aberto. */}
+                  <PercursoTransferencia percursos={percursos} />
 
                   {/* E o percurso, para quem discorda da frase: a pessoa segue
                       as perguntas na ordem e confere o veredito sozinha. */}
