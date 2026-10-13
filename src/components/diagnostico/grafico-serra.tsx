@@ -135,21 +135,41 @@ export function GraficoSerra({
     t.map((p, k) => `${k === 0 ? "M" : "L"} ${x(p.i)} ${escala(p.v)}`).join(" ");
 
   // ---- painel de baixo: ritmo acumulado, reiniciado a cada mês -------------
-  const ritmo: { mes: string; real: { i: number; v: number }[]; previsto: { i: number; v: number }[] }[] = [];
+  //
+  // Duas linhas com alcances diferentes, de propósito. O **previsto** vai até o
+  // último dia do mês, inclusive no mês corrente: é a meta inteira, e é contra
+  // ela que se mede se a venda vai chegar lá. O **realizado** para na data de
+  // referência, porque depois dela não há venda — haveria uma linha reta
+  // horizontal sugerindo que o item parou de vender.
+  //
+  // O previsto do mês anterior já ia até o fim por ser mês fechado; agora os
+  // dois meses têm o mesmo tratamento.
+  const ritmo: {
+    mes: string;
+    real: { i: number; v: number }[];
+    previsto: { i: number; v: number }[];
+    totalPrevisto: number;
+  }[] = [];
   for (const m of serie.meses) {
     let real = 0;
     let previsto = 0;
     const serieReal: { i: number; v: number }[] = [];
     const seriePrevisto: { i: number; v: number }[] = [];
     pontos.forEach((p, i) => {
-      if (p.data.slice(0, 7) !== m.mes || p.data > serie.referencia) return;
-      real += p.venda;
+      if (p.data.slice(0, 7) !== m.mes) return;
       previsto += m.consumoDiario;
-      serieReal.push({ i, v: real });
       seriePrevisto.push({ i, v: previsto });
+      if (p.data > serie.referencia) return;
+      real += p.venda;
+      serieReal.push({ i, v: real });
     });
-    if (serieReal.length > 0) {
-      ritmo.push({ mes: m.mes, real: serieReal, previsto: seriePrevisto });
+    if (seriePrevisto.length > 0) {
+      ritmo.push({
+        mes: m.mes,
+        real: serieReal,
+        previsto: seriePrevisto,
+        totalPrevisto: previsto,
+      });
     }
   }
   const tetoRitmo =
@@ -602,35 +622,60 @@ export function GraficoSerra({
           className="stroke-border"
           strokeWidth={1}
         />
-        {ritmo.map((r) => (
-          <g key={r.mes}>
-            <path
-              d={traco(r.previsto, yB)}
-              fill="none"
-              className="stroke-muted-foreground/70"
-              strokeWidth={1.5}
-            />
-            <path
-              d={traco(r.real, yB)}
-              fill="none"
-              className="stroke-(--brand-petrol) dark:stroke-(--brand-turquoise)"
-              strokeWidth={2.5}
-              strokeDasharray="4 3"
-              strokeLinecap="round"
-            />
-            {/* O acumulado do mês, na ponta da linha: é o número que a pessoa
-                procura, e procurá-lo no eixo custa um passo a mais. */}
-            {r.real.length > 0 ? (
+        {ritmo.map((r) => {
+          const fimPrevisto = r.previsto.at(-1)!;
+          const fimReal = r.real.at(-1);
+          // Perto da borda direita o rótulo sairia do quadro: ancora à
+          // esquerda do ponto em vez de à direita.
+          const naBorda = x(fimPrevisto.i) > LARGURA - 90;
+          return (
+            <g key={r.mes}>
+              <path
+                d={traco(r.previsto, yB)}
+                fill="none"
+                className="stroke-rose-500"
+                strokeWidth={1.75}
+                strokeLinecap="round"
+              />
+              <path
+                d={traco(r.real, yB)}
+                fill="none"
+                className="stroke-(--brand-petrol) dark:stroke-(--brand-turquoise)"
+                strokeWidth={2.5}
+                strokeDasharray="4 3"
+                strokeLinecap="round"
+              />
+
+              {/* O total do forecast no último dia do mês. É o número que a
+                  pessoa procura, e procurá-lo no eixo custa um passo a mais. */}
+              <circle
+                cx={x(fimPrevisto.i)}
+                cy={yB(fimPrevisto.v)}
+                r={2.5}
+                className="fill-rose-500"
+              />
               <text
-                x={x(r.real.at(-1)!.i) + 5}
-                y={yB(r.real.at(-1)!.v) + 3}
-                className="fill-(--brand-petrol) text-[10px] tabular-nums dark:fill-(--brand-turquoise)"
+                x={x(fimPrevisto.i) + (naBorda ? -6 : 6)}
+                y={yB(fimPrevisto.v) - 5}
+                textAnchor={naBorda ? "end" : "start"}
+                className="fill-rose-600 text-[10px] font-medium tabular-nums dark:fill-rose-400"
               >
-                {curto(r.real.at(-1)!.v)}
+                {curto(r.totalPrevisto)}
               </text>
-            ) : null}
-          </g>
-        ))}
+
+              {/* O realizado, na ponta da sua própria linha. */}
+              {fimReal ? (
+                <text
+                  x={x(fimReal.i) + 6}
+                  y={yB(fimReal.v) + 4}
+                  className="fill-(--brand-petrol) text-[10px] font-medium tabular-nums dark:fill-(--brand-turquoise)"
+                >
+                  {curto(fimReal.v)}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
 
         {/* Faixa invisível por dia: é o que captura o mouse. */}
         {pontos.map((ponto, i) => (
@@ -711,12 +756,12 @@ export function GraficoSerra({
           sem estoque
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-0.5 w-5 rounded bg-muted-foreground/70" />
-          ritmo previsto
+          <span className="h-0.5 w-5 rounded bg-rose-500" />
+          forecast acumulado, até o fim do mês
         </span>
         <span className="flex items-center gap-1.5">
           <span className="h-0.5 w-5 rounded border-t-2 border-dashed border-(--brand-petrol) dark:border-(--brand-turquoise)" />
-          ritmo realizado
+          venda acumulada
         </span>
         {/* O aviso precisa estar na legenda, não escondido num tooltip: a
             projeção inteira muda de sentido se o ritmo é emprestado. */}

@@ -68,10 +68,26 @@ export type MarcoPedido = {
 /** Forecast contra venda, por mês da janela. */
 export type MesDaSerie = {
   mes: string;
+  /** Previsto proporcional aos dias já decorridos. */
   previsto: number;
   real: number;
-  /** Consumo diário do forecast daquele mês — a régua da linha de ritmo. */
+  /**
+   * Forecast cheio do mês. É o número que o rótulo da linha mostra no último
+   * dia, e é o que a pessoa reconhece como "o forecast do item".
+   */
+  forecastDoMes: number;
+  /**
+   * Forecast dividido pelos dias **reais** do mês — a régua da linha de ritmo.
+   *
+   * Aqui não vale o `forecast / 30` que o resto do sistema usa para dias de
+   * estoque: aquela régua responde "quantos dias este estoque cobre", e trinta
+   * é a convenção que todas as telas compartilham. Esta responde outra coisa —
+   * "a venda vai consumir o forecast até o fim do mês?" —, e a linha precisa
+   * pousar exatamente no forecast no dia 31. Com /30 ela terminaria 3,3% acima
+   * num mês de 31 dias, e o rótulo mostraria um número que não é o forecast.
+   */
   consumoDiario: number;
+  diasDoMes: number;
   /** O mês ainda não fechou. */
   corrente: boolean;
 };
@@ -195,8 +211,8 @@ export function faixasSemEstoque(
 export function mesesDaJanela(
   pontos: PontoSerie[],
   referencia: string,
-  consumoCorrente: number,
-  consumoAnterior: number,
+  forecastCorrente: number,
+  forecastAnterior: number,
 ): MesDaSerie[] {
   const mesCorrente = referencia.slice(0, 7);
   const porMes = new Map<string, { real: number; dias: number }>();
@@ -214,14 +230,25 @@ export function mesesDaJanela(
 
   return [...porMes.entries()]
     .map(([mes, { real, dias }]) => {
-      const consumoDiario = mes === mesCorrente ? consumoCorrente : consumoAnterior;
+      const corrente = mes === mesCorrente;
+      const forecastDoMes = corrente ? forecastCorrente : forecastAnterior;
+      const diasDoMes = diasNoMes(mes);
+      const consumoDiario = diasDoMes > 0 ? forecastDoMes / diasDoMes : 0;
       return {
         mes,
         real,
         previsto: consumoDiario * dias,
+        forecastDoMes,
         consumoDiario,
-        corrente: mes === mesCorrente,
+        diasDoMes,
+        corrente,
       };
     })
     .sort((a, b) => a.mes.localeCompare(b.mes));
+}
+
+/** Quantos dias tem o mês "AAAA-MM". */
+export function diasNoMes(mes: string): number {
+  const [ano, m] = mes.split("-").map(Number);
+  return new Date(Date.UTC(ano, m, 0)).getUTCDate();
 }

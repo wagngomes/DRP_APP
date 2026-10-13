@@ -92,16 +92,35 @@ describe("projetarEstoque", () => {
 
 describe("mesesDaJanela", () => {
   it("o previsto do mês corrente é proporcional aos dias já decorridos", () => {
-    // Três dias de outubro, a 10/dia: 30 previstos, não 300.
+    // Forecast de 310 em outubro, que tem 31 dias: 10/dia. Três dias
+    // decorridos dão 30 previstos, não os 310 do mês inteiro.
     const pontos = [
       ponto("2026-10-01", 12),
       ponto("2026-10-02", 8),
       ponto("2026-10-03", 10),
     ];
-    const meses = mesesDaJanela(pontos, "2026-10-03", 10, 10);
+    const meses = mesesDaJanela(pontos, "2026-10-03", 310, 310);
 
     expect(meses).toHaveLength(1);
     expect(meses[0]).toMatchObject({ previsto: 30, real: 30, corrente: true });
+  });
+
+  /**
+   * A razão de o ritmo não usar o `forecast / 30` do resto do sistema.
+   *
+   * O rótulo da linha mostra o forecast no último dia do mês, e a linha tem de
+   * pousar nele. Com trinta fixo, num mês de 31 dias ela terminaria 3,3% acima
+   * — e o número ao lado do ponto não seria o forecast que a pessoa conhece.
+   */
+  it("o forecast distribuído pelos dias do mês fecha exatamente no forecast", () => {
+    const outubro = mesesDaJanela([ponto("2026-10-01", 0)], "2026-10-01", 310, 0);
+    expect(outubro[0].diasDoMes).toBe(31);
+    expect(outubro[0].consumoDiario * outubro[0].diasDoMes).toBeCloseTo(310, 6);
+    expect(outubro[0].forecastDoMes).toBe(310);
+
+    const setembro = mesesDaJanela([ponto("2026-09-01", 0)], "2026-09-01", 300, 0);
+    expect(setembro[0].diasDoMes).toBe(30);
+    expect(setembro[0].consumoDiario * setembro[0].diasDoMes).toBeCloseTo(300, 6);
   });
 
   it("cada mês é medido contra o forecast que valia nele", () => {
@@ -110,8 +129,8 @@ describe("mesesDaJanela", () => {
       ponto("2026-09-30", 5),
       ponto("2026-10-01", 100),
     ];
-    // Setembro a 20/dia, outubro a 10/dia.
-    const meses = mesesDaJanela(pontos, "2026-10-01", 10, 20);
+    // Setembro: 600 em 30 dias = 20/dia. Outubro: 310 em 31 = 10/dia.
+    const meses = mesesDaJanela(pontos, "2026-10-01", 310, 600);
 
     expect(meses.map((m) => m.mes)).toEqual(["2026-09", "2026-10"]);
     expect(meses[0]).toMatchObject({ real: 10, previsto: 40, corrente: false });
@@ -124,7 +143,7 @@ describe("mesesDaJanela", () => {
     const pontos = dias("2026-10-01", 31).map((d) => ponto(d, 0));
     pontos[0].venda = 10;
     pontos[1].venda = 10;
-    const meses = mesesDaJanela(pontos, "2026-10-02", 10, 10);
+    const meses = mesesDaJanela(pontos, "2026-10-02", 310, 310);
 
     expect(meses[0]).toMatchObject({ real: 20, previsto: 20 });
   });
@@ -135,8 +154,8 @@ describe("mesesDaJanela", () => {
     const meses = mesesDaJanela(
       [ponto("2026-10-01", 0), ponto("2026-10-02", 0)],
       "2026-10-02",
-      10,
-      10,
+      310,
+      310,
     );
     expect(meses[0]).toMatchObject({ real: 0, previsto: 20 });
   });

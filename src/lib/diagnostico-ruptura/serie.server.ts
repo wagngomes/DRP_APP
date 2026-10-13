@@ -64,7 +64,6 @@ export async function carregarSerie(
     ? estoques.forecastMesAnterior
     : estoques.forecastMensal;
   const consumoDiario = forecastMensal / 30;
-  const consumoAnterior = estoques.forecastMesAnterior / 30;
 
   // Um ponto por dia corrido, e não por snapshot: o eixo do tempo precisa ser
   // regular para a inclinação da reta significar velocidade de consumo. Dia
@@ -89,7 +88,12 @@ export async function carregarSerie(
     pontos,
     chegadas,
     marcos: pedidos,
-    meses: mesesDaJanela(pontos, referencia, consumoDiario, consumoAnterior),
+    meses: mesesDaJanela(
+      pontos,
+      referencia,
+      forecastMensal,
+      estoques.forecastMesAnterior,
+    ),
     politicaDias: estoques.politicaDias,
     politicaUnidades: consumoDiario * estoques.politicaDias,
     consumoDiario,
