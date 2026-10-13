@@ -14,6 +14,8 @@ export type FiltrosDiagnostico = {
   /** Código exato ou trecho da descrição. */
   produto?: string;
   fornecedor?: string;
+  /** BU da posição, como gravada no evento. */
+  bu?: string;
   /** Slug do catálogo — a causa que a árvore apontou. */
   causa?: string;
   /** Só as rupturas que a abertura do mês já tinha contratado. */
@@ -50,6 +52,7 @@ export type LinhaRuptura = {
   descricao: string | null;
   filial: string;
   fornecedor: string | null;
+  bu: string | null;
   inicio: string;
   dias: number;
   valorPerdido: number;
@@ -98,6 +101,8 @@ export type DadosDiagnostico = {
    * eventos travaram naquela pergunta e, portanto, qual carga repor primeiro.
    */
   lacunas: { no: string; eventos: number }[];
+  /** BUs presentes no recorte, com a contagem de posições de cada uma. */
+  bus: { valor: string; eventos: number }[];
   fornecedores: string[];
   /** Quando a última rodada foi calculada; nulo se nunca rodou. */
   calculadoEm: Date | null;
@@ -115,6 +120,7 @@ function where(f: FiltrosDiagnostico) {
   return {
     versao_regras: VERSAO_REGRAS,
     ...(f.fornecedor ? { fornecedor: f.fornecedor } : {}),
+    ...(f.bu ? { bu: f.bu } : {}),
     ...(f.causa ? { arvore_causa: f.causa } : {}),
     ...(f.herdadas ? { herdada_abertura: true } : {}),
     ...(f.incompletas ? { arvore_incompleta: true } : {}),
@@ -136,8 +142,16 @@ export async function carregarDiagnostico(
   const pagina = Math.max(1, filtros.pagina ?? 1);
   const filtro = where(filtros);
 
-  const [eventos, total, agregado, contagens, lacunas, fornecedores, ultima] =
-    await Promise.all([
+  const [
+    eventos,
+    total,
+    agregado,
+    contagens,
+    lacunas,
+    bus,
+    fornecedores,
+    ultima,
+  ] = await Promise.all([
       prisma.rupturaEvento.findMany({
         where: filtro,
         orderBy: [{ dias: "desc" }, { valor_perdido: "desc" }],
@@ -151,6 +165,7 @@ export async function carregarDiagnostico(
       }),
       contarPorCausa(filtros),
       contarLacunas(filtros),
+      contarPorBu(filtros),
       listarFornecedores(),
       prisma.rupturaEvento.findFirst({
         where: { versao_regras: VERSAO_REGRAS },
@@ -178,6 +193,7 @@ export async function carregarDiagnostico(
       descricao: e.descricao,
       filial: e.filial,
       fornecedor: e.fornecedor,
+      bu: e.bu,
       inicio: e.inicio.toISOString().slice(0, 10),
       dias: e.dias,
       valorPerdido: Number(e.valor_perdido),
@@ -201,6 +217,7 @@ export async function carregarDiagnostico(
     },
     contagens,
     lacunas,
+    bus,
     fornecedores,
     calculadoEm: ultima?.calculado_em ?? null,
   };
@@ -271,6 +288,28 @@ async function contarPorCausa(
     .sort((a, b) => b.eventos - a.eventos || b.dias - a.dias);
 }
 
+/**
+ * Quantas posições cada BU tem, no recorte **sem o filtro de BU**.
+ *
+ * Mesma razão dos chips de causa: o número no chip tem de antecipar o
+ * resultado do clique, não refletir o clique já dado.
+ */
+async function contarPorBu(
+  filtros: FiltrosDiagnostico,
+): Promise<{ valor: string; eventos: number }[]> {
+  const linhas = await prisma.rupturaEvento.groupBy({
+    by: ["bu"],
+    where: { ...where({ ...filtros, bu: undefined }), bu: { not: null } },
+    _count: { _all: true },
+  });
+
+  return linhas
+    .map((l) => ({ valor: l.bu!, eventos: l._count._all }))
+    // Alfabética, e não por volume: a lista de BUs é curta e estável, e trocar
+    // de ordem a cada filtro faria a pessoa procurar o botão toda vez.
+    .sort((a, b) => a.valor.localeCompare(b.valor, "pt-BR"));
+}
+
 /** Onde a árvore travou, por nó, do mais frequente ao menos. */
 async function contarLacunas(
   filtros: FiltrosDiagnostico,
@@ -339,6 +378,7 @@ export async function carregarDetalhe(
     descricao: e.descricao,
     filial: e.filial,
     fornecedor: e.fornecedor,
+    bu: e.bu,
     inicio: e.inicio.toISOString().slice(0, 10),
     dias: e.dias,
     valorPerdido: Number(e.valor_perdido),

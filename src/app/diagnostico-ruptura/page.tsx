@@ -55,6 +55,7 @@ export const metadata = { title: "Diagnóstico de ruptura · DRP_AI" };
 type SearchParams = {
   produto?: string | string[];
   fornecedor?: string | string[];
+  bu?: string | string[];
   causa?: string | string[];
   herdadas?: string | string[];
   incompletas?: string | string[];
@@ -97,6 +98,7 @@ export default async function DiagnosticoRuptura({
 
   const produto = primeiro(params.produto);
   const fornecedor = primeiro(params.fornecedor);
+  const bu = primeiro(params.bu);
   const causa = primeiro(params.causa);
   const herdadas = primeiro(params.herdadas) === "1";
   const incompletas = primeiro(params.incompletas) === "1";
@@ -109,6 +111,7 @@ export default async function DiagnosticoRuptura({
     carregarDiagnostico({
       produto,
       fornecedor,
+      bu,
       causa,
       herdadas,
       incompletas,
@@ -140,6 +143,7 @@ export default async function DiagnosticoRuptura({
     const base: Record<string, string | undefined> = {
       produto,
       fornecedor,
+      bu,
       causa,
       herdadas: herdadas ? "1" : undefined,
       incompletas: incompletas ? "1" : undefined,
@@ -251,6 +255,58 @@ export default async function DiagnosticoRuptura({
           <>
             <Card>
               <CardContent className="grid gap-3 pt-6">
+                {/* BU no mesmo padrão de /cockpit e /disponibilidade: pílulas
+                    sólidas, com a contagem do recorte. Aqui com "Todas",
+                    porque ruptura se olha pela rede inteira antes de recortar
+                    — nas outras telas a BU é obrigatória porque o número que
+                    elas mostram só faz sentido dentro de uma. */}
+                {dados.bus.length > 1 ? (
+                  <div className="flex flex-wrap items-center gap-1.5 border-b pb-2.5">
+                    <span className="mr-1 text-sm font-medium text-muted-foreground">
+                      BU
+                    </span>
+                    <Link
+                      href={href({ bu: undefined, pagina: undefined })}
+                      scroll={false}
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                        bu
+                          ? "bg-muted text-muted-foreground hover:text-foreground"
+                          : "bg-(--brand-petrol) text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)"
+                      }`}
+                    >
+                      Todas
+                      <span className="ml-1.5 font-mono text-xs tabular-nums opacity-80">
+                        {num(dados.resumo.eventos)}
+                      </span>
+                    </Link>
+                    {dados.bus.map((b) => {
+                      const ativo = bu === b.valor;
+                      return (
+                        <Link
+                          key={b.valor}
+                          href={href({
+                            bu: ativo ? undefined : b.valor,
+                            pagina: undefined,
+                          })}
+                          scroll={false}
+                          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                            ativo
+                              ? "bg-(--brand-petrol) text-white dark:bg-(--brand-turquoise) dark:text-(--brand-petrol)"
+                              : "bg-muted text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {b.valor === "—" ? "Sem BU" : b.valor}
+                          <span
+                            className={`ml-1.5 font-mono text-xs tabular-nums ${ativo ? "opacity-80" : "opacity-70"}`}
+                          >
+                            {num(b.eventos)}
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
                 {/* Uma fileira, uma régua. A árvore devolve uma causa por
                     posição, então a soma dos chips é o total de posições — o
                     que a versão de duas réguas não conseguia prometer. */}
@@ -349,6 +405,7 @@ export default async function DiagnosticoRuptura({
                     {causa ? (
                       <input type="hidden" name="causa" value={causa} />
                     ) : null}
+                    {bu ? <input type="hidden" name="bu" value={bu} /> : null}
                     <div className="w-full space-y-1.5 sm:w-auto">
                       <label
                         htmlFor="produto"
@@ -422,6 +479,7 @@ export default async function DiagnosticoRuptura({
                   basePath="/diagnostico-ruptura"
                   extras={{
                     produto,
+                    bu,
                     causa,
                     herdadas: herdadas ? "1" : undefined,
                     incompletas: incompletas ? "1" : undefined,

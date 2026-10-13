@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
 import { lerCoberturas } from "@/lib/parametros.server";
+import { snapshotMensalSql } from "@/utils/dias-estoque";
 import { subtrairDiasUteis } from "@/utils/projecao-transferencias";
 import { aberturasDeForecast, carregarAbertura, chave } from "./abertura";
 import { classificar, type Classificacao, type ContextoArvore } from "./arvore";
@@ -78,6 +79,8 @@ export type Bases = {
   /** Sobra acima do Alvo, aberta por CD — a prescrição nomeia o doador. */
   sobras: Map<string, SobraNoCd[]>;
   fornecedores: Map<string, string>;
+  /** BU por posição item × CD. */
+  bus: Map<string, string>;
   descricoes: Map<string, string | null>;
   /** Dias cuja carga não passou no teste de sanidade. */
   ignorar: Set<string>;
@@ -135,8 +138,9 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     retidoDa.set(k, Math.max(retidoDa.get(k) ?? 0, p.retido));
   }
 
-  const [fornecedores, descricoes] = await Promise.all([
+  const [fornecedores, bus, descricoes] = await Promise.all([
     fornecedorPorItem(dataReferencia),
+    buPorPosicao(dataReferencia),
     descricaoPorItem([...new Set(eventos.map((e) => e.codigo))]),
   ]);
 
@@ -156,6 +160,7 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     retidoDa,
     sobras: sobraDetalhada(posicoes, dataReferencia, coberturas.alvo),
     fornecedores,
+    bus,
     descricoes,
     ignorar,
     suspeitas,
@@ -283,6 +288,7 @@ export async function processar(
 type Diagnostico = {
   evento: Evento;
   fornecedor: string | null;
+  bu: string | null;
   descricao: string | null;
   confianca: "alta" | "media" | "baixa";
   avisoReplay: boolean;
@@ -338,6 +344,7 @@ function diagnosticar(b: Bases, e: Evento): Diagnostico {
   return {
     evento: e,
     fornecedor: b.fornecedores.get(e.codigo) ?? null,
+    bu: b.bus.get(chave(e.codigo, e.filial)) ?? null,
     descricao: b.descricoes.get(e.codigo) ?? null,
     confianca,
     avisoReplay,
@@ -406,6 +413,7 @@ async function gravar(linhas: Diagnostico[]) {
           codigo: l.evento.codigo,
           filial: l.evento.filial,
           fornecedor: l.fornecedor,
+          bu: l.bu,
           descricao: l.descricao,
           inicio: new Date(`${l.evento.inicio}T00:00:00.000Z`),
           fim: l.evento.fim ? new Date(`${l.evento.fim}T00:00:00.000Z`) : null,
@@ -435,6 +443,30 @@ async function gravar(linhas: Diagnostico[]) {
     },
     { timeout: 120_000 },
   );
+}
+
+/**
+ * BU por posição item × CD, de `forecast.b_u`.
+ *
+ * Por posição e não por item: a BU vem do forecast, que tem código **e**
+ * filial, e o mesmo item pode estar em BUs diferentes conforme o CD.
+ *
+ * A normalização é a das outras telas — vazio vira "—", que a tela mostra como
+ * "Sem BU". Sem ela, item sem BU preenchida sumiria do recorte em vez de
+ * aparecer num grupo próprio.
+ */
+async function buPorPosicao(data: string): Promise<Map<string, string>> {
+  const linhas = await prisma.$queryRawUnsafe<
+    { codigo: string; filial: string; bu: string }[]
+  >(
+    `SELECT codigo, filial,
+            COALESCE(NULLIF(trim(b_u), ''), '—') AS bu
+       FROM forecast f
+      WHERE ${snapshotMensalSql("forecast", "f", "$1")}
+        AND codigo IS NOT NULL AND filial IS NOT NULL`,
+    data,
+  );
+  return new Map(linhas.map((l) => [chave(l.codigo, l.filial), l.bu]));
 }
 
 /** Fornecedor por item, pela mesma cadeia da tela de fornecedores. */

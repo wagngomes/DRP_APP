@@ -762,6 +762,15 @@ model RupturaEvento {
   /// Descrição do produto, congelada junto pelo mesmo motivo.
   descricao String?
 
+  /**
+   * BU da posição, de `forecast.b_u`, congelada pelas mesmas duas razões do
+   * fornecedor: a tela filtra por ela, e a BU de um item muda com o tempo.
+   *
+   * Normalizada como nas outras telas — vazio vira "—", que a tela mostra como
+   * "Sem BU". Nula só em evento de rodada anterior a esta coluna.
+   */
+  bu String?
+
   /// Primeiro snapshot em ruptura.
   inicio DateTime  @db.Date
   /// Primeiro snapshot com estoque de volta; nulo enquanto a ruptura dura.
@@ -876,6 +885,7 @@ model RupturaEvento {
   @@index([herdada_abertura])
   @@index([codigo, filial])
   @@index([fornecedor])
+  @@index([bu])
   @@index([arvore_causa])
   @@index([arvore_balanceamento])
   @@map("ruptura_evento")
