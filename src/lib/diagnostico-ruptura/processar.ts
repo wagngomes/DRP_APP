@@ -16,13 +16,14 @@ import { prisma } from "@/lib/prisma";
 import { carregarSaldoPlano } from "@/lib/compras/saldo-plano";
 import { lerCoberturas } from "@/lib/parametros.server";
 import { snapshotMensalSql } from "@/utils/dias-estoque";
-import { carregarSla } from "@/lib/transferencias/consultas";
+
 import { limitesDoMes } from "@/utils/mes";
 import { subtrairDiasUteis } from "@/utils/projecao-transferencias";
 import { somarDias } from "./serie";
 import { aberturasDeForecast, carregarAbertura, chave } from "./abertura";
 import { classificar, type Classificacao, type ContextoArvore } from "./arvore";
 import { carregarSinais, saldoEm } from "./sinais";
+import { carregarSlaAtivo, type SlaAtivo } from "./sla-ativo";
 import {
   apenasEmRuptura,
   carregarPosicoes,
@@ -90,8 +91,15 @@ export type Bases = {
   sobras: Map<string, SobraNoCd[]>;
   /** A mesma sobra, dia a dia: `data -> item -> doadores`. */
   sobrasPorDia: Map<string, Map<string, SobraNoCd[]>>;
-  /** SLA entre CDs, para saber se a transferência caberia no prazo. */
-  sla: Map<string, number>;
+  /**
+   * SLA entre CDs, só os pares **ativos** e abertos por tipo de produto.
+   *
+   * Não é o `carregarSla()` compartilhado: aquele cai para o tempo da linha
+   * inativa quando o par não tem nenhuma ativa, e são 10 dos 81 pares nessa
+   * situação. Transferência em par inativo não é permitida, e acusar a
+   * operação por não a ter feito é cobrar o impossível.
+   */
+  sla: Map<string, SlaAtivo>;
   coberturas: Awaited<ReturnType<typeof lerCoberturas>>;
   fornecedores: Map<string, string>;
   /** BU por posição item × CD. */
@@ -130,7 +138,7 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     carregarPrazos(),
     lerCoberturas(),
     carregarSinais(de, dataReferencia),
-    carregarSla(),
+    carregarSlaAtivo(),
   ]);
 
   /**
@@ -344,6 +352,7 @@ export function oportunidadeDe(b: Bases, e: Evento): Oportunidade | null {
     consumoDiario: forecastMensal / 30,
     sobraPorDia: sobraPorDiaDoItem,
     sla: b.sla,
+    bu: b.bus.get(chave(e.codigo, e.filial)) ?? null,
     gatilho: b.coberturas.gatilho,
     alvo: b.coberturas.alvo,
   });

@@ -12,7 +12,9 @@
  * outra tela nunca sugeriria:
  *
  *   1. o doador tem estoque **no armazém 01** acima do Alvo, no dia do despacho
- *   2. existe SLA cadastrado entre os dois CDs
+ *   2. o par de filiais está **ativo** na tabela de SLA — `ativo = 0` significa
+ *      que a operação não pode transferir entre elas, e cobrar uma rota
+ *      proibida é cobrar o impossível
  *   3. o SLA cabia: despachando no prazo, a carga chegava antes da ruptura
  *   4. a quantidade era **material** — cobre pelo menos o Gatilho no destino
  *
@@ -24,6 +26,7 @@
  */
 import { subtrairDiasUteis } from "@/utils/projecao-transferencias";
 import type { SobraNoCd } from "./eventos";
+import { transitoAtivo, type SlaAtivo } from "./sla-ativo";
 
 /** A transferência que teria evitado a ruptura, com o CD e o prazo. */
 export type Oportunidade = {
@@ -52,8 +55,10 @@ export type EntradaOportunidade = {
   consumoDiario: number;
   /** Sobra por CD, por dia: `data -> lista de doadores do item`. */
   sobraPorDia: Map<string, SobraNoCd[]>;
-  /** `chaveSla(origem, destino) -> dias úteis`. */
-  sla: Map<string, number>;
+  /** Tempos de trânsito **ativos** por par, abertos por tipo de produto. */
+  sla: Map<string, SlaAtivo>;
+  /** BU do item, para escolher a linha MAT ou MED do par. */
+  bu: string | null;
   gatilho: number;
   alvo: number;
 };
@@ -80,9 +85,13 @@ export function oportunidadeDeTransferencia(
 
   let melhor: Oportunidade | null = null;
 
-  for (const [chave, dias] of e.sla) {
+  for (const [chave] of e.sla) {
     const [origem, destino] = chave.split(">");
     if (destino !== e.destino || origem === e.destino) continue;
+
+    // Par bloqueado não entra: a operação não tem permissão de usar essa rota.
+    const dias = transitoAtivo(e.sla, origem, destino, e.bu);
+    if (dias === null) continue;
 
     const despacharAte = subtrairDiasUteis(
       new Date(`${e.inicioDaRuptura}T00:00:00.000Z`),

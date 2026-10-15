@@ -339,6 +339,40 @@ havia passado nenhum para medir. Depois: **zero**.
 
 Custo da janela maior: 15,6s para 16,9s na rodada.
 
+### 15. Par de filiais inativo nao pode virar acusacao
+
+`sla_transferencias.ativo = 0` significa que a operacao **nao pode** transferir
+entre aquele par. O `carregarSla()` compartilhado nao distingue: ele prefere o
+tempo da linha ativa, mas **cai para a inativa** quando nao ha nenhuma ativa — e
+sao **10 dos 81 pares** nessa situacao.
+
+O diagnostico passou a usar um carregador proprio, que simplesmente nao devolve
+par sem linha ativa. Efeito: "cabia transferencia" de 70 para **62 posicoes**.
+Oito acusacoes que cobravam uma rota proibida.
+
+**O `ativo` varia por tipo de produto.** A tabela tem uma linha por par e por
+`mat_med`, e em 6 pares os dois discordam:
+
+| par | MAT | MED |
+|---|---|---|
+| 1003 > 1024 | bloqueado | 7d |
+| 1010 > 1006 | bloqueado | 6d |
+| 1010 > 1023 | bloqueado | 6d |
+| 1010 > 1024 | bloqueado | 2d |
+| 1010 > 1036 | bloqueado | 5d |
+| 1010 > 1039 | bloqueado | 5d |
+
+O sistema nao tem classificacao MAT/MED confiavel por item: `produtos.tag_medic`
+vale 'S' para quase tudo, inclusive na BU MAT (1.815 de 1.830), e
+`historico_vendas` perdeu a coluna de BU no enxugamento de 13/09. O que sobra e
+a BU do forecast, e e assim que ela e usada: MAT e MAT-FAB viram MAT, MED vira
+MED, e o resto (PREVENA, DERMATOLOGIA, Especialidades, TECNOCOLD) cai num
+caminho permissivo — aceita o par se qualquer tipo estiver ativo.
+
+Permissivo de proposito. Sem saber o tipo do item, bloquear seria inventar uma
+restricao; o que a regra garante em todo caso e que par sem **nenhuma** linha
+ativa nunca passa.
+
 ### 10. Falta de dado nao acusa ninguem
 
 Descoberto ao rodar a arvore nos 458 eventos de setembro. A primeira versao do

@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import { oportunidadeDeTransferencia } from "@/lib/diagnostico-ruptura/balanceamento";
 import type { EntradaOportunidade } from "@/lib/diagnostico-ruptura/balanceamento";
 import type { SobraNoCd } from "@/lib/diagnostico-ruptura/eventos";
+import type { SlaAtivo } from "@/lib/diagnostico-ruptura/sla-ativo";
+
+/** Par ativo nos dois tipos, que é o caso comum. */
+const ativo = (dias: number): SlaAtivo => ({ mat: dias, med: dias });
 
 /**
  * A transferência que teria resolvido.
@@ -28,7 +32,8 @@ function entrada(over: Partial<EntradaOportunidade> = {}): EntradaOportunidade {
     consumoDiario: 10,
     // 11/09 é a sexta anterior: 1002 → 1006 leva 4 dias úteis.
     sobraPorDia: new Map([["2026-09-09", [doador("1002", 500)]]]),
-    sla: new Map([["1002>1006", 4]]),
+    sla: new Map([["1002>1006", ativo(4)]]),
+    bu: "MAT",
     gatilho: 10,
     alvo: 30,
     ...over,
@@ -78,7 +83,7 @@ describe("oportunidadeDeTransferencia", () => {
     // SLA de 20 dias úteis contra uma ruptura que começou no dia 15: o
     // despacho teria de ter saído antes da janela, onde não há sobra medida.
     const o = oportunidadeDeTransferencia(
-      entrada({ sla: new Map([["1002>1006", 20]]) }),
+      entrada({ sla: new Map([["1002>1006", ativo(20)]]) }),
     );
     expect(o).toBeNull();
   });
@@ -87,8 +92,8 @@ describe("oportunidadeDeTransferencia", () => {
     const o = oportunidadeDeTransferencia(
       entrada({
         sla: new Map([
-          ["1002>1006", 4],
-          ["1021>1006", 2],
+          ["1002>1006", ativo(4)],
+          ["1021>1006", ativo(2)],
         ]),
         sobraPorDia: new Map([
           ["2026-09-09", [doador("1002", 500)]],
@@ -103,7 +108,7 @@ describe("oportunidadeDeTransferencia", () => {
   it("ignora o próprio CD como doador", () => {
     const o = oportunidadeDeTransferencia(
       entrada({
-        sla: new Map([["1006>1006", 1]]),
+        sla: new Map([["1006>1006", ativo(1)]]),
         sobraPorDia: new Map([["2026-09-14", [doador("1006", 500)]]]),
       }),
     );
@@ -122,5 +127,56 @@ describe("oportunidadeDeTransferencia", () => {
       entrada({ sobraPorDia: new Map([["2026-09-10", [doador("1002", 500)]]]) }),
     );
     expect(o).toBeNull();
+  });
+});
+
+describe("oportunidadeDeTransferencia e a coluna ativo", () => {
+  /**
+   * A regra que motivou o módulo `sla-ativo`.
+   *
+   * `ativo = 0` significa que a operação **não pode** transferir entre aquele
+   * par. Cobrar uma rota proibida é cobrar o impossível — e são 10 dos 81 pares
+   * sem nenhuma linha ativa, que o carregador compartilhado deixava passar.
+   */
+  it("não cobra transferência em par bloqueado para o tipo do item", () => {
+    const bloqueadoParaMat = new Map([
+      ["1002>1006", { mat: null, med: 4 }],
+    ]);
+
+    // O item é MAT, e o par está liberado só para MED.
+    expect(
+      oportunidadeDeTransferencia(
+        entrada({ sla: bloqueadoParaMat, bu: "MAT" }),
+      ),
+    ).toBeNull();
+
+    // O mesmo par, com um item MED, continua valendo.
+    const med = oportunidadeDeTransferencia(
+      entrada({ sla: bloqueadoParaMat, bu: "MED" }),
+    );
+    expect(med?.cd).toBe("1002");
+    expect(med?.sla).toBe(4);
+  });
+
+  it("BU desconhecida aceita o par ativo em qualquer tipo", () => {
+    // Sem saber o tipo do item, bloquear seria inventar uma restrição. O que
+    // se garante é que par sem nenhuma linha ativa nunca passa.
+    const o = oportunidadeDeTransferencia(
+      entrada({
+        sla: new Map([["1002>1006", { mat: null, med: 4 }]]),
+        bu: "PREVENA",
+      }),
+    );
+    expect(o?.sla).toBe(4);
+  });
+
+  it("par sem nenhuma linha ativa nunca passa, qualquer que seja a BU", () => {
+    for (const bu of ["MAT", "MED", "PREVENA", null]) {
+      expect(
+        oportunidadeDeTransferencia(
+          entrada({ sla: new Map([["1002>1006", { mat: null, med: null }]]), bu }),
+        ),
+      ).toBeNull();
+    }
   });
 });
