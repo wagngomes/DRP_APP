@@ -28,6 +28,7 @@ import {
 } from "@/utils/projecao-transferencias";
 import { ehCompraDireta, projetarPedido } from "@/utils/projecao-pedidos";
 import { normalizarTributacao, type Tributacao } from "@/utils/tributacao";
+import { recortar } from "./recorte";
 import { carregarChegadas, chaveChegada } from "@/lib/reposicoes/chegadas";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
 import {
@@ -439,8 +440,7 @@ export async function carregarTriangulacoes(
         codigo,
         descricao: meta.get(codigo)?.descricao ?? null,
         fornecedor: meta.get(codigo)?.fornecedor ?? "Sem fornecedor",
-        tributacao:
-          meta.get(codigo)?.tributacao ?? normalizarTributacao(null),
+        tributacao: meta.get(codigo)?.tributacao ?? normalizarTributacao(null),
         // Sem data projetável vai para o fim: não dá para priorizar o que não se
         // sabe quando chega.
         linhas: [...linhas].sort(
@@ -456,43 +456,19 @@ export async function carregarTriangulacoes(
     },
   );
 
-  const termo = filtroProduto?.trim().toLowerCase();
+  // O recorte vive em `recorte.ts`, puro e testado: é a parte que decide o que
+  // a pessoa vê, e dentro da consulta só daria para conferi-la com banco de pé.
+  const {
+    visiveis: recortados,
+    fornecedores,
+    tributacoes,
+  } = recortar(produtos, {
+    fornecedor: filtroFornecedor,
+    tributacao: filtroTributacao,
+    produto: filtroProduto,
+  });
 
-  /**
-   * Os três recortes são cumulativos, e cada um é uma trava independente.
-   *
-   * Separados em funções para as listas de opção poderem aplicar todas menos
-   * a sua — é o que faz escolher um laboratório encurtar as tributações para
-   * as que existem dentro dele, sem que o seletor de laboratório se esvazie ao
-   * ser usado.
-   */
-  const casaFornecedor = (p: ProdutoTriangulando) =>
-    !filtroFornecedor || p.fornecedor === filtroFornecedor;
-  const casaTributacao = (p: ProdutoTriangulando) =>
-    !filtroTributacao || p.tributacao.chave === filtroTributacao;
-  const casaTermo = (p: ProdutoTriangulando) =>
-    !termo ||
-    p.codigo.toLowerCase().includes(termo) ||
-    (p.descricao ?? "").toLowerCase().includes(termo);
-
-  const fornecedores = [
-    ...new Set(
-      produtos.filter(casaTributacao).filter(casaTermo).map((p) => p.fornecedor),
-    ),
-  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
-
-  // Por chave, e não pelo rótulo: "Nacional 7%" e "nacional 7%" são a mesma
-  // tributação, e listá-las duas vezes dividiria o volume de uma delas.
-  const porChave = new Map<string, Tributacao>();
-  for (const p of produtos.filter(casaFornecedor).filter(casaTermo)) {
-    porChave.set(p.tributacao.chave, p.tributacao);
-  }
-  const tributacoes = [...porChave.values()].sort((a, b) =>
-    a.rotulo.localeCompare(b.rotulo, "pt-BR"),
-  );
-
-  const visiveis = produtos
-    .filter((p) => casaFornecedor(p) && casaTributacao(p) && casaTermo(p))
+  const visiveis = recortados
     // Maior valor primeiro: é o que mais pesa em capital parado em trânsito.
     .sort(
       (a, b) =>
