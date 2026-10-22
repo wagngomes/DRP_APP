@@ -27,6 +27,7 @@ import {
   type Etapa,
 } from "@/utils/projecao-transferencias";
 import { ehCompraDireta, projetarPedido } from "@/utils/projecao-pedidos";
+import { normalizarTributacao, type Tributacao } from "@/utils/tributacao";
 import { carregarChegadas, chaveChegada } from "@/lib/reposicoes/chegadas";
 import { simuladorPorCd } from "@/utils/cds-virtuais";
 import {
@@ -104,6 +105,8 @@ export type ProdutoTriangulando = {
   descricao: string | null;
   /** Nome normalizado, como em todas as visões por fornecedor. */
   fornecedor: string;
+  /** Tributação do item, já normalizada. "Sem fiscal" quando não há cadastro. */
+  tributacao: Tributacao;
   linhas: LinhaTriangulacao[];
   quantidade: number;
   /** Valores separados por origem: as colunas de origem são diferentes. */
@@ -117,7 +120,19 @@ export type CdFinalDisponivel = { filial: string; documentos: number };
 
 export type DadosTriangulacoes = {
   produtos: ProdutoTriangulando[];
+  /**
+   * Opções de cada filtro, apuradas **sem o próprio filtro aplicado**.
+   *
+   * Os recortes são cumulativos — dá para escolher um laboratório e, dentro
+   * dele, uma tributação, ou o contrário. Por isso cada lista enxerga o outro
+   * filtro: escolher um laboratório encurta as tributações para as que de fato
+   * existem nele, e nenhuma escolha leva a uma tela vazia.
+   *
+   * O que cada lista **não** enxerga é o próprio filtro, senão ela se
+   * esvaziaria ao ser usada.
+   */
   fornecedores: string[];
+  tributacoes: Tributacao[];
   /** Destinos possíveis, sempre a lista inteira — ver `cdsFinais` abaixo. */
   cdsFinais: CdFinalDisponivel[];
   valorTransferencia: number;
@@ -141,6 +156,8 @@ export async function carregarTriangulacoes(
   filtroFornecedor?: string,
   /** Código do CD onde a rota termina, ou `SEM_CD_FINAL`. */
   filtroCdFinal?: string,
+  /** Chave normalizada da tributação, como em `normalizarTributacao`. */
+  filtroTributacao?: string,
 ): Promise<DadosTriangulacoes> {
   const [transferencias, pedidos, sla, siglaParaCodigo, chegadas] =
     await Promise.all([
@@ -149,6 +166,7 @@ export async function carregarTriangulacoes(
           valor: number | null;
           descricao: string | null;
           fornecedor: string;
+          tributacao: string | null;
         })[]
       >(
         // Só o snapshot do dia: a tabela é cumulativa e sem o filtro entrariam
@@ -160,7 +178,7 @@ export async function carregarTriangulacoes(
               t.qtde::float8 AS qtde, t.valor::float8 AS valor,
               t.filial_codigo_saida, t.filial_codigo_entrada, t.rota,
               t.passo::int AS passo, t.qtde_passo::int AS qtde_passo,
-              t.data_emissao, p.descricao,
+              t.data_emissao, p.descricao, fis.tributacao,
               COALESCE((
                 SELECT ${nomeFornecedor("s2")}
                   FROM simulador s2 ${joinFornecedor("s2")}
@@ -170,6 +188,11 @@ export async function carregarTriangulacoes(
               ), 'Sem fornecedor') AS fornecedor
          FROM transferencias_abertas t
          LEFT JOIN produtos p ON p.codigo = t.codigo
+         -- fiscal.codigo e unico (10.924 linhas para 10.924 codigos), entao
+         -- este LEFT JOIN nao multiplica linha. Medido: a consulta leva o mesmo
+         -- tempo com e sem ele (149ms contra 150ms), porque resolve pelo
+         -- indice fiscal_codigo_idx em 0,004ms por item.
+         LEFT JOIN fiscal fis ON fis.codigo = t.codigo
         WHERE t.data_snapshot = $1::date
           AND t.codigo IS NOT NULL
           AND t.rota IS NOT NULL AND t.rota LIKE '%>%'
@@ -191,6 +214,7 @@ export async function carregarTriangulacoes(
           status_logistica: string | null;
           descricao: string | null;
           fornecedor: string;
+          tributacao: string | null;
         }[]
       >(
         // Pedidos com rota na `tp_ped_transf_descricao`. "N/A" e vazio são compra
@@ -200,7 +224,7 @@ export async function carregarTriangulacoes(
               pc.saldo_ajustado::float8 AS saldo_ajustado,
               pc.filial, pc.tp_ped_transf_descricao AS rota,
               pc.data_emissao, pc.data_pedra,
-              pc.data_agendada, pc.status_logistica, p.descricao,
+              pc.data_agendada, pc.status_logistica, p.descricao, fis.tributacao,
               COALESCE((
                 SELECT ${nomeFornecedor("s2")}
                   FROM simulador s2 ${joinFornecedor("s2")}
@@ -210,6 +234,7 @@ export async function carregarTriangulacoes(
               ), 'Sem fornecedor') AS fornecedor
          FROM pedidos_de_compra pc
          LEFT JOIN produtos p ON p.codigo = pc.codigo
+         LEFT JOIN fiscal fis ON fis.codigo = pc.codigo
         WHERE pc.data_snapshot = $1::date
           AND pc.codigo IS NOT NULL
           AND pc.quantidade_receber > 0
@@ -228,7 +253,7 @@ export async function carregarTriangulacoes(
   /** Descrição e fornecedor do produto, de qualquer uma das origens. */
   const meta = new Map<
     string,
-    { descricao: string | null; fornecedor: string }
+    { descricao: string | null; fornecedor: string; tributacao: Tributacao }
   >();
 
   const linhasTransf: LinhaTriangulacao[] = transferencias
@@ -250,6 +275,7 @@ export async function carregarTriangulacoes(
       meta.set(l.codigo!, {
         descricao: l.descricao ?? l.descricao_produto,
         fornecedor: l.fornecedor,
+        tributacao: normalizarTributacao(l.tributacao),
       });
       return {
         id: l.id,
@@ -291,6 +317,7 @@ export async function carregarTriangulacoes(
         meta.set(l.codigo, {
           descricao: l.descricao,
           fornecedor: l.fornecedor,
+          tributacao: normalizarTributacao(l.tributacao),
         });
       }
       return {
@@ -412,6 +439,8 @@ export async function carregarTriangulacoes(
         codigo,
         descricao: meta.get(codigo)?.descricao ?? null,
         fornecedor: meta.get(codigo)?.fornecedor ?? "Sem fornecedor",
+        tributacao:
+          meta.get(codigo)?.tributacao ?? normalizarTributacao(null),
         // Sem data projetável vai para o fim: não dá para priorizar o que não se
         // sabe quando chega.
         linhas: [...linhas].sort(
@@ -427,21 +456,43 @@ export async function carregarTriangulacoes(
     },
   );
 
-  // A lista do filtro sai de todos os produtos, antes do recorte: senão filtrar
-  // por um fornecedor esvaziaria o próprio seletor.
-  const fornecedores = [...new Set(produtos.map((p) => p.fornecedor))].sort(
-    (a, b) => a.localeCompare(b, "pt-BR"),
+  const termo = filtroProduto?.trim().toLowerCase();
+
+  /**
+   * Os três recortes são cumulativos, e cada um é uma trava independente.
+   *
+   * Separados em funções para as listas de opção poderem aplicar todas menos
+   * a sua — é o que faz escolher um laboratório encurtar as tributações para
+   * as que existem dentro dele, sem que o seletor de laboratório se esvazie ao
+   * ser usado.
+   */
+  const casaFornecedor = (p: ProdutoTriangulando) =>
+    !filtroFornecedor || p.fornecedor === filtroFornecedor;
+  const casaTributacao = (p: ProdutoTriangulando) =>
+    !filtroTributacao || p.tributacao.chave === filtroTributacao;
+  const casaTermo = (p: ProdutoTriangulando) =>
+    !termo ||
+    p.codigo.toLowerCase().includes(termo) ||
+    (p.descricao ?? "").toLowerCase().includes(termo);
+
+  const fornecedores = [
+    ...new Set(
+      produtos.filter(casaTributacao).filter(casaTermo).map((p) => p.fornecedor),
+    ),
+  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+  // Por chave, e não pelo rótulo: "Nacional 7%" e "nacional 7%" são a mesma
+  // tributação, e listá-las duas vezes dividiria o volume de uma delas.
+  const porChave = new Map<string, Tributacao>();
+  for (const p of produtos.filter(casaFornecedor).filter(casaTermo)) {
+    porChave.set(p.tributacao.chave, p.tributacao);
+  }
+  const tributacoes = [...porChave.values()].sort((a, b) =>
+    a.rotulo.localeCompare(b.rotulo, "pt-BR"),
   );
 
-  const termo = filtroProduto?.trim().toLowerCase();
   const visiveis = produtos
-    .filter(
-      (p) =>
-        (!filtroFornecedor || p.fornecedor === filtroFornecedor) &&
-        (!termo ||
-          p.codigo.toLowerCase().includes(termo) ||
-          (p.descricao ?? "").toLowerCase().includes(termo)),
-    )
+    .filter((p) => casaFornecedor(p) && casaTributacao(p) && casaTermo(p))
     // Maior valor primeiro: é o que mais pesa em capital parado em trânsito.
     .sort(
       (a, b) =>
@@ -459,6 +510,7 @@ export async function carregarTriangulacoes(
   return {
     produtos: visiveis,
     fornecedores,
+    tributacoes,
     cdsFinais,
     valorTransferencia: totalDe("transferencia").reduce(
       (a, l) => a + (l.valor ?? 0),

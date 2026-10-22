@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { WorkflowRota } from "@/components/produto/workflow-rota";
 import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
+import { normalizarTributacao } from "@/utils/tributacao";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +39,8 @@ export const dynamic = "force-dynamic";
 type SearchParams = {
   produto?: string | string[];
   fornecedor?: string | string[];
+  /** Chave normalizada da tributação. */
+  tributacao?: string | string[];
   /** CD onde a rota termina — recorte, diferente de `cd`, que é o nível aberto. */
   destino?: string | string[];
   pag?: string | string[];
@@ -106,6 +109,13 @@ export default async function Triangulacoes({
   const params = await searchParams;
   const produto = primeiro(params.produto);
   const fornecedor = primeiro(params.fornecedor);
+  // A URL carrega o rótulo — "Nacional 7%" é legível e compartilhável, a chave
+  // em minúscula não. A consulta compara pela chave, e normalizar aqui faz as
+  // duas pontas se encontrarem: qualquer grafia na URL cai na mesma chave.
+  const tributacao = primeiro(params.tributacao);
+  const chaveTributacao = tributacao
+    ? normalizarTributacao(tributacao).chave
+    : undefined;
   const destino = primeiro(params.destino);
   const pagPedida = Number(primeiro(params.pag) ?? 1) || 1;
 
@@ -113,7 +123,14 @@ export default async function Triangulacoes({
   const parametros = await lerParametros();
 
   const [dados, rotulos] = await Promise.all([
-    carregarTriangulacoes(dataReferencia, parametros, produto, fornecedor, destino),
+    carregarTriangulacoes(
+      dataReferencia,
+      parametros,
+      produto,
+      fornecedor,
+      destino,
+      chaveTributacao,
+    ),
     carregarRotulosFiliais(),
   ]);
 
@@ -138,6 +155,7 @@ export default async function Triangulacoes({
     const base: Record<string, string | undefined> = {
       produto,
       fornecedor,
+      tributacao,
       destino,
       pag: pagina > 1 ? String(pagina) : undefined,
       prod: prodAberto,
@@ -219,6 +237,9 @@ export default async function Triangulacoes({
               {fornecedor ? (
                 <input type="hidden" name="fornecedor" value={fornecedor} />
               ) : null}
+              {tributacao ? (
+                <input type="hidden" name="tributacao" value={tributacao} />
+              ) : null}
               {destino ? <input type="hidden" name="destino" value={destino} /> : null}
               <div className="space-y-1.5">
                 <label htmlFor="produto" className="text-xs text-muted-foreground">
@@ -242,12 +263,33 @@ export default async function Triangulacoes({
               ) : null}
             </form>
 
-            <FiltroFornecedor
-              fornecedores={dados.fornecedores}
-              atual={fornecedor}
-              basePath="/triangulacoes"
-              extras={{ produto, destino }}
-            />
+            {/* Os dois recortes são cumulativos e cada um preserva o outro no
+                link: dá para escolher um laboratório e, dentro dele, uma
+                tributação, ou o contrário. As listas de opção já vêm apuradas
+                sem o próprio filtro, então nenhuma escolha leva a tela vazia. */}
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+              <FiltroFornecedor
+                fornecedores={dados.fornecedores}
+                atual={fornecedor}
+                basePath="/triangulacoes"
+                extras={{ produto, destino, tributacao }}
+              />
+
+              <FiltroFornecedor
+                fornecedores={dados.tributacoes.map((t) => t.rotulo)}
+                atual={
+                  dados.tributacoes.find((t) => t.chave === chaveTributacao)
+                    ?.rotulo
+                }
+                basePath="/triangulacoes"
+                extras={{ produto, destino, fornecedor }}
+                param="tributacao"
+                rotulo="Tributação"
+                icone="tributacao"
+                placeholder="Todas as tributações"
+                avisoDesconhecido="Tributação não encontrada neste recorte."
+              />
+            </div>
 
             {/* CD final: onde a rota termina, não a próxima parada. É a
                 pergunta que a tela responde mal sem filtro — uma triangulação

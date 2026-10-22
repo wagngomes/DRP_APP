@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizarTributacao } from "@/utils/tributacao";
 
 import type { LinhaTriangulacao, ProdutoTriangulando } from "./consultas";
 import {
@@ -49,6 +50,7 @@ function produto(
     codigo,
     descricao: `Produto ${codigo}`,
     fornecedor: "ACME",
+    tributacao: normalizarTributacao("Nacional 7%"),
     linhas,
     quantidade: 0,
     valorTransferencia: 0,
