@@ -19,6 +19,7 @@ import { FiltroOrigemDocumento } from "@/components/triangulacoes/filtro-origem"
 import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
 import { lerParametros } from "@/lib/parametros.server";
+import { normalizarTributacao } from "@/utils/tributacao";
 
 /**
  * Visão gerencial das triangulações, por trecho.
@@ -55,12 +56,21 @@ export default async function TriangulacoesGerenciais({
 }: {
   searchParams: Promise<{
     fornecedor?: string | string[];
+    /** Chave normalizada da tributação; a URL carrega o rótulo. */
+    tributacao?: string | string[];
     origem?: string | string[];
   }>;
 }) {
   const sessao = await exigirSessao();
   const params = await searchParams;
   const fornecedor = primeiro(params.fornecedor);
+  // A URL carrega o rótulo ("Nacional 7%"), que é legível e compartilhável; a
+  // consulta compara pela chave. Normalizar aqui faz as duas pontas se
+  // encontrarem com qualquer grafia.
+  const tributacao = primeiro(params.tributacao);
+  const chaveTributacao = tributacao
+    ? normalizarTributacao(tributacao).chave
+    : undefined;
 
   const pedida = primeiro(params.origem);
   const origem: FiltroOrigem =
@@ -72,7 +82,14 @@ export default async function TriangulacoesGerenciais({
   ]);
 
   const [dados, rotulos] = await Promise.all([
-    carregarTriangulacoes(dataReferencia, parametros, undefined, fornecedor),
+    carregarTriangulacoes(
+      dataReferencia,
+      parametros,
+      undefined,
+      fornecedor,
+      undefined,
+      chaveTributacao,
+    ),
     carregarRotulosFiliais(),
   ]);
 
@@ -115,13 +132,37 @@ export default async function TriangulacoesGerenciais({
             <FiltroOrigemDocumento
               atual={origem}
               basePath="/triangulacoes/gerencial"
-              extras={{ fornecedor }}
+              extras={{ fornecedor, tributacao }}
             />
+            {/* Laboratório e tributação são cumulativos, e cada um preserva o
+                outro no link: dá para escolher um laboratório e, dentro dele,
+                uma tributação, ou o contrário. As listas já vêm apuradas sem o
+                próprio filtro, então nenhuma escolha leva a tela vazia. */}
             <FiltroFornecedor
               fornecedores={dados.fornecedores}
               atual={fornecedor}
               basePath="/triangulacoes/gerencial"
-              extras={{ origem: origem === "tudo" ? undefined : origem }}
+              extras={{
+                origem: origem === "tudo" ? undefined : origem,
+                tributacao,
+              }}
+            />
+            <FiltroFornecedor
+              fornecedores={dados.tributacoes.map((t) => t.rotulo)}
+              atual={
+                dados.tributacoes.find((t) => t.chave === chaveTributacao)
+                  ?.rotulo
+              }
+              basePath="/triangulacoes/gerencial"
+              extras={{
+                origem: origem === "tudo" ? undefined : origem,
+                fornecedor,
+              }}
+              param="tributacao"
+              rotulo="Tributação"
+              icone="tributacao"
+              placeholder="Todas as tributações"
+              avisoDesconhecido="Tributação não encontrada neste recorte."
             />
             {/* Ponte para a outra tela: esta aponta onde olhar, aquela resolve o
                 caso concreto por produto. */}
