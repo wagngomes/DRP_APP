@@ -110,10 +110,11 @@ export default async function TriangulacoesGerenciais({
       papel={sessao.usuario.papel}
     >
       <div className="space-y-4">
-        {/* Empilhado no celular, lado a lado a partir de `lg`. Em telas médias
-            os dois filtros e o botão não cabem na mesma linha do título, e
-            deixá-los tentar produzia uma quebra diferente a cada largura. */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        {/* Título e navegação em cima, filtros numa linha própria embaixo.
+            Os três filtros ao lado do título não cabem — cada um carrega o
+            próprio par de botões, e com a tributação a linha quebrava no meio.
+            Com a largura inteira à disposição, eles ficam na mesma linha. */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-xs font-medium tracking-widest text-muted-foreground uppercase">
               <Network className="size-3.5" />
@@ -128,53 +129,56 @@ export default async function TriangulacoesGerenciais({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-end gap-2">
-            <FiltroOrigemDocumento
-              atual={origem}
-              basePath="/triangulacoes/gerencial"
-              extras={{ fornecedor, tributacao }}
-            />
-            {/* Laboratório e tributação são cumulativos, e cada um preserva o
+          {/* Ponte para a outra tela: esta aponta onde olhar, aquela resolve o
+              caso concreto por produto. Fica com o título e não com os filtros
+              porque é navegação, não recorte. */}
+          <Button
+            variant="outline"
+            size="sm"
+            render={<Link href="/triangulacoes" />}
+          >
+            <ArrowLeftRight className="size-4" />
+            Por produto
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+          <FiltroOrigemDocumento
+            atual={origem}
+            basePath="/triangulacoes/gerencial"
+            extras={{ fornecedor, tributacao }}
+          />
+          {/* Laboratório e tributação são cumulativos, e cada um preserva o
                 outro no link: dá para escolher um laboratório e, dentro dele,
                 uma tributação, ou o contrário. As listas já vêm apuradas sem o
                 próprio filtro, então nenhuma escolha leva a tela vazia. */}
-            <FiltroFornecedor
-              fornecedores={dados.fornecedores}
-              atual={fornecedor}
-              basePath="/triangulacoes/gerencial"
-              extras={{
-                origem: origem === "tudo" ? undefined : origem,
-                tributacao,
-              }}
-            />
-            <FiltroFornecedor
-              fornecedores={dados.tributacoes.map((t) => t.rotulo)}
-              atual={
-                dados.tributacoes.find((t) => t.chave === chaveTributacao)
-                  ?.rotulo
-              }
-              basePath="/triangulacoes/gerencial"
-              extras={{
-                origem: origem === "tudo" ? undefined : origem,
-                fornecedor,
-              }}
-              param="tributacao"
-              rotulo="Tributação"
-              icone="tributacao"
-              placeholder="Todas as tributações"
-              avisoDesconhecido="Tributação não encontrada neste recorte."
-            />
-            {/* Ponte para a outra tela: esta aponta onde olhar, aquela resolve o
-                caso concreto por produto. */}
-            <Button
-              variant="outline"
-              size="sm"
-              render={<Link href="/triangulacoes" />}
-            >
-              <ArrowLeftRight className="size-4" />
-              Por produto
-            </Button>
-          </div>
+          <FiltroFornecedor
+            fornecedores={dados.fornecedores}
+            atual={fornecedor}
+            basePath="/triangulacoes/gerencial"
+            extras={{
+              origem: origem === "tudo" ? undefined : origem,
+              tributacao,
+            }}
+            compacto
+          />
+          <FiltroFornecedor
+            fornecedores={dados.tributacoes.map((t) => t.rotulo)}
+            atual={
+              dados.tributacoes.find((t) => t.chave === chaveTributacao)?.rotulo
+            }
+            basePath="/triangulacoes/gerencial"
+            extras={{
+              origem: origem === "tudo" ? undefined : origem,
+              fornecedor,
+            }}
+            param="tributacao"
+            rotulo="Tributação"
+            icone="tributacao"
+            placeholder="Todas as tributações"
+            avisoDesconhecido="Tributação não encontrada neste recorte."
+            compacto
+          />
         </div>
 
         {/* Totais do que está em trânsito **agora**. Não incluem o "vai passar":

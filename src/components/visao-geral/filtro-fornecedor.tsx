@@ -35,6 +35,7 @@ export function FiltroFornecedor({
   placeholder = "Todos os laboratórios",
   /** Aviso quando o texto digitado não está na lista. */
   avisoDesconhecido = "Laboratório não encontrado na base desta data.",
+  compacto = false,
 }: {
   fornecedores: string[];
   atual?: string;
@@ -61,6 +62,14 @@ export function FiltroFornecedor({
   icone?: keyof typeof ICONES;
   placeholder?: string;
   avisoDesconhecido?: string;
+  /**
+   * Campo mais estreito, para dois destes caberem na mesma linha.
+   *
+   * Cada controle carrega o próprio par de botões, então dois deles com a
+   * largura cheia estouram a linha e quebram — foi o que aconteceu no Tracking
+   * quando a tributação entrou ao lado do laboratório.
+   */
+  compacto?: boolean;
 }) {
   const [valor, setValor] = useState(atual ?? "");
   const [aplicando, iniciar] = useTransition();
@@ -114,7 +123,7 @@ export function FiltroFornecedor({
             placeholder={placeholder}
             // Largura fixa só a partir de `sm`: 16rem num celular de 375px
             // estoura a linha e empurra o botão para fora da tela.
-            className="w-full pl-8 sm:w-64"
+            className={`w-full pl-8 ${compacto ? "sm:w-52" : "sm:w-64"}`}
             disabled={aplicando}
             aria-invalid={!conhecido}
           />
@@ -141,9 +150,13 @@ export function FiltroFornecedor({
       </Button>
 
       {/* "Limpar" fica no layout mesmo sem filtro aplicado, apenas invisível:
-          aparecendo e sumindo, ele reposicionava tudo à direita a cada filtro. */}
+          aparecendo e sumindo, ele reposicionava tudo à direita a cada filtro.
+          No modo compacto fica só o ícone — dois controles lado a lado
+          reservariam 180px de espaço morto para um botão que quase sempre está
+          invisível. */}
       <Button
         variant="ghost"
+        size={compacto ? "icon" : undefined}
         onClick={() => {
           setValor("");
           aplicar("");
@@ -151,10 +164,12 @@ export function FiltroFornecedor({
         disabled={aplicando || !atual}
         className={atual ? "" : "invisible"}
         aria-hidden={!atual}
+        aria-label="Limpar filtro"
+        title="Limpar filtro"
         tabIndex={atual ? undefined : -1}
       >
         <X className="size-4" />
-        Limpar
+        {compacto ? null : "Limpar"}
       </Button>
 
       {!conhecido ? (
