@@ -70,6 +70,15 @@ export type ContextoArvore = {
   retido?: number;
   /** Plano de compra do mês **anterior**, e se ele cobria a necessidade. */
   planoMesAnterior?: { plano: number; necessidade: number };
+  /**
+   * A posição existia no mês anterior — tinha forecast ou venda lá.
+   *
+   * Decide se o ramo da abertura tem o que perguntar. Posição que nasceu neste
+   * mês não tem mês anterior a cobrar, e insistir produzia duas respostas
+   * igualmente ruins: travar em "indefinida" ou acusar "sem plano no mês
+   * anterior" um item que não existia para ter plano.
+   */
+  existiaNoMesAnterior?: boolean;
   /** A compra do mês anterior chegou dentro do prazo. */
   compraMesAnteriorNoPrazo?: boolean | null;
   /** Saldo do plano na data limite de compra. */
@@ -236,11 +245,28 @@ export const ARVORE: No[] = [
       };
       return a.disponivel <= 0 || a.abaixoDaPolitica ? sim(ev) : nao(ev);
     },
-    sim: "A1",
+    sim: "A0",
     nao: "B1",
   },
 
   // ---- ponto de partida: por que o mês abriu assim -------------------------
+  {
+    id: "A0",
+    pergunta: "A posição existia no mês anterior?",
+    // Porteiro do ramo da abertura. Sem ele, posição nascida neste mês caía
+    // nas perguntas do mês anterior e travava em A1 ou A2 por falta de dado —
+    // dado que não falta, simplesmente não existe, porque a posição não
+    // existia. O "não" desce para o plano do mês corrente, que é onde a
+    // resposta de uma posição nova realmente está.
+    teste: (c) =>
+      c.existiaNoMesAnterior === undefined
+        ? semDado()
+        : c.existiaNoMesAnterior
+          ? sim()
+          : nao({ existia_no_mes_anterior: false }),
+    sim: "A1",
+    nao: "B1",
+  },
   {
     id: "A1",
     pergunta: "A venda do mês anterior superou o forecast daquele mês?",
@@ -256,6 +282,10 @@ export const ARVORE: No[] = [
   {
     id: "A2",
     pergunta: "Havia plano de compra no mês anterior?",
+    // `planoMesAnterior` só chega indefinido quando **não houve carga** de
+    // `plano_compra` naquele mês. Item ausente de uma carga que existe chega
+    // aqui com plano zero, e a resposta é "não" — fato, não falta de dado. É a
+    // mesma distinção que B3 já fazia para pedidos.
     teste: (c) => {
       const p = c.planoMesAnterior;
       if (!p) return semDado();

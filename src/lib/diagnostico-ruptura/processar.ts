@@ -311,15 +311,23 @@ export function contextoDe(b: Bases, e: Evento): ContextoArvore {
     // A necessidade do mês anterior é medida contra o forecast *daquele* mês:
     // cobrar o plano de agosto pela previsão de setembro seria cobrar outra
     // decisão.
-    planoMesAnterior:
-      mesAnterior && b.sinais.planoAnterior.has(e.codigo)
-        ? {
-            plano: b.sinais.planoAnterior.get(e.codigo)!,
-            necessidade:
-              (mesAnterior.forecast / 30) *
-              (leadTime + (abertura?.politicaDias ?? 0)),
-          }
-        : undefined,
+    // Existia no mês anterior quando houve forecast ou venda lá. Sem isso, o
+    // ramo da abertura não tem o que perguntar: não se cobra o plano do mês
+    // anterior de uma posição que não existia nele.
+    existiaNoMesAnterior: mesAnterior !== undefined,
+    // Com carga do mês, o item ausente dela tinha plano zero — e isso é fato.
+    // Sem carga nenhuma, fica indefinido, que é o que o nó precisa distinguir.
+    planoMesAnterior: b.sinais.planoAnterior.houveCarga
+      ? {
+          plano: b.sinais.planoAnterior.porCodigo.get(e.codigo) ?? 0,
+          // A necessidade é medida contra o forecast **daquele** mês. Sem ele,
+          // cai no forecast corrente: é aproximação, e melhor que descartar o
+          // plano conhecido por falta da régua.
+          necessidade:
+            ((mesAnterior?.forecast ?? forecastMensal) / 30) *
+            (leadTime + (abertura?.politicaDias ?? 0)),
+        }
+      : undefined,
     compraMesAnteriorNoPrazo: compraAnterior
       ? compraAnterior.atrasadas === 0
       : undefined,

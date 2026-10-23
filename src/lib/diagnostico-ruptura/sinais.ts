@@ -57,9 +57,24 @@ function ultimoSnapshotSql(tabela: string, param: string): string {
  * correlacionadas sobre o mês inteiro para devolver dois números que esta
  * pergunta não usa.
  */
+export type PlanoDoMesAnterior = {
+  /** Quantidade planejada por código. */
+  porCodigo: Map<string, number>;
+  /**
+   * Houve carga de `plano_compra` naquele mês.
+   *
+   * A distinção que separa duas respostas opostas para a mesma ausência: sem
+   * carga nenhuma, não se sabe se havia plano; **com** carga, o item que não
+   * aparece nela simplesmente não tinha plano — e isso é fato, não falta de
+   * dado. Era a mesma confusão que o nó B3 já tinha resolvido para pedidos, e
+   * que aqui mandava todo o ramo da abertura para "indefinida".
+   */
+  houveCarga: boolean;
+};
+
 export async function planoDoMesAnterior(
   data: string,
-): Promise<Map<string, number>> {
+): Promise<PlanoDoMesAnterior> {
   const { inicio, fim } = mesAnteriorDe(data);
 
   const linhas = await prisma.$queryRawUnsafe<
@@ -77,7 +92,12 @@ export async function planoDoMesAnterior(
     fim,
   );
 
-  return new Map(linhas.map((l) => [l.codigo, l.plano]));
+  return {
+    porCodigo: new Map(linhas.map((l) => [l.codigo, l.plano])),
+    // Linha devolvida é carga existente: a consulta já recorta pela última
+    // importação daquele mês, então zero linhas significa mês sem carga.
+    houveCarga: linhas.length > 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -547,7 +567,7 @@ export async function percursoInterno(
 // ---------------------------------------------------------------------------
 
 export type Sinais = {
-  planoAnterior: Map<string, number>;
+  planoAnterior: PlanoDoMesAnterior;
   compraAnterior: Map<string, CompraMesAnterior>;
   pedidos: Map<string, PedidoDoCiclo>;
   movimento: Map<string, MovimentoPlano>;

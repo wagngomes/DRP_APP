@@ -28,7 +28,11 @@ flowchart TD
     D2 -->|não| D3
 
     D3{"Abrimos o mês já rompido<br/>ou abaixo da política<br/>do item × CD?"}
-    D3 -->|sim| A1
+    D3 -->|sim| A0
+
+    A0{"A posição existia<br/>no mês anterior?"}
+    A0 -->|sim| A1
+    A0 -->|não| B1
     D3 -->|não| B1
 
     A1{"A venda do mês anterior<br/>superou o forecast<br/>daquele mês?"}
@@ -154,6 +158,7 @@ nunca sugeriu.
 | **D1** | estoque retido | `est_arm_q40`, `est_arm_rc`, `bloqueio`, `reserva` | qualquer um acima de zero |
 | **D2** | forecast novo | `forecast` contra **o snapshot imediatamente anterior** | `forecast_m0` era zero ou a linha não existia |
 | **D3** | abertura descoberta | foto de abertura do `simulador` contra `forecast.politica` | disponível menor que consumo diário vezes política |
+| **A0** | — (porteiro do ramo) | `forecast` ou `historico_vendas` do mes anterior | sem nenhum dos dois, desce para o plano do mes |
 | **A1 / V1** | venda acelerada | `historico_vendas` contra `forecast_m0` | mais de 20% acima do previsto proporcional |
 | **V1a** | transferencia nao feita | `sobraDetalhada`: estoque de outro CD acima do Alvo | qualquer sobra, quando nada mais explicou |
 | **A2 / B1** | sem plano | `plano_compra` do mês | ausente ou zero |
@@ -416,6 +421,38 @@ algo que ja estava caido.
 
 As falhas 4 e 5 se alimentavam: com o inicio errado, a contagem de aviso ia
 olhar o mes anterior, que era ruptura.
+
+### 17. O ramo da abertura perguntava o que nao tinha como ser respondido
+
+Depois da correcao do piso no D2, a producao veio cheia de "indefinida". Nao foi
+regressao: a correcao parou de **esconder** o problema. Casos que antes eram
+absorvidos por "nova abertura" — alguns por causalidade invertida — passaram a
+seguir para D3 e cair no ramo da abertura, que era justamente onde o percurso
+travava.
+
+Duas falhas estruturais ali, e a segunda e a mesma que o B3 ja tinha resolvido
+para pedidos:
+
+**A posicao nova nao tem mes anterior a cobrar.** Item que nasceu neste mes caia
+em A1 e A2, perguntas sobre o mes anterior, e travava por falta de dado — dado
+que nao falta, simplesmente nao existe, porque a posicao nao existia. O no **A0**
+e o porteiro: sem forecast nem venda no mes anterior, o percurso desce direto
+para B1, que e onde a resposta de uma posicao nova realmente esta.
+
+Sem esse porteiro havia so duas saidas, as duas ruins: travar em "indefinida" ou
+acusar "sem plano no mes anterior" um item que nao existia para ter plano.
+
+**Carga que existe e nao traz o item significa plano zero.** `planoDoMesAnterior`
+devolvia um mapa, e `has(codigo)` falso confundia duas coisas opostas: mes sem
+carga nenhuma (nao se sabe) e item ausente de uma carga que existe (**nao havia
+plano**, que e fato). Agora a funcao reporta `houveCarga`, e so a primeira
+situacao trava.
+
+Havia ainda um acoplamento errado: o plano do mes anterior so era usado quando a
+posicao tambem tinha venda ou forecast naquele mes. Sao coisas independentes —
+o plano conhecido era descartado por falta de uma regua que nem sempre faz
+falta. A necessidade cai para o forecast corrente quando o do mes anterior nao
+existe, o que e aproximacao declarada e melhor que jogar o plano fora.
 
 ### 10. Falta de dado nao acusa ninguem
 

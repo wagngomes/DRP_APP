@@ -61,6 +61,9 @@ function contexto(over: Partial<ContextoArvore> = {}): ContextoArvore {
     },
     retido: 0,
     cargaSuspeita: false,
+    // A posição existia no mês anterior: sem isto todo teste pararia no
+    // porteiro A0, que é a primeira pergunta do ramo da abertura.
+    existiaNoMesAnterior: true,
     ...over,
   };
 }
@@ -555,5 +558,82 @@ describe("D2 — abertura de forecast e causalidade", () => {
       }),
     );
     expect(r.causa).not.toBe("nova_abertura");
+  });
+});
+
+describe("A0 e A2 — o ramo da abertura e a ausência de dado", () => {
+  const abriuDescoberto = {
+    codigo: "100",
+    filial: "1006",
+    disponivel: 0,
+    aCaminho: 0,
+    politicaDias: 15,
+    consumoDiario: 10,
+    coberturaDias: 0,
+    abaixoDaPolitica: true,
+  };
+
+  /**
+   * O porteiro. Posição nascida neste mês não tem mês anterior a cobrar, e
+   * insistir produzia duas respostas igualmente ruins: travar em "indefinida"
+   * ou acusar "sem plano no mês anterior" um item que não existia para ter
+   * plano.
+   */
+  it("posição nova desce para o plano do mês, não trava no mês anterior", () => {
+    const r = classificar(
+      contexto({
+        abertura: abriuDescoberto,
+        existiaNoMesAnterior: false,
+        mesAnterior: undefined,
+        planoMesAnterior: undefined,
+        planoDoMes: { plano: 0, saldo: 0 },
+      }),
+    );
+    expect(r.causa).toBe("fora_do_plano");
+    expect(r.incompleta).toBe(false);
+    expect(r.trilha.map((p) => p.no)).toContain("A0");
+  });
+
+  /**
+   * A distinção que B3 já fazia para pedidos, agora para o plano: carga que
+   * existe e não traz o item significa plano zero — fato, não falta de dado.
+   */
+  it("item ausente de uma carga existente tem plano zero, e isso é fato", () => {
+    const r = classificar(
+      contexto({
+        abertura: abriuDescoberto,
+        mesAnterior: {
+          codigo: "100",
+          filial: "1006",
+          vendido: 100,
+          forecast: 300,
+          indice: 100 / 300,
+          excedente: 0,
+        },
+        planoMesAnterior: { plano: 0, necessidade: 230 },
+      }),
+    );
+    expect(r.causa).toBe("sem_plano_mes_anterior");
+    expect(r.incompleta).toBe(false);
+  });
+
+  it("sem carga nenhuma do mês anterior, continua indefinida", () => {
+    // Aqui a ausência é de dado mesmo: não dá para saber se havia plano.
+    const r = classificar(
+      contexto({
+        abertura: abriuDescoberto,
+        mesAnterior: {
+          codigo: "100",
+          filial: "1006",
+          vendido: 100,
+          forecast: 300,
+          indice: 100 / 300,
+          excedente: 0,
+        },
+        planoMesAnterior: undefined,
+      }),
+    );
+    expect(r.causa).toBe("indefinida");
+    expect(r.trilha.at(-1)?.no).toBe("A2");
   });
 });
