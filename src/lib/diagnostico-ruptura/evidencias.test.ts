@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { causasAlcancaveis, type ContextoArvore } from "@/lib/diagnostico-ruptura/arvore";
+import {
+  causasAlcancaveis,
+  type ContextoArvore,
+} from "@/lib/diagnostico-ruptura/arvore";
 import { evidenciar } from "@/lib/diagnostico-ruptura/evidencias";
 import type { ExtrasEvidencia } from "@/lib/diagnostico-ruptura/evidencias";
 
@@ -24,6 +27,7 @@ function contexto(over: Partial<ContextoArvore> = {}): ContextoArvore {
       snapshots: 4,
       valorPerdido: 1000,
       tinhaRetido: false,
+      comecouAntes: false,
     },
     de: "2026-09-01",
     ate: "2026-09-10",

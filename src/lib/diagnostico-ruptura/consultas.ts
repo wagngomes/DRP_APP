@@ -72,6 +72,12 @@ export type LinhaRuptura = {
   balanceamento: boolean;
   /** Dias abaixo do Gatilho antes de zerar; nulo sem histórico medido. */
   diasAviso: number | null;
+  /**
+   * A ruptura já corria quando a janela começou.
+   *
+   * Quando verdadeiro, `dias` e `valorPerdido` são piso, não medida.
+   */
+  comecouAntes: boolean;
 };
 
 export const POR_PAGINA = 25;
@@ -103,6 +109,8 @@ export type DadosDiagnostico = {
     comAviso_: number;
     /** Caíram de uma vez: ninguém tinha como reagir. */
     semAviso: number;
+    /** Já rompidas quando a janela começou: a duração é piso, não medida. */
+    comecaramAntes: number;
   };
   contagens: ContagemCausa[];
   /**
@@ -187,8 +195,14 @@ export async function carregarDiagnostico(
       }),
     ]);
 
-  const [herdadas, comAviso, comBalanceamento, avisoSim, avisoNao] =
-    await Promise.all([
+  const [
+    herdadas,
+    comAviso,
+    comBalanceamento,
+    avisoSim,
+    avisoNao,
+    comecaramAntes,
+  ] = await Promise.all([
     prisma.rupturaEvento.count({
       where: { ...filtro, herdada_abertura: true },
     }),
@@ -205,6 +219,7 @@ export async function carregarDiagnostico(
     prisma.rupturaEvento.count({
       where: { ...where({ ...filtros, aviso: undefined }), dias_aviso: 0 },
     }),
+    prisma.rupturaEvento.count({ where: { ...filtro, comecou_antes: true } }),
   ]);
 
   return {
@@ -225,6 +240,7 @@ export async function carregarDiagnostico(
       resumo: (e.arvore_evidencias as Evidencia | null)?.resumo ?? null,
       balanceamento: e.arvore_balanceamento,
       diasAviso: e.dias_aviso,
+      comecouAntes: e.comecou_antes,
     })),
     total,
     pagina,
@@ -238,6 +254,7 @@ export async function carregarDiagnostico(
       comBalanceamento,
       comAviso_: avisoSim,
       semAviso: avisoNao,
+      comecaramAntes,
     },
     contagens,
     lacunas,
@@ -415,6 +432,7 @@ export async function carregarDetalhe(
     resumo: evidencia?.resumo ?? null,
     balanceamento: e.arvore_balanceamento,
     diasAviso: e.dias_aviso,
+    comecouAntes: e.comecou_antes,
     trilha: (e.arvore_trilha as PassoTrilha[] | null) ?? [],
     evidencia,
   };

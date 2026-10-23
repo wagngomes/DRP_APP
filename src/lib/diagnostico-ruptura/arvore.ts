@@ -205,8 +205,17 @@ export const ARVORE: No[] = [
         (Date.parse(`${c.evento.inicio}T00:00:00Z`) -
           Date.parse(`${a.data}T00:00:00Z`)) /
         86_400_000;
-      const ev = { aberto_em: a.data, dias_ate_a_ruptura: dias, lead_time: c.leadTime };
-      return dias <= c.leadTime ? sim(ev) : nao(ev);
+      const ev = {
+        aberto_em: a.data,
+        dias_ate_a_ruptura: dias,
+        lead_time: c.leadTime,
+      };
+      // `dias >= 0` não é detalhe: sem o piso, um forecast ligado **depois** da
+      // ruptura passava no teste e virava a causa dela. Visto na tela, com a
+      // própria evidência imprimindo "a ruptura começou -19 dias depois" —
+      // forecast de 20/10 explicando ruptura de 01/10. Abertura posterior ao
+      // fato não causa o fato.
+      return dias >= 0 && dias <= c.leadTime ? sim(ev) : nao(ev);
     },
     sim: "nova_abertura",
     nao: "D3",

@@ -779,6 +779,18 @@ model RupturaEvento {
   dias   Int
 
   /**
+   * A ruptura já corria quando a janela do motor começou.
+   *
+   * O evento é montado sobre a janela que vai do marco de abertura do mês até
+   * a data de referência, então uma ruptura iniciada antes disso recebe
+   * `inicio` no primeiro dia da janela. Quando esta coluna é verdadeira,
+   * `dias` e `valor_perdido` são **piso**, não medida — a duração real é
+   * maior, e a tela precisa dizer isso em vez de afirmar uma data de início
+   * que é só o limite do que se enxerga.
+   */
+  comecou_antes Boolean @default(false)
+
+  /**
    * Dias consecutivos abaixo do Gatilho imediatamente antes de zerar.
    *
    * Modificador, não causa: não muda **o que** falhou, muda se alguém podia ter
@@ -898,6 +910,7 @@ model RupturaEvento {
   @@index([fornecedor])
   @@index([bu])
   @@index([dias_aviso])
+  @@index([comecou_antes])
   @@index([arvore_causa])
   @@index([arvore_balanceamento])
   @@map("ruptura_evento")

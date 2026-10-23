@@ -373,6 +373,50 @@ Permissivo de proposito. Sem saber o tipo do item, bloquear seria inventar uma
 restricao; o que a regra garante em todo caso e que par sem **nenhuma** linha
 ativa nunca passa.
 
+### 16. Causalidade invertida no D2, e o que ela escondia
+
+Um caso na tela denunciou cinco falhas encadeadas. O veredito era "forecast
+aberto sem tempo de comprar" e a propria evidencia imprimia a contradicao:
+
+> O forecast deste CD foi ligado em 20/10/2026 ... e a ruptura comecou **-19
+> dias depois** — menos que o lead time de 6 dias.
+
+Dezenove dias **negativos**. O forecast foi ligado depois da ruptura ja ter
+comecado.
+
+**1. O teste nao tinha piso.** `dias <= leadTime` com `dias = -19` passa.
+Abertura posterior ao fato nao causa o fato. Agora exige `dias >= 0`.
+
+**2. Pegava a abertura mais recente**, nao a que antecede a ruptura. O SQL
+ordenava `d DESC` para responder "se foi ligado, desligado e ligado de novo, o
+que importa e a ultima vez" — verdade para outra pergunta. `aberturasDeForecast`
+passou a devolver **todas** as aberturas em ordem, e `aberturaAntesDe` escolhe a
+ultima anterior a ruptura.
+
+**3. A janela de deteccao comecava no marco do mes.** Com `de` = 01/10, a
+primeira carga de outubro vira a linha de base e tudo que aparece depois parece
+novo — mesmo existindo em setembro. Era a origem do "CD novo para o item" em
+posicoes que o grafico mostrava com forecast desde o mes anterior. A janela
+passou a cobrir o mes anterior inteiro, a mesma ja usada pelo historico.
+
+**4. O inicio do evento e o limite da janela, nao o da ruptura.** O grafico dizia
+53 dias sem estoque e a tabela dizia 22 — os dois certos dentro da propria
+janela. A correcao completa (montar eventos sobre dois meses) mexe na ancora do
+replay e ficou para depois; por ora o evento carrega `comecouAntes`, e a tela
+mostra "22d+" com o selo "ja rompida antes da janela". A duracao vira **piso**
+declarado em vez de medida falsa.
+
+**5. Dia ja rompido contava como aviso.** `disponivel / consumoDiario < gatilho`
+e sempre verdadeiro com estoque zero, entao um item zerado o mes inteiro
+aparecia com "14 dias abaixo do Gatilho antes de zerar" — contando como alerta
+ignorado os dias em que a prateleira ja estava vazia. Aviso agora exige
+`disponivel > 0`, e quando a vespera ja estava zerada o resultado e `null`: nao
+havia periodo de aviso a medir, e responder zero diria "caiu de uma vez" sobre
+algo que ja estava caido.
+
+As falhas 4 e 5 se alimentavam: com o inicio errado, a contagem de aviso ia
+olhar o mes anterior, que era ruptura.
+
 ### 10. Falta de dado nao acusa ninguem
 
 Descoberto ao rodar a arvore nos 458 eventos de setembro. A primeira versao do

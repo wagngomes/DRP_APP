@@ -261,6 +261,16 @@ export type AberturaForecast = {
  * tinha previsão, hoje tem, e o item nasce rompido porque não houve prazo para
  * comprar nada.
  *
+ * **Devolve todas as aberturas da janela, em ordem**, e não só a última. Quem
+ * pergunta quer a abertura que **precede a ruptura**, e a mais recente pode ser
+ * posterior a ela: foi assim que um forecast ligado em 20/10 virou a explicação
+ * de uma ruptura começada em 01/10.
+ *
+ * A janela também precisa ser maior que o mês. Começando no marco do mês, a
+ * primeira carga vira a linha de base e tudo que aparece depois parece novo —
+ * mesmo existindo no mês anterior. Era a origem do "CD novo para o item" em
+ * posições que o gráfico mostrava com forecast desde o mês passado.
+ *
  * Duas formas do mesmo fato, distinguidas porque dizem coisas diferentes a
  * quem lê: a linha não existia (CD novo para o item) ou existia com zero
  * (o CD estava no cadastro e a previsão foi ligada).
@@ -270,10 +280,10 @@ export type AberturaForecast = {
  * uma abertura nova no dia seguinte.
  */
 export async function aberturasDeForecast(
-  /** Janela a examinar; normalmente os últimos dois meses. */
+  /** Janela a examinar; o mês anterior inteiro mais o corrente. */
   de: string,
   ate: string,
-): Promise<Map<string, AberturaForecast>> {
+): Promise<Map<string, AberturaForecast[]>> {
   const linhas = await prisma.$queryRawUnsafe<
     {
       codigo: string;
@@ -311,26 +321,51 @@ export async function aberturasDeForecast(
           AND ant.codigo = atual.codigo AND ant.filial = atual.filial
         WHERE par.anterior IS NOT NULL
      )
-     SELECT DISTINCT ON (codigo, filial)
-            codigo, filial, d AS data, forecast, linha_nova
+     SELECT codigo, filial, d AS data, forecast, linha_nova
        FROM passo
       WHERE COALESCE(forecast_antes, 0) = 0
-      -- A abertura mais recente de cada posição: se o forecast foi ligado,
-      -- desligado e ligado de novo, o que importa é a última vez.
-      ORDER BY codigo, filial, d DESC`,
+      -- Todas as aberturas, em ordem crescente. Se o forecast foi ligado,
+      -- desligado e ligado de novo, quem pergunta escolhe qual delas importa —
+      -- e o que importa e a anterior a ruptura, nao a ultima de todas.
+      ORDER BY codigo, filial, d`,
     de,
     ate,
   );
 
-  const mapa = new Map<string, AberturaForecast>();
+  const mapa = new Map<string, AberturaForecast[]>();
   for (const l of linhas) {
-    mapa.set(chave(l.codigo, l.filial), {
+    const k = chave(l.codigo, l.filial);
+    const item: AberturaForecast = {
       codigo: l.codigo,
       filial: l.filial,
       data: l.data.toISOString().slice(0, 10),
       forecast: l.forecast,
       linhaNova: l.linha_nova,
-    });
+    };
+    const lista = mapa.get(k);
+    if (lista) lista.push(item);
+    else mapa.set(k, [item]);
   }
   return mapa;
+}
+
+/**
+ * A abertura que explica uma ruptura: a última que aconteceu **antes** dela.
+ *
+ * Função pura e separada porque é a regra, não o carregamento. Abertura
+ * posterior à ruptura não a causa — e era exatamente o que a versão anterior
+ * devolvia ao pegar sempre a mais recente.
+ */
+export function aberturaAntesDe(
+  aberturas: AberturaForecast[] | undefined,
+  inicioDaRuptura: string,
+): AberturaForecast | undefined {
+  if (!aberturas || aberturas.length === 0) return undefined;
+  // A lista vem crescente; a última que não ultrapassa a ruptura é a resposta.
+  let escolhida: AberturaForecast | undefined;
+  for (const a of aberturas) {
+    if (a.data > inicioDaRuptura) break;
+    escolhida = a;
+  }
+  return escolhida;
 }

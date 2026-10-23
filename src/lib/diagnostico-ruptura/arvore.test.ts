@@ -40,6 +40,7 @@ function contexto(over: Partial<ContextoArvore> = {}): ContextoArvore {
       snapshots: 4,
       valorPerdido: 0,
       tinhaRetido: false,
+      comecouAntes: false,
     },
     de: "2026-09-01",
     ate: "2026-09-18",
@@ -126,7 +127,10 @@ describe("estrutura da árvore", () => {
 
   it("toda causa alcançável está no catálogo", () => {
     for (const slug of causasAlcancaveis()) {
-      expect(causaPorSlug(slug), `causa fora do catálogo: ${slug}`).toBeDefined();
+      expect(
+        causaPorSlug(slug),
+        `causa fora do catálogo: ${slug}`,
+      ).toBeDefined();
     }
   });
 });
@@ -459,12 +463,97 @@ describe("o código bate com o desenho", () => {
     const soNoCodigo = [...ramosDoCodigo.keys()].filter(
       (k) => !ramosDoDesenho.has(k),
     );
-    expect(soNoDesenho, `ramos só no desenho: ${soNoDesenho.join(", ")}`).toEqual([]);
-    expect(soNoCodigo, `ramos só no código: ${soNoCodigo.join(", ")}`).toEqual([]);
+    expect(
+      soNoDesenho,
+      `ramos só no desenho: ${soNoDesenho.join(", ")}`,
+    ).toEqual([]);
+    expect(soNoCodigo, `ramos só no código: ${soNoCodigo.join(", ")}`).toEqual(
+      [],
+    );
 
     const divergentes = [...ramosDoCodigo.entries()]
       .filter(([k, v]) => ramosDoDesenho.get(k) !== v)
       .map(([k, v]) => `${k} → código ${v}, desenho ${ramosDoDesenho.get(k)}`);
     expect(divergentes, divergentes.join(" · ")).toEqual([]);
+  });
+});
+
+describe("D2 — abertura de forecast e causalidade", () => {
+  const abertura = (data: string) => ({
+    codigo: "100",
+    filial: "1006",
+    data,
+    forecast: 2,
+    linhaNova: true,
+  });
+
+  /**
+   * O caso que a tela denunciou sozinha.
+   *
+   * O forecast do CD 1023 foi ligado em 20/10 e a ruptura começou em 01/10 — a
+   * abertura veio 19 dias **depois**. Sem o piso de zero, `-19 <= 6` passava e
+   * a tela imprimia "a ruptura começou -19 dias depois" como explicação.
+   */
+  it("NÃO culpa abertura que aconteceu depois da ruptura", () => {
+    const r = classificar(
+      contexto({
+        evento: {
+          codigo: "100",
+          filial: "1006",
+          inicio: "2026-10-01",
+          fim: null,
+          dias: 22,
+          snapshots: 10,
+          valorPerdido: 0,
+          tinhaRetido: false,
+          comecouAntes: false,
+        },
+        leadTime: 6,
+        aberturaForecast: abertura("2026-10-20"),
+      }),
+    );
+    expect(r.causa).not.toBe("nova_abertura");
+  });
+
+  it("culpa a abertura quando ela precede a ruptura dentro do lead time", () => {
+    const r = classificar(
+      contexto({
+        evento: {
+          codigo: "100",
+          filial: "1006",
+          inicio: "2026-10-20",
+          fim: null,
+          dias: 3,
+          snapshots: 3,
+          valorPerdido: 0,
+          tinhaRetido: false,
+          comecouAntes: false,
+        },
+        leadTime: 6,
+        aberturaForecast: abertura("2026-10-16"),
+      }),
+    );
+    expect(r.causa).toBe("nova_abertura");
+  });
+
+  it("abertura antiga não serve de desculpa", () => {
+    const r = classificar(
+      contexto({
+        evento: {
+          codigo: "100",
+          filial: "1006",
+          inicio: "2026-10-20",
+          fim: null,
+          dias: 3,
+          snapshots: 3,
+          valorPerdido: 0,
+          tinhaRetido: false,
+          comecouAntes: false,
+        },
+        leadTime: 6,
+        aberturaForecast: abertura("2026-08-01"),
+      }),
+    );
+    expect(r.causa).not.toBe("nova_abertura");
   });
 });

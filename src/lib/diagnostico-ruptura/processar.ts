@@ -20,7 +20,12 @@ import { snapshotMensalSql } from "@/utils/dias-estoque";
 import { limitesDoMes } from "@/utils/mes";
 import { subtrairDiasUteis } from "@/utils/projecao-transferencias";
 import { somarDias } from "./serie";
-import { aberturasDeForecast, carregarAbertura, chave } from "./abertura";
+import {
+  aberturaAntesDe,
+  aberturasDeForecast,
+  carregarAbertura,
+  chave,
+} from "./abertura";
 import { classificar, type Classificacao, type ContextoArvore } from "./arvore";
 import { carregarSinais, saldoEm } from "./sinais";
 import { carregarSlaAtivo, type SlaAtivo } from "./sla-ativo";
@@ -130,7 +135,13 @@ export async function carregarBases(dataReferencia: string): Promise<Bases> {
     sinais,
     sla,
   ] = await Promise.all([
-    aberturasDeForecast(de, dataReferencia),
+    // Dois meses, e não só o corrente: começando no marco do mês, a primeira
+    // carga vira a linha de base e todo forecast que aparece depois parece
+    // novo — mesmo existindo no mês anterior.
+    aberturasDeForecast(
+      limitesDoMes(somarDias(limitesDoMes(dataReferencia).inicio, -1)).inicio,
+      dataReferencia,
+    ),
     carregarFatos(de, dataReferencia),
     custoPorItem(),
     carregarSaldoPlano(dataReferencia),
@@ -285,7 +296,9 @@ export function contextoDe(b: Bases, e: Evento): ContextoArvore {
     forecastMensal,
     abertura,
     mesAnterior,
-    aberturaForecast: b.aberturas.get(k),
+    // A abertura **anterior** à ruptura, não a mais recente: forecast ligado
+    // depois do fato não o explica.
+    aberturaForecast: aberturaAntesDe(b.aberturas.get(k), e.inicio),
     planoDoMes: b.planos.get(e.codigo),
     leadTime,
     excedenteOutrosCds: totalDaSobra(b, e.codigo),
@@ -519,6 +532,7 @@ async function gravar(linhas: Diagnostico[]) {
           fornecedor: l.fornecedor,
           bu: l.bu,
           dias_aviso: l.diasAviso,
+          comecou_antes: l.evento.comecouAntes,
           descricao: l.descricao,
           inicio: new Date(`${l.evento.inicio}T00:00:00.000Z`),
           fim: l.evento.fim ? new Date(`${l.evento.fim}T00:00:00.000Z`) : null,

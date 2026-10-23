@@ -5,6 +5,7 @@ import {
   BellRing,
   CalendarClock,
   CircleHelp,
+  History,
   GitBranch,
   Search,
   Stethoscope,
@@ -601,8 +602,18 @@ export default async function DiagnosticoRuptura({
                       <span className="font-mono text-sm tabular-nums">
                         {l.filial}
                       </span>
-                      <span className="font-mono text-sm font-semibold tabular-nums">
-                        {`${l.dias}d`}
+                      {/* O "+" diz que a duração é piso: a ruptura já corria
+                          quando a janela do motor começou, então o número é o
+                          que dá para enxergar, não o que aconteceu. */}
+                      <span
+                        className="font-mono text-sm font-semibold tabular-nums"
+                        title={
+                          l.comecouAntes
+                            ? "Já estava rompida quando a janela começou: a duração real é maior"
+                            : undefined
+                        }
+                      >
+                        {`${l.dias}d${l.comecouAntes ? "+" : ""}`}
                       </span>
                       <span className="font-mono text-sm text-rose-600 tabular-nums dark:text-rose-400">
                         {moeda(l.valorPerdido)}
@@ -700,6 +711,12 @@ export default async function DiagnosticoRuptura({
                       ) : null}
                       {detalhe.herdada ? (
                         <Badge variant="secondary">herdada da abertura</Badge>
+                      ) : null}
+                      {detalhe.comecouAntes ? (
+                        <Badge className="gap-1 bg-slate-500/10 text-slate-700 dark:text-slate-300">
+                          <History className="size-3" />
+                          já rompida antes da janela
+                        </Badge>
                       ) : null}
                       <Link
                         href={`/raio-x?codigo=${encodeURIComponent(detalhe.codigo)}`}

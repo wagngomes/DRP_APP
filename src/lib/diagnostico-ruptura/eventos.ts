@@ -68,6 +68,15 @@ export type Evento = {
   valorPerdido: number;
   /** A posição tinha estoque preso em Q40/RC durante a ruptura. */
   tinhaRetido: boolean;
+  /**
+   * A ruptura já corria quando a janela começou.
+   *
+   * Verdadeiro quando o **primeiro dia medido** da posição na janela já estava
+   * rompido: nunca a vimos com estoque, então `inicio` é o limite do que se
+   * enxerga e não a data em que a prateleira esvaziou. `dias` e `valorPerdido`
+   * viram piso.
+   */
+  comecouAntes: boolean;
 };
 
 /**
@@ -256,7 +265,10 @@ export function montarEventos(
 
     const fechar = (fim: string | null) => {
       if (atual.length === 0) return;
-      eventos.push(montarEvento(atual, fim, ate, custos));
+      // Já rompida no primeiro dia medido: nunca a vimos com estoque, então o
+      // início é o limite da janela e não a data em que a prateleira esvaziou.
+      const comecouAntes = atual[0].data === dias[0].data;
+      eventos.push(montarEvento(atual, fim, ate, custos, comecouAntes));
       atual = [];
     };
 
@@ -281,6 +293,7 @@ function montarEvento(
   fim: string | null,
   ate: string,
   custos: Map<string, number>,
+  comecouAntes: boolean,
 ): Evento {
   const primeiro = seq[0];
   // Aberto mede até a referência; fechado, até o dia em que o estoque voltou.
@@ -307,6 +320,7 @@ function montarEvento(
     snapshots: seq.length,
     valorPerdido: dias * consumoDiario * custo,
     tinhaRetido: seq.some((d) => d.retido > 0),
+    comecouAntes,
   };
 }
 
@@ -422,12 +436,25 @@ export function diasDeAviso(
     .sort((a, b) => b.data.localeCompare(a.data));
   if (antes.length === 0) return null;
 
+  // Já estava sem estoque no dia anterior: a ruptura não começou aqui, começou
+  // antes da janela. Não há período de aviso a medir, e responder zero diria
+  // "caiu de uma vez" sobre algo que já estava caído. Visto na tela: um item
+  // zerado o mês inteiro aparecia com "14 dias abaixo do Gatilho antes de
+  // zerar", contando como alerta ignorado os dias em que a prateleira já
+  // estava vazia.
+  const vespera = antes.find((p) => p.forecastMensal > 0);
+  if (vespera && vespera.disponivel <= 0) return null;
+
   let dias = 0;
   let abaixo: boolean | null = null;
   for (const p of antes) {
     const consumoDiario = p.forecastMensal / 30;
     // Sem consumo não há cobertura a comparar: o dia herda o estado anterior.
-    if (consumoDiario > 0) abaixo = p.disponivel / consumoDiario < gatilhoDias;
+    if (consumoDiario > 0) {
+      // Aviso é estar **com estoque** abaixo do Gatilho. Dia zerado não é
+      // aviso: é a ruptura, e contá-la como alerta inverteria o sentido.
+      abaixo = p.disponivel > 0 && p.disponivel / consumoDiario < gatilhoDias;
+    }
     if (abaixo === null) continue;
     if (!abaixo) break;
     dias += 1;

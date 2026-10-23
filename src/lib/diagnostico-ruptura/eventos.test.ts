@@ -299,3 +299,54 @@ describe("diasDeAviso", () => {
     ).toBeNull();
   });
 });
+
+describe("diasDeAviso e a prateleira já vazia", () => {
+  const posicao = (data: string, disponivel: number): PosicaoDia => ({
+    ...base,
+    data,
+    disponivel,
+    rompida: disponivel <= 0,
+  });
+
+  /**
+   * O caso que a tela mostrou: item zerado o mês inteiro aparecia com "14 dias
+   * abaixo do Gatilho antes de zerar". Dia zerado não é aviso — é a ruptura, e
+   * contá-la como alerta ignorado inverte o sentido da coluna.
+   */
+  it("devolve nulo quando já estava zerado na véspera", () => {
+    const dias = diasDeAviso(
+      [
+        posicao("2026-09-28", 0),
+        posicao("2026-09-29", 0),
+        posicao("2026-09-30", 0),
+      ],
+      "2026-10-01",
+      10,
+    );
+    expect(dias).toBeNull();
+  });
+
+  it("conta só os dias com estoque abaixo do Gatilho", () => {
+    // 10/dia de consumo, Gatilho de 10 dias: abaixo de 100 unidades avisa.
+    const dias = diasDeAviso(
+      [
+        posicao("2026-09-27", 900),
+        posicao("2026-09-28", 80),
+        posicao("2026-09-29", 50),
+        posicao("2026-09-30", 20),
+      ],
+      "2026-10-01",
+      10,
+    );
+    expect(dias).toBe(3);
+  });
+
+  it("zero continua significando queda de uma vez, com estoque na véspera", () => {
+    const dias = diasDeAviso(
+      [posicao("2026-09-29", 900), posicao("2026-09-30", 800)],
+      "2026-10-01",
+      10,
+    );
+    expect(dias).toBe(0);
+  });
+});
