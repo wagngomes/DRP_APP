@@ -876,6 +876,21 @@ function CardPosicao({
   rotulo: (codigo: string | null) => string;
 }) {
   const info = CATEGORIAS[posicao.categoria];
+  /**
+   * O motivo só troca o selo em `sem_cobertura`.
+   *
+   * Nas outras categorias o selo diz o que importa primeiro — há compra ou
+   * transferência a caminho —, e substituí-lo por "saldo consumido" esconderia
+   * a reposição para falar de verba. O texto abaixo continua distinguindo as
+   * três situações do plano em qualquer categoria, porque ali o assunto é o
+   * plano e não a reposição.
+   */
+  const motivo =
+    posicao.categoria !== "sem_cobertura"
+      ? null
+      : posicao.planoDoMes > 0
+        ? ("planoGasto" as const)
+        : ("semPlano" as const);
 
   return (
     <div
@@ -898,13 +913,32 @@ function CardPosicao({
           </span>
         </span>
         <span className="min-w-0 flex-1" />
-        <Badge
-          className={`gap-1 whitespace-nowrap ${info.fundo}`}
-          title={info.rotulo}
-        >
-          <info.icone className="size-3.5 shrink-0" />
-          {info.curto}
-        </Badge>
+        {/* O selo acompanha o motivo, e não só a categoria. Sem isto a linha
+            se contradizia: o badge dizia "Sem plano de compras" ao lado de um
+            texto dizendo "Saldo do mês consumido" — a mesma posição, duas
+            histórias. O ícone também é o do motivo, o mesmo que a coluna usa. */}
+        {motivo ? (
+          <Badge
+            className={`gap-1 whitespace-nowrap ${info.fundo}`}
+            title={`Sem reposição a caminho e ${MOTIVOS[motivo].rotulo}`}
+          >
+            {(() => {
+              const Icone = MOTIVOS[motivo].icone;
+              return <Icone className="size-3.5 shrink-0" />;
+            })()}
+            {motivo === "planoGasto"
+              ? "Saldo consumido"
+              : "Sem plano de compras"}
+          </Badge>
+        ) : (
+          <Badge
+            className={`gap-1 whitespace-nowrap ${info.fundo}`}
+            title={info.rotulo}
+          >
+            <info.icone className="size-3.5 shrink-0" />
+            {info.curto}
+          </Badge>
+        )}
       </div>
 
       <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
@@ -919,10 +953,23 @@ function CardPosicao({
             ? ` (${Math.round((posicao.vendido / posicao.forecast) * 100)}% do forecast)`
             : ""}
         </span>
-        <span>
+        {/* Três frases, não duas. "Sem saldo" somava duas situações com ações
+            opostas: item que teve plano e gastou tudo é conversa sobre verba
+            adicional; item que nunca entrou no plano é conversa com o
+            planejamento. É a mesma distinção que os dois ícones da coluna já
+            fazem, agora dita por extenso no detalhe. */}
+        <span
+          title={
+            posicao.saldoComprar <= 0 && posicao.planoDoMes > 0
+              ? `Plano do mês: ${numero(posicao.planoDoMes)} un, já colocado ou recebido`
+              : undefined
+          }
+        >
           {posicao.saldoComprar > 0
             ? `Saldo a comprar: ${numero(posicao.saldoComprar)} un`
-            : "Sem saldo no plano de compra do mês"}
+            : posicao.planoDoMes > 0
+              ? "Saldo do mês consumido"
+              : "Sem plano de compras no mês"}
         </span>
       </p>
 

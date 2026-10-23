@@ -93,6 +93,17 @@ export type PosicaoRompida = {
   reposicoes: Reposicao[];
   /** Saldo do plano de compra do mês ainda não colocado. */
   saldoComprar: number;
+  /**
+   * Quantidade planejada para o mês, somada na rede.
+   *
+   * Separada do saldo porque as duas respondem perguntas diferentes, e o
+   * detalhe precisa das duas: saldo zero com plano positivo é verba que
+   * acabou; saldo zero com plano zero é item que nunca entrou no plano. A
+   * coluna já fazia essa distinção por `motivoSemCobertura`, que só vale em
+   * `sem_cobertura` — o detalhe mostra a frase em qualquer categoria, e por
+   * isso precisa do número e não do motivo.
+   */
+  planoDoMes: number;
 };
 
 export type ResumoFornecedor = {

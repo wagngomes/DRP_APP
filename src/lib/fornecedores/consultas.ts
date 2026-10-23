@@ -235,6 +235,7 @@ export async function carregarFornecedores(
       chegada: primeira?.chegada ?? null,
       reposicoes: lista,
       saldoComprar,
+      planoDoMes: plano?.plano ?? 0,
     };
   });
 
