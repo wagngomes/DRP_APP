@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Download,
   FileText,
   Package,
   ShoppingCart,
@@ -323,10 +324,13 @@ function TabelaItens({
   itens,
   trecho,
   sigla,
+  referencia,
 }: {
   itens: ItemNoTrecho[];
   trecho: Trecho;
   sigla: (codigo: string) => string;
+  /** Data de referência do sistema, que vai no cabeçalho da planilha. */
+  referencia: string;
 }) {
   if (itens.length === 0) {
     return (
@@ -337,7 +341,20 @@ function TabelaItens({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div>
+      {/* O botão manda as linhas que estão na tela, não um pedido de nova
+          consulta: a projeção depende da data de referência e do parâmetro de
+          dias para vencidas, e recalcular poderia devolver datas diferentes
+          das que a pessoa acabou de ver. */}
+      <div className="flex justify-end px-2 pt-2">
+        <BotaoExportar
+          itens={itens}
+          trecho={trecho}
+          sigla={sigla}
+          referencia={referencia}
+        />
+      </div>
+      <div className="overflow-x-auto">
       <table className="w-full min-w-[46rem] border-collapse text-xs">
         <thead>
           <tr className="border-b bg-muted/50">
@@ -424,16 +441,86 @@ function TabelaItens({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
+  );
+}
+
+/**
+ * Exporta o detalhe do trecho para Excel.
+ *
+ * Um formulário de verdade, com `POST` e `target` em branco, e não `fetch` com
+ * `URL.createObjectURL`: o navegador cuida do download, do nome do arquivo e da
+ * barra de progresso sozinho, e a aba que abre fecha-se ao receber o
+ * `Content-Disposition`. A versão com fetch precisava recriar tudo isso à mão e
+ * segurava o arquivo inteiro em memória antes de salvar.
+ */
+function BotaoExportar({
+  itens,
+  trecho,
+  sigla,
+  referencia,
+}: {
+  itens: ItemNoTrecho[];
+  trecho: Trecho;
+  sigla: (codigo: string) => string;
+  referencia: string;
+}) {
+  const payload = {
+    de: sigla(trecho.de),
+    para: sigla(trecho.para),
+    referencia,
+    linhas: itens.map((i) => ({
+      codigo: i.codigo,
+      descricao: i.descricao,
+      fornecedor: i.fornecedor,
+      origem: i.origem,
+      documento: i.documento,
+      statusLogistica: i.statusLogistica,
+      quantidade: i.quantidade,
+      valor: i.valor,
+      chegadaNoTrecho: i.chegadaNoTrecho
+        ? new Date(i.chegadaNoTrecho).toISOString()
+        : null,
+      reprojetada: i.reprojetada,
+      agendamentoData: i.agendamento.data
+        ? new Date(i.agendamento.data).toISOString()
+        : null,
+      agendamentoRotulo: i.agendamento.rotulo ?? null,
+      rota: i.rota,
+      // Sigla e não código: a planilha sai do sistema, e "CAJ" diz mais que
+      // "1006" para quem a receber por e-mail.
+      cdFinal: i.cdFinal ? sigla(i.cdFinal) : null,
+      chegadaFinal: i.chegadaFinal
+        ? new Date(i.chegadaFinal).toISOString()
+        : null,
+    })),
+  };
+
+  return (
+    <form action="/api/triangulacoes/excel" method="POST" target="_blank">
+      <input type="hidden" name="dados" value={JSON.stringify(payload)} />
+      <button
+        type="submit"
+        className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+        title={`Exportar ${itens.length} documento(s) para Excel`}
+      >
+        <Download className="size-3.5" />
+        Exportar
+      </button>
+    </form>
   );
 }
 
 export function PainelTrechos({
   trechos,
   rotulos,
+  referencia,
 }: {
   trechos: Trecho[];
   rotulos: Record<string, string>;
+  /** Data de referência do sistema, repassada ao cabeçalho da planilha. */
+  referencia: string;
 }) {
   const [aberto, setAberto] = useState<string | null>(null);
   const [aba, setAba] = useState<"agora" | "depois">("agora");
@@ -530,7 +617,12 @@ export function PainelTrechos({
                     </button>
                   ))}
                 </div>
-                <TabelaItens itens={resumo.itens} trecho={t} sigla={sigla} />
+                <TabelaItens
+                  itens={resumo.itens}
+                  trecho={t}
+                  sigla={sigla}
+                  referencia={referencia}
+                />
               </div>
             ) : null}
           </div>

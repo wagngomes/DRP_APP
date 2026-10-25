@@ -37,6 +37,16 @@ export const exportarCenarioSchema = z.object({
   dados: z.string().min(2, "Envie o resultado da análise em JSON"),
 });
 
+/**
+ * Detalhe de um trecho de triangulação, para a planilha.
+ *
+ * Só o envelope é validado aqui; a forma do JSON é conferida na rota, que é
+ * onde o tipo da planilha vive. Mesmo desenho do cenário.
+ */
+export const exportarTrechoSchema = z.object({
+  dados: z.string().min(2, "Envie o detalhe do trecho em JSON"),
+});
+
 export const limparTabelaSchema = z.object({
   datas: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
 });

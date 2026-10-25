@@ -254,6 +254,7 @@ export default async function TriangulacoesGerenciais({
         <PainelTrechos
           trechos={trechos}
           rotulos={Object.fromEntries(rotulos)}
+          referencia={dataReferencia}
         />
       </div>
     </DashboardShell>
