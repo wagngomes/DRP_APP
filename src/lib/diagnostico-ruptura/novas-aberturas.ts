@@ -32,6 +32,12 @@ import { lerParametros } from "@/lib/parametros.server";
  * ela é uma subconsulta correlacionada e não um `JOIN` — com `JOIN` e
  * `GROUP BY` a mesma resposta levava 23s, contra 165ms assim, porque o planner
  * trocava o índice por varredura da tabela inteira.
+ *
+ * **Os recortes são próprios da seção**, e não os da lista de ruptura ao lado.
+ * O universo é outro: aqui se compara forecast entre duas cargas, e a seção
+ * responde mesmo antes de o motor de diagnóstico ter rodado uma vez — um
+ * laboratório pode ter abertura nova sem ter uma única ruptura. Um filtro só
+ * para as duas listas faria cada uma prometer o conjunto da outra.
  */
 
 const EST_CHAO = somaSql(COLUNAS_ESTOQUE_CHAO, "s");
@@ -83,6 +89,9 @@ export type NovaAbertura = {
   pedidos: PedidoDaAbertura[];
 };
 
+/** Uma opção de recorte e quantas aberturas ela traz. */
+export type OpcaoAbertura = { valor: string; aberturas: number };
+
 export type ResultadoNovasAberturas = {
   linhas: NovaAbertura[];
   total: number;
@@ -94,8 +103,17 @@ export type ResultadoNovasAberturas = {
   ate: string | null;
   /** Snapshot do simulador usado para estoque, pedidos e transferências. */
   snapshotPosicao: string | null;
-  /** BUs presentes na janela, para o filtro. */
-  bus: string[];
+  /**
+   * Opções de cada recorte, apuradas **sem o próprio filtro**.
+   *
+   * O número ao lado de uma opção tem de antecipar o resultado do clique. Se
+   * cada lista fosse apurada já com o próprio filtro aplicado, o primeiro
+   * clique a reduziria a um único item e não haveria caminho de volta a não ser
+   * limpar tudo.
+   */
+  bus: OpcaoAbertura[];
+  filiais: OpcaoAbertura[];
+  fornecedores: string[];
   /**
    * Posições com forecast positivo em cada uma das duas cargas.
    *
@@ -127,6 +145,8 @@ export type FiltroNovasAberturas = {
   bu?: string;
   fornecedor?: string;
   produto?: string;
+  /** Código do CD, como vem do forecast. */
+  filial?: string;
 };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -214,6 +234,8 @@ export async function carregarNovasAberturas(
     ate: janela?.ate ?? null,
     snapshotPosicao: null,
     bus: [],
+    filiais: [],
+    fornecedores: [],
     cobertura: null,
   };
   if (!janela) return vazio;
@@ -251,10 +273,13 @@ export async function carregarNovasAberturas(
   const bu = filtro.bu?.trim() || null;
   const fornecedor = filtro.fornecedor?.trim() || null;
   const produto = filtro.produto?.trim() || null;
+  const filial = filtro.filial?.trim() || null;
 
-  // Base comum da contagem e da página. `b` e `a` são as duas cargas; `novas`
-  // é a diferença. Os filtros entram aqui para a contagem bater com a lista.
-  const base = `
+  // As duas cargas (`b` e `a`), a diferença entre elas (`novas`) e o que
+  // descreve cada posição (`completo`). Fica separado dos recortes porque a
+  // mesma base serve à página e às listas de opção — e cada uma aplica uma
+  // combinação diferente deles.
+  const ctes = `
     WITH b AS (
       SELECT codigo, filial,
              SUM(forecast_m0_atualizado)::float8 AS f,
@@ -290,21 +315,60 @@ export async function carregarNovasAberturas(
         LEFT JOIN produtos p ON p.codigo = n.codigo
         LEFT JOIN ${simuladorPorCd("s.data_snapshot = $3::date")} s
                ON s.codigo = n.codigo AND s.filial = n.filial
-    )
+    )`;
+
+  // Cada recorte isolado, para poder ser combinado de formas diferentes. Os
+  // `$n` são fixos de propósito: qualquer combinação continua referenciando
+  // todos eles, e o Postgres recusa o bind se a instrução declarar menos
+  // parâmetros do que a chamada envia.
+  const recorteBu = "($4::text IS NULL OR bu = $4)";
+  const recorteFornecedor = "($5::text IS NULL OR fornecedor = $5)";
+  const recorteProduto =
+    "($6::text IS NULL OR codigo = $6 OR descricao ILIKE '%' || $6 || '%')";
+  const recorteFilial = "($7::text IS NULL OR filial = $7)";
+
+  const base = `${ctes}
     SELECT * FROM completo
-     WHERE ($4::text IS NULL OR bu = $4)
-       AND ($5::text IS NULL OR fornecedor = $5)
-       AND ($6::text IS NULL OR codigo = $6 OR descricao ILIKE '%' || $6 || '%')`;
+     WHERE ${recorteBu}
+       AND ${recorteFornecedor}
+       AND ${recorteProduto}
+       AND ${recorteFilial}`;
 
-  const argumentos = [de, ate, snapshotPosicao, bu, fornecedor, produto];
+  const argumentos = [
+    de,
+    ate,
+    snapshotPosicao,
+    bu,
+    fornecedor,
+    produto,
+    filial,
+  ];
 
-  const [contagem, bus, linhas] = await Promise.all([
-    prisma.$queryRawUnsafe<{ n: bigint }[]>(
-      `SELECT COUNT(*)::bigint AS n FROM (${base}) x`,
-      ...argumentos,
-    ),
-    prisma.$queryRawUnsafe<{ bu: string }[]>(
-      `SELECT DISTINCT bu FROM (${base}) x WHERE bu IS NOT NULL ORDER BY bu`,
+  const [facetas, linhas] = await Promise.all([
+    // Total e as três listas de opção numa consulta só: `recorte` é lido quatro
+    // vezes, então o Postgres o materializa e a base é percorrida uma vez. Uma
+    // consulta por lista custaria quatro varreduras desta base a cada clique —
+    // e ela já cobrou caro uma vez, quando a data de criação era um `JOIN`.
+    prisma.$queryRawUnsafe<{ dim: string; valor: string | null; n: bigint }[]>(
+      `${ctes}, recorte AS (SELECT * FROM completo WHERE ${recorteProduto})
+       SELECT 'total' AS dim, NULL::text AS valor, COUNT(*)::bigint AS n
+         FROM recorte
+        WHERE ${recorteBu} AND ${recorteFornecedor} AND ${recorteFilial}
+       UNION ALL
+       SELECT 'bu', bu, COUNT(*)::bigint
+         FROM recorte
+        WHERE bu IS NOT NULL AND ${recorteFornecedor} AND ${recorteFilial}
+        GROUP BY 2
+       UNION ALL
+       SELECT 'filial', filial, COUNT(*)::bigint
+         FROM recorte
+        WHERE ${recorteBu} AND ${recorteFornecedor}
+        GROUP BY 2
+       UNION ALL
+       SELECT 'fornecedor', fornecedor, COUNT(*)::bigint
+         FROM recorte
+        WHERE fornecedor IS NOT NULL AND ${recorteBu} AND ${recorteFilial}
+        GROUP BY 2`,
       ...argumentos,
     ),
     prisma.$queryRawUnsafe<
@@ -338,13 +402,27 @@ export async function carregarNovasAberturas(
     ),
   ]);
 
-  const total = Number(contagem[0]?.n ?? 0);
+  const opcoes = (dim: string): OpcaoAbertura[] =>
+    facetas
+      .filter((f) => f.dim === dim && f.valor !== null)
+      .map((f) => ({ valor: f.valor!, aberturas: Number(f.n) }))
+      // Alfabética, e não por volume: as listas são curtas e estáveis, e trocar
+      // a ordem a cada clique faria procurar o mesmo botão de novo toda vez.
+      .sort((a, b) => a.valor.localeCompare(b.valor, "pt-BR"));
+
+  const total = Number(facetas.find((f) => f.dim === "total")?.n ?? 0);
+  const bus = opcoes("bu");
+  const filiais = opcoes("filial");
+  const fornecedores = opcoes("fornecedor").map((f) => f.valor);
+
   if (linhas.length === 0) {
     return {
       ...vazio,
       total,
       snapshotPosicao,
-      bus: bus.map((b) => b.bu),
+      bus,
+      filiais,
+      fornecedores,
       cobertura,
     };
   }
@@ -453,7 +531,9 @@ export async function carregarNovasAberturas(
     de,
     ate,
     snapshotPosicao,
-    bus: bus.map((b) => b.bu),
+    bus,
+    filiais,
+    fornecedores,
     cobertura,
   };
 }

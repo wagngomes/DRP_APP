@@ -1,6 +1,13 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { AlertTriangle, PackagePlus, ShoppingCart, Sparkles, Truck } from "lucide-react";
+import {
+  AlertTriangle,
+  PackagePlus,
+  ShoppingCart,
+  Sparkles,
+  Truck,
+  Warehouse,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,10 +19,12 @@ import {
 } from "@/components/ui/card";
 import { WorkflowRota } from "@/components/produto/workflow-rota";
 import { JanelaAberturas } from "@/components/diagnostico/janela-aberturas";
+import { FiltroFornecedor } from "@/components/visao-geral/filtro-fornecedor";
 import {
   coberturaSuspeita,
   POR_PAGINA,
   type NovaAbertura,
+  type OpcaoAbertura,
   type ResultadoNovasAberturas,
 } from "@/lib/diagnostico-ruptura/novas-aberturas";
 
@@ -49,12 +58,27 @@ export function SecaoNovasAberturas({
   dados,
   rotulos,
   pagina,
+  bu,
+  filial,
+  fornecedor,
+  extrasFornecedor,
   href,
 }: {
   dados: ResultadoNovasAberturas;
   /** Código da filial -> sigla. */
   rotulos: Record<string, string>;
   pagina: number;
+  /** Recortes aplicados nesta seção — parâmetros próprios, não os da ruptura. */
+  bu?: string;
+  filial?: string;
+  fornecedor?: string;
+  /**
+   * Tudo o que o filtro de laboratório precisa preservar na URL.
+   *
+   * Ele é componente cliente e remonta a query string do zero, então recebe o
+   * dado pronto: função não atravessa a fronteira servidor→cliente.
+   */
+  extrasFornecedor: Record<string, string | undefined>;
   /** Monta a URL preservando os demais filtros da tela. */
   href: (extra: Record<string, string | undefined>) => string;
 }) {
@@ -63,6 +87,7 @@ export function SecaoNovasAberturas({
 
   const paginas = Math.max(1, Math.ceil(dados.total / POR_PAGINA));
   const semCargas = dados.cargas.length < 2;
+  const temRecorte = Boolean(bu || filial || fornecedor);
 
   return (
     <Card id="novas-aberturas" className="scroll-mt-4">
@@ -110,6 +135,59 @@ export function SecaoNovasAberturas({
               ) : null}
             </div>
 
+            {/* Recortes com parâmetros próprios na URL, e não os do
+                diagnóstico: o universo daqui é outro — a seção existe antes do
+                motor rodar, e um laboratório pode ter abertura nova sem ter
+                nenhuma ruptura. Compartilhar os filtros faria as duas listas de
+                opção mentirem, cada uma sobre o conjunto da outra. */}
+            {dados.filiais.length > 0 || temRecorte ? (
+              <div className="grid gap-3 rounded-md border p-3">
+                {/* `|| bu` para o recorte preso ter saída: trocar a janela com
+                    uma BU escolhida pode cair numa janela em que ela não tem
+                    abertura alguma, e sem a fileira não haveria onde clicar
+                    para desmarcá-la — só editar a URL à mão. */}
+                {dados.bus.length > 1 || bu ? (
+                  <FileiraRecorte
+                    titulo="BU"
+                    rotuloTodas="Todas"
+                    opcoes={dados.bus}
+                    atual={bu}
+                    rotular={(v) => v}
+                    hrefDe={(v) =>
+                      href({ abBu: v ?? undefined, pgAb: undefined })
+                    }
+                  />
+                ) : null}
+
+                {dados.filiais.length > 1 || filial ? (
+                  <FileiraRecorte
+                    titulo="CD"
+                    rotuloTodas="Todos"
+                    opcoes={dados.filiais}
+                    atual={filial}
+                    rotular={rotulo}
+                    icone
+                    hrefDe={(v) =>
+                      href({ abFil: v ?? undefined, pgAb: undefined })
+                    }
+                  />
+                ) : null}
+
+                {/* Lista suspensa, como nas demais telas: são centenas de
+                    laboratórios, e em chips a seção viraria um paredão de
+                    nomes antes de chegar às aberturas. */}
+                <FiltroFornecedor
+                  fornecedores={dados.fornecedores}
+                  atual={fornecedor}
+                  basePath="/diagnostico-ruptura"
+                  extras={extrasFornecedor}
+                  param="abFor"
+                  avisoDesconhecido="Laboratório sem abertura nova nesta janela."
+                  compacto
+                />
+              </div>
+            ) : null}
+
             {/* A tela duvidando de si mesma: carga inicial mais fina que a
                 final inventa aberturas que nunca aconteceram. */}
             {coberturaSuspeita(dados.cobertura) ? (
@@ -124,12 +202,19 @@ export function SecaoNovasAberturas({
 
             {dados.total === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
-                Nenhuma abertura nova nesta janela.
+                {temRecorte
+                  ? "Nenhuma abertura nova neste recorte — a janela pode ter aberturas em outra BU, CD ou laboratório."
+                  : "Nenhuma abertura nova nesta janela."}
               </p>
             ) : (
               <>
                 <p className="text-sm font-medium">
                   {`${num(dados.total)} abertura(s) entre ${dataBr(dados.de!)} e ${dataBr(dados.ate!)}`}
+                  {temRecorte ? (
+                    <span className="font-normal text-muted-foreground">
+                      {" · no recorte escolhido"}
+                    </span>
+                  ) : null}
                 </p>
 
                 <div className="space-y-2">
@@ -175,6 +260,75 @@ export function SecaoNovasAberturas({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Uma fileira de chips de recorte, com a contagem de cada opção.
+ *
+ * Componente de servidor, por isso recebe funções: é o mesmo desenho dos chips
+ * de causa logo abaixo na tela, e repetir a marcação duas vezes aqui era a
+ * forma segura de as duas fileiras divergirem no primeiro ajuste de estilo.
+ */
+function FileiraRecorte({
+  titulo,
+  rotuloTodas,
+  opcoes,
+  atual,
+  rotular,
+  hrefDe,
+  icone = false,
+}: {
+  titulo: string;
+  rotuloTodas: string;
+  opcoes: OpcaoAbertura[];
+  atual?: string;
+  /** Rótulo de cada opção: a sigla do CD, o nome da BU. */
+  rotular: (valor: string) => string;
+  /** URL já montada; `null` é a opção de "todas". */
+  hrefDe: (valor: string | null) => string;
+  icone?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        {titulo}
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Link
+          href={`${hrefDe(null)}#novas-aberturas`}
+          scroll={false}
+          className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+            atual
+              ? "hover:bg-muted"
+              : "border-(--brand-petrol) bg-(--brand-petrol) font-medium text-white dark:border-(--brand-turquoise) dark:bg-(--brand-turquoise) dark:text-slate-900"
+          }`}
+        >
+          {rotuloTodas}
+        </Link>
+        {opcoes.map((o) => {
+          const ativa = atual === o.valor;
+          return (
+            <Link
+              key={o.valor}
+              href={`${hrefDe(ativa ? null : o.valor)}#novas-aberturas`}
+              scroll={false}
+              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                ativa
+                  ? "border-foreground/40 bg-muted font-medium"
+                  : "hover:bg-muted"
+              }`}
+            >
+              {icone ? <Warehouse className="size-3 shrink-0" /> : null}
+              {rotular(o.valor)}
+              <span className="font-mono tabular-nums opacity-60">
+                {num(o.aberturas)}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

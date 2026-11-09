@@ -75,6 +75,17 @@ type SearchParams = {
   de?: string | string[];
   ate?: string | string[];
   pgAb?: string | string[];
+  /**
+   * Recortes da seção "Novas aberturas": BU, CD e laboratório.
+   *
+   * Parâmetros próprios, com o prefixo `ab`, e não os da lista de ruptura: a
+   * seção compara duas cargas de forecast e existe antes de o motor rodar, então
+   * um laboratório pode ter abertura nova sem ter uma única ruptura. Um filtro
+   * só para as duas listas faria cada uma prometer o conjunto da outra.
+   */
+  abBu?: string | string[];
+  abFil?: string | string[];
+  abFor?: string | string[];
 };
 
 const primeiro = (v: string | string[] | undefined) =>
@@ -134,6 +145,9 @@ export default async function DiagnosticoRuptura({
   const aberturaDe = primeiro(params.de);
   const aberturaAte = primeiro(params.ate);
   const paginaAberturas = Number(primeiro(params.pgAb) ?? 1) || 1;
+  const aberturaBu = primeiro(params.abBu);
+  const aberturaFilial = primeiro(params.abFil);
+  const aberturaFornecedor = primeiro(params.abFor);
 
   const [dados, detalhe, aberturas, rotulosFiliais] = await Promise.all([
     carregarDiagnostico({
@@ -152,6 +166,9 @@ export default async function DiagnosticoRuptura({
       de: aberturaDe,
       ate: aberturaAte,
       pagina: paginaAberturas,
+      bu: aberturaBu,
+      filial: aberturaFilial,
+      fornecedor: aberturaFornecedor,
     }),
     carregarRotulosFiliais(),
   ]);
@@ -180,29 +197,36 @@ export default async function DiagnosticoRuptura({
       ])
     : [null, []];
 
+  // Todo o estado da tela num objeto só, para os links e o filtro de
+  // laboratório partirem da mesma verdade — duas listas em paralelo era onde um
+  // recorte novo entrava num lugar e ficava faltando no outro.
+  const recortes: Record<string, string | undefined> = {
+    produto,
+    fornecedor,
+    bu,
+    causa,
+    herdadas: herdadas ? "1" : undefined,
+    incompletas: incompletas ? "1" : undefined,
+    balanceamento: balanceamento ? "1" : undefined,
+    aviso,
+    pagina: pagina > 1 ? String(pagina) : undefined,
+    abrir: abrir ? String(abrir) : undefined,
+    // A janela e os recortes das novas aberturas sobrevivem aos cliques nos
+    // outros filtros: quem escolheu comparar duas cargas não quer perder a
+    // escolha ao trocar de BU na lista de ruptura.
+    de: aberturaDe,
+    ate: aberturaAte,
+    pgAb: paginaAberturas > 1 ? String(paginaAberturas) : undefined,
+    abBu: aberturaBu,
+    abFil: aberturaFilial,
+    abFor: aberturaFornecedor,
+  };
+
   // URLs montadas aqui: função não atravessa a fronteira servidor→cliente.
   const href = (extra: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
-    const base: Record<string, string | undefined> = {
-      produto,
-      fornecedor,
-      bu,
-      causa,
-      herdadas: herdadas ? "1" : undefined,
-      incompletas: incompletas ? "1" : undefined,
-      balanceamento: balanceamento ? "1" : undefined,
-      aviso,
-      pagina: pagina > 1 ? String(pagina) : undefined,
-      abrir: abrir ? String(abrir) : undefined,
-      // A janela das novas aberturas sobrevive aos cliques nos outros filtros:
-      // quem escolheu comparar duas cargas não quer perder a escolha ao trocar
-      // de BU.
-      de: aberturaDe,
-      ate: aberturaAte,
-      pgAb: paginaAberturas > 1 ? String(paginaAberturas) : undefined,
-      ...extra,
-    };
-    for (const [k, v] of Object.entries(base)) if (v) p.set(k, v);
+    for (const [k, v] of Object.entries({ ...recortes, ...extra }))
+      if (v) p.set(k, v);
     const qs = p.toString();
     return qs ? `/diagnostico-ruptura?${qs}` : "/diagnostico-ruptura";
   };
@@ -284,6 +308,16 @@ export default async function DiagnosticoRuptura({
           dados={aberturas}
           rotulos={Object.fromEntries(rotulosFiliais)}
           pagina={paginaAberturas}
+          bu={aberturaBu}
+          filial={aberturaFilial}
+          fornecedor={aberturaFornecedor}
+          // Sem `abFor`, que é o próprio parâmetro do filtro, e sem `pgAb`:
+          // trocar de laboratório recomeça na primeira página.
+          extrasFornecedor={{
+            ...recortes,
+            abFor: undefined,
+            pgAb: undefined,
+          }}
           href={href}
         />
 
