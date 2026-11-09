@@ -37,6 +37,9 @@ import {
   carregarDetalhe,
   carregarDiagnostico,
 } from "@/lib/diagnostico-ruptura/consultas";
+import { SecaoNovasAberturas } from "@/components/diagnostico/secao-novas-aberturas";
+import { carregarNovasAberturas } from "@/lib/diagnostico-ruptura/novas-aberturas";
+import { carregarRotulosFiliais } from "@/lib/transferencias/consultas";
 import { carregarSerie } from "@/lib/diagnostico-ruptura/serie.server";
 import { carregarPercursos } from "@/lib/diagnostico-ruptura/percurso.server";
 import { lerDataReferencia } from "@/lib/data-referencia.server";
@@ -68,6 +71,10 @@ type SearchParams = {
   aviso?: string | string[];
   pagina?: string | string[];
   abrir?: string | string[];
+  /** Janela da seção "Novas aberturas": carga inicial, carga final e página. */
+  de?: string | string[];
+  ate?: string | string[];
+  pgAb?: string | string[];
 };
 
 const primeiro = (v: string | string[] | undefined) =>
@@ -122,7 +129,13 @@ export default async function DiagnosticoRuptura({
   const abrir = Number(primeiro(params.abrir) ?? 0) || null;
   const ehAdmin = sessao.usuario.papel === "admin";
 
-  const [dados, detalhe] = await Promise.all([
+  // A seção de novas aberturas tem janela e página próprias: ela não lê as
+  // tabelas do motor, e por isso aparece mesmo antes do primeiro cálculo.
+  const aberturaDe = primeiro(params.de);
+  const aberturaAte = primeiro(params.ate);
+  const paginaAberturas = Number(primeiro(params.pgAb) ?? 1) || 1;
+
+  const [dados, detalhe, aberturas, rotulosFiliais] = await Promise.all([
     carregarDiagnostico({
       produto,
       fornecedor,
@@ -135,6 +148,12 @@ export default async function DiagnosticoRuptura({
       pagina,
     }),
     abrir ? carregarDetalhe(abrir) : Promise.resolve(null),
+    carregarNovasAberturas({
+      de: aberturaDe,
+      ate: aberturaAte,
+      pagina: paginaAberturas,
+    }),
+    carregarRotulosFiliais(),
   ]);
 
   // A série só é consultada quando alguém abre uma linha, e é recortada a uma
@@ -175,6 +194,12 @@ export default async function DiagnosticoRuptura({
       aviso,
       pagina: pagina > 1 ? String(pagina) : undefined,
       abrir: abrir ? String(abrir) : undefined,
+      // A janela das novas aberturas sobrevive aos cliques nos outros filtros:
+      // quem escolheu comparar duas cargas não quer perder a escolha ao trocar
+      // de BU.
+      de: aberturaDe,
+      ate: aberturaAte,
+      pgAb: paginaAberturas > 1 ? String(paginaAberturas) : undefined,
       ...extra,
     };
     for (const [k, v] of Object.entries(base)) if (v) p.set(k, v);
@@ -254,6 +279,13 @@ export default async function DiagnosticoRuptura({
             ) : null}
           </div>
         </div>
+
+        <SecaoNovasAberturas
+          dados={aberturas}
+          rotulos={Object.fromEntries(rotulosFiliais)}
+          pagina={paginaAberturas}
+          href={href}
+        />
 
         {vazio ? (
           <Card className="border-dashed">
