@@ -3,7 +3,7 @@
 ## Subir tudo localmente
 
 ```bash
-cp .env.example .env      # e preencha BETTER_AUTH_SECRET
+cp env.example .env      # e preencha BETTER_AUTH_SECRET
 docker compose up
 ```
 

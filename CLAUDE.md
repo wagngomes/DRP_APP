@@ -1,3 +1,22 @@
+## LEIA ANTES DE COMEÇAR
+
+1. **`docs/estado-do-projeto.md`** — estado atual, pendências e as armadilhas
+   desta base. É o documento de retomada: as armadilhas listadas lá já custaram
+   tempo, imitam bug de código e levam a investigar o lugar errado.
+2. **`README.md`** — visão do produto, arquitetura e conceitos de domínio
+   (data de referência, CDs virtuais, projeção de rotas, dias de cobertura).
+3. **`AGENTS.md`** — esta versão do Next.js tem mudanças incompatíveis.
+
+As tarefas abaixo estão na ordem em que foram pedidas e são o registro do que
+foi construído. **Elas não são a pauta atual** — a pauta está nas pendências de
+`docs/estado-do-projeto.md`.
+
+Três regras que valem em toda sessão: nunca `prisma migrate dev` nem
+`prisma migrate reset`; nunca apontar ferramenta de desenvolvimento para o banco
+de produção; relatar o que ficou sem verificar em vez de dizer que está pronto.
+
+---
+
 ### DRP_AI
 - Softaware que vai ter as bases de transações diárias, saldos em estoque, pedidos em aberto, transferencias em aberto, etc..., e ai calular previsões de chegada de produtyos nos cds, riscos de ruptura, sugestões de abastecimento.
 - Além disso usará IA para priorizar e gerar alertas de riscos de desabastecimento e outras metricas qua ainda serão definidas.
